@@ -15,11 +15,20 @@ Scope is deliberately tight — a few features done well (scope-correct, cross-f
 | Document / workspace symbols | ✅ |
 | Call hierarchy               | ✅ |
 | Code folding                 | ✅ |
+| Document highlight           | ✅ |
+| Selection range              | ✅ |
+| Semantic tokens              | ✅ |
 | Itcl ([incr Tcl]) OO         | ✅ |
 
 Not supported, out of scope by design (see [Why a v2 reset](#why-a-v2-reset)):
 hover, completion, signature help, rename, formatting, diagnostics, code actions,
-inlay hints, semantic tokens.
+inlay hints.
+
+The supported set stays within one rule: it only reports what it can derive with
+certainty from structure and the index, and stays silent otherwise — so it never
+asserts something wrong. (Semantic tokens colors definitions, `$`-variables, and
+calls that resolve to your procs/methods; builtins fall back to syntax
+highlighting rather than being mis-colored.)
 
 What the supported features bring that a regex/ctags tool can't:
 

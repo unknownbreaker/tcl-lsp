@@ -85,6 +85,10 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 			DocumentSymbolProvider: true, WorkspaceSymbolProvider: true,
 			CallHierarchyProvider: true, FoldingRangeProvider: true,
 			DocumentHighlightProvider: true, SelectionRangeProvider: true,
+			SemanticTokensProvider: &SemanticTokensOptions{
+				Legend: SemanticTokensLegend{TokenTypes: semanticTokenTypes, TokenModifiers: []string{}},
+				Full:   true,
+			},
 		}})
 		s.indexWorkspace(root, p.Capabilities.Window.WorkDoneProgress)
 	case "initialized":
@@ -140,6 +144,10 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		var p SelectionRangeParams
 		_ = json.Unmarshal(m.Params, &p)
 		s.reply(m.ID, s.selectionRanges(p))
+	case "textDocument/semanticTokens/full":
+		var p SemanticTokensParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, s.semanticTokens(p))
 	case "textDocument/documentSymbol":
 		var p DocumentSymbolParams
 		_ = json.Unmarshal(m.Params, &p)
