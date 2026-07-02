@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
+	"github.com/unknownbreaker/tcl-lsp/internal/par"
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
@@ -425,28 +426,70 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	// helper elsewhere (their primary candidate name collides).
 	pageLocal := source.IsRVT(file) && strings.HasPrefix(target, "::request::")
 
-	var out []index.Location
-	scan := func(f string, refs []tcl.ContextRef) {
-		for i := range refs {
-			if r.refFQ(&refs[i], f) == target {
-				out = append(out, index.Location{
-					File: f, Name: target, Kind: targetKind,
-					NameStart: refs[i].Ref.Start, NameEnd: refs[i].Ref.End,
-				})
-			}
-		}
-	}
-
-	scan(file, source.Refs(file, src)) // current file: parse the live source via the seam
+	// Build the per-file work list: the current file from live source, the rest
+	// from precomputed refs. The current file is first so results stay in the same
+	// order as the old sequential scan.
+	work := []refScan{{file: file, refs: source.Refs(file, src)}}
 	if !pageLocal {
 		for _, f := range r.ix.Files() {
 			if f == file {
 				continue
 			}
-			scan(f, r.ix.FileRefs(f))
+			work = append(work, refScan{file: f, refs: r.ix.FileRefs(f)})
 		}
 	}
+
+	// Pre-warm the namespace cache single-threaded. Resolving a command ref calls
+	// index.Namespace(ref.Namespace), which WRITES the memoized nsCache on a miss;
+	// under the parallel scan below that would be a concurrent map write (a Go
+	// fatal panic, not merely a race). Warming every referenced namespace first
+	// makes the scan touch nsCache read-only.
+	r.warmNamespaces(work)
+
+	// Resolve each file's refs in parallel -- index access is read-only after the
+	// warm-up, and this runs while the dispatch loop is blocked on the request.
+	// Results concatenate in work order, identical to the sequential scan.
+	parts := par.Map(work, func(w refScan) []index.Location {
+		var out []index.Location
+		for i := range w.refs {
+			if r.refFQ(&w.refs[i], w.file) == target {
+				out = append(out, index.Location{
+					File: w.file, Name: target, Kind: targetKind,
+					NameStart: w.refs[i].Ref.Start, NameEnd: w.refs[i].Ref.End,
+				})
+			}
+		}
+		return out
+	})
+
+	var out []index.Location
+	for _, p := range parts {
+		out = append(out, p...)
+	}
 	return out
+}
+
+// refScan pairs a file with its reference sites for a workspace scan.
+type refScan struct {
+	file string
+	refs []tcl.ContextRef
+}
+
+// warmNamespaces populates the index's namespace cache for every namespace
+// referenced by work, single-threaded. Command resolution only ever queries
+// index.Namespace(ref.Namespace), so warming that exact set guarantees the
+// subsequent parallel scan finds every entry already cached (read-only).
+func (r *Resolver) warmNamespaces(work []refScan) {
+	seen := map[string]bool{}
+	for _, w := range work {
+		for i := range w.refs {
+			ns := w.refs[i].Namespace
+			if !seen[ns] {
+				seen[ns] = true
+				r.ix.Namespace(ns)
+			}
+		}
+	}
 }
 
 // Declarations returns the definition site(s) of the symbol at offset -- its

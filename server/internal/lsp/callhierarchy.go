@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
+	"github.com/unknownbreaker/tcl-lsp/internal/par"
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
@@ -168,21 +169,37 @@ func (s *Server) incomingCalls(p CallHierarchyIncomingCallsParams) []CallHierarc
 // `$this method` calls are not command-position references, so they are not
 // covered — best-effort, matching find-references' method contract.
 func (s *Server) methodCallSites(a anchor) []index.Location {
-	var out []index.Location
-	scan := func(f string, refs []tcl.ContextRef) {
-		for i := range refs {
-			r := &refs[i]
-			if r.Ref.Kind == tcl.RefCommand && r.Ref.Name == a.name && r.Class != "" &&
-				s.methodResolvesTo(r.Class, a.name, a, map[string]bool{}) {
-				out = append(out, index.Location{File: f, Name: a.name, Kind: tcl.DefMethod, NameStart: r.Ref.Start, NameEnd: r.Ref.End})
-			}
-		}
+	// Per-file work: current file from live source, the rest from precomputed refs.
+	type fileWork struct {
+		file string
+		refs []tcl.ContextRef
 	}
-	scan(a.file, source.Refs(a.file, s.sourceOf(a.file)))
+	work := []fileWork{{a.file, source.Refs(a.file, s.sourceOf(a.file))}}
 	for _, f := range s.ix.Files() {
 		if f != a.file {
-			scan(f, s.ix.FileRefs(f))
+			work = append(work, fileWork{f, s.ix.FileRefs(f)})
 		}
+	}
+
+	// Resolve each file independently. methodResolvesTo only READS the class table
+	// (index.Class) and uses a per-call-local `seen` map, so the fan-out shares no
+	// mutable state; this runs while the dispatch loop is blocked on the request.
+	// Results concatenate in work order, identical to the sequential scan.
+	parts := par.Map(work, func(w fileWork) []index.Location {
+		var out []index.Location
+		for i := range w.refs {
+			r := &w.refs[i]
+			if r.Ref.Kind == tcl.RefCommand && r.Ref.Name == a.name && r.Class != "" &&
+				s.methodResolvesTo(r.Class, a.name, a, map[string]bool{}) {
+				out = append(out, index.Location{File: w.file, Name: a.name, Kind: tcl.DefMethod, NameStart: r.Ref.Start, NameEnd: r.Ref.End})
+			}
+		}
+		return out
+	})
+
+	var out []index.Location
+	for _, p := range parts {
+		out = append(out, p...)
 	}
 	return out
 }
