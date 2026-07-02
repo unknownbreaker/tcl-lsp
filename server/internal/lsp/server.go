@@ -84,6 +84,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 			TextDocumentSync: 1, DefinitionProvider: true, ReferencesProvider: true,
 			DocumentSymbolProvider: true, WorkspaceSymbolProvider: true,
 			CallHierarchyProvider: true, FoldingRangeProvider: true,
+			DocumentHighlightProvider: true,
 		}})
 		s.indexWorkspace(root, p.Capabilities.Window.WorkDoneProgress)
 	case "initialized":
@@ -131,6 +132,10 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		var p ReferenceParams
 		_ = json.Unmarshal(m.Params, &p)
 		s.reply(m.ID, s.handleReferences(p))
+	case "textDocument/documentHighlight":
+		var p DocumentHighlightParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, s.documentHighlight(p))
 	case "textDocument/documentSymbol":
 		var p DocumentSymbolParams
 		_ = json.Unmarshal(m.Params, &p)
