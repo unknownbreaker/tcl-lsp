@@ -113,6 +113,19 @@ type FoldingRange struct {
 	EndLine   int `json:"endLine"`
 }
 
+// DocumentHighlightParams is a textDocument/documentHighlight request.
+type DocumentHighlightParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+}
+
+// DocumentHighlight is one occurrence of the symbol under the cursor, within the
+// current document. Kind is omitted: we do not distinguish read vs write uses
+// (a $x could be either), so every occurrence is a plain highlight.
+type DocumentHighlight struct {
+	Range Range `json:"range"`
+}
+
 // CallHierarchyItem identifies a callable in the call hierarchy (a proc or
 // method, or a file for top-level/page-level call sites). The SelectionRange (the
 // name token) doubles as the re-resolution anchor for incoming/outgoing calls.
@@ -222,13 +235,14 @@ type InitializeResult struct {
 
 // ServerCapabilities is the subset we advertise.
 type ServerCapabilities struct {
-	TextDocumentSync        int  `json:"textDocumentSync"` // 1 = full sync
-	DefinitionProvider      bool `json:"definitionProvider"`
-	ReferencesProvider      bool `json:"referencesProvider"`
-	DocumentSymbolProvider  bool `json:"documentSymbolProvider"`
-	WorkspaceSymbolProvider bool `json:"workspaceSymbolProvider"`
-	CallHierarchyProvider   bool `json:"callHierarchyProvider"`
-	FoldingRangeProvider    bool `json:"foldingRangeProvider"`
+	TextDocumentSync          int  `json:"textDocumentSync"` // 1 = full sync
+	DefinitionProvider        bool `json:"definitionProvider"`
+	ReferencesProvider        bool `json:"referencesProvider"`
+	DocumentSymbolProvider    bool `json:"documentSymbolProvider"`
+	WorkspaceSymbolProvider   bool `json:"workspaceSymbolProvider"`
+	CallHierarchyProvider     bool `json:"callHierarchyProvider"`
+	FoldingRangeProvider      bool `json:"foldingRangeProvider"`
+	DocumentHighlightProvider bool `json:"documentHighlightProvider"`
 }
 
 // Dynamic capability registration (server -> client). After `initialized` the

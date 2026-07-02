@@ -514,6 +514,41 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 	return r.lookupScoped(target, file)
 }
 
+// FileHighlights returns every occurrence of the symbol at offset WITHIN file --
+// its reference sites and its in-file declaration(s) -- for document highlight.
+// Unlike References it never scans other files, so it stays cheap at cursor-move
+// frequency (and needs no namespace pre-warm: a single file resolves
+// single-threaded). Proc-locals return their in-file bindings and uses.
+func (r *Resolver) FileHighlights(file, src string, offset int) []index.Location {
+	if name, scope, ok := r.localAt(file, src, offset); ok {
+		return r.localReferences(file, src, name, scope) // already in-file only
+	}
+	target := r.targetFQ(file, src, offset)
+	if target == "" {
+		return nil
+	}
+	var targetKind tcl.DefKind
+	if defs := r.lookupScoped(target, file); len(defs) > 0 {
+		targetKind = defs[0].Kind
+	}
+
+	var out []index.Location
+	// In-file reference sites (command / qualified-variable uses).
+	refs := source.Refs(file, src)
+	for i := range refs {
+		if r.refFQ(&refs[i], file) == target {
+			out = append(out, index.Location{File: file, Name: target, Kind: targetKind, NameStart: refs[i].Ref.Start, NameEnd: refs[i].Ref.End})
+		}
+	}
+	// In-file declaration site(s), from live source so an unsaved edit is honored.
+	for _, d := range source.Defs(file, src) {
+		if d.Name == target && !isLocalBinding(d.Kind) {
+			out = append(out, index.Location{File: file, Name: target, Kind: d.Kind, NameStart: d.NameStart, NameEnd: d.NameEnd})
+		}
+	}
+	return out
+}
+
 // targetFQ returns the fully-qualified name of the symbol at offset: a definition
 // name-range it falls within, else the reference there resolved to its FQ name.
 // file selects the document (so .rvt is extracted) and scopes page-local lookups.
