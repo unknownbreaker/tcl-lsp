@@ -126,6 +126,21 @@ type DocumentHighlight struct {
 	Range Range `json:"range"`
 }
 
+// SelectionRangeParams is a textDocument/selectionRange request: a set of cursor
+// positions to expand.
+type SelectionRangeParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Positions    []Position             `json:"positions"`
+}
+
+// SelectionRange is one level of the expand-selection hierarchy: a range plus the
+// next-larger enclosing range (nil at the document root). The editor grows the
+// selection by walking Parent outward.
+type SelectionRange struct {
+	Range  Range           `json:"range"`
+	Parent *SelectionRange `json:"parent,omitempty"`
+}
+
 // CallHierarchyItem identifies a callable in the call hierarchy (a proc or
 // method, or a file for top-level/page-level call sites). The SelectionRange (the
 // name token) doubles as the re-resolution anchor for incoming/outgoing calls.
@@ -243,6 +258,7 @@ type ServerCapabilities struct {
 	CallHierarchyProvider     bool `json:"callHierarchyProvider"`
 	FoldingRangeProvider      bool `json:"foldingRangeProvider"`
 	DocumentHighlightProvider bool `json:"documentHighlightProvider"`
+	SelectionRangeProvider    bool `json:"selectionRangeProvider"`
 }
 
 // Dynamic capability registration (server -> client). After `initialized` the

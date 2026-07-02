@@ -84,7 +84,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 			TextDocumentSync: 1, DefinitionProvider: true, ReferencesProvider: true,
 			DocumentSymbolProvider: true, WorkspaceSymbolProvider: true,
 			CallHierarchyProvider: true, FoldingRangeProvider: true,
-			DocumentHighlightProvider: true,
+			DocumentHighlightProvider: true, SelectionRangeProvider: true,
 		}})
 		s.indexWorkspace(root, p.Capabilities.Window.WorkDoneProgress)
 	case "initialized":
@@ -136,6 +136,10 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		var p DocumentHighlightParams
 		_ = json.Unmarshal(m.Params, &p)
 		s.reply(m.ID, s.documentHighlight(p))
+	case "textDocument/selectionRange":
+		var p SelectionRangeParams
+		_ = json.Unmarshal(m.Params, &p)
+		s.reply(m.ID, s.selectionRanges(p))
 	case "textDocument/documentSymbol":
 		var p DocumentSymbolParams
 		_ = json.Unmarshal(m.Params, &p)
