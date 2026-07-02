@@ -1,10 +1,12 @@
 package lsp
 
 import (
+	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
+	"github.com/unknownbreaker/tcl-lsp/internal/par"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
 
@@ -345,19 +347,24 @@ func posContains(outerStart, outerEnd, innerStart, innerEnd Position) bool {
 // buildWorkspaceSymbols filters entries by case-insensitive substring match on
 // Name against query (empty query keeps all), then converts each to a
 // SymbolInformation using sourceOf to compute byte-offset positions.
+//
+// The filter+convert is done in parallel over chunks of entries: sourceOf and
+// offsetToPosition only READ (the live-doc map and the index source), and this
+// runs while the dispatch loop is blocked on the request, so no shared state is
+// mutated concurrently. Results are concatenated in chunk order, so the output
+// order is identical to a sequential scan.
 func buildWorkspaceSymbols(entries []index.SymbolEntry, query string, sourceOf func(string) string) []SymbolInformation {
 	lq := strings.ToLower(query)
-	var out []SymbolInformation
-	for _, e := range entries {
+	convert := func(e index.SymbolEntry) (SymbolInformation, bool) {
 		if lq != "" && !strings.Contains(strings.ToLower(e.Name), lq) {
-			continue
+			return SymbolInformation{}, false
 		}
 		kind, ok := symbolKind(e.Kind)
 		if !ok {
-			continue
+			return SymbolInformation{}, false
 		}
 		src := sourceOf(e.File)
-		out = append(out, SymbolInformation{
+		return SymbolInformation{
 			Name: e.Name,
 			Kind: kind,
 			Location: Location{
@@ -368,7 +375,22 @@ func buildWorkspaceSymbols(entries []index.SymbolEntry, query string, sourceOf f
 				},
 			},
 			ContainerName: e.Container,
-		})
+		}, true
+	}
+
+	parts := par.Map(par.Chunk(entries, runtime.GOMAXPROCS(0)), func(chunk []index.SymbolEntry) []SymbolInformation {
+		var out []SymbolInformation
+		for _, e := range chunk {
+			if si, ok := convert(e); ok {
+				out = append(out, si)
+			}
+		}
+		return out
+	})
+
+	var out []SymbolInformation
+	for _, p := range parts {
+		out = append(out, p...)
 	}
 	return out
 }

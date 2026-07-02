@@ -2,8 +2,10 @@ package lsp
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
@@ -207,6 +209,41 @@ func TestBuildDocumentSymbolsDeepNesting(t *testing.T) {
 	// intermediate ancestor must have a real (non-empty) range
 	if a.Range == (Range{}) {
 		t.Fatalf("::a namespace node has empty range: %#v", a)
+	}
+}
+
+// buildWorkspaceSymbols filters many entries in parallel; the result must be
+// order-preserving and match only the query, identical to a sequential filter.
+// Run under -race, it also guards the concurrent sourceOf reads.
+func TestBuildWorkspaceSymbolsParallelParity(t *testing.T) {
+	sourceOf := func(string) string { return "proc x {} {}\n" }
+
+	var entries []index.SymbolEntry
+	for i := 0; i < 500; i++ {
+		name := "other"
+		if i%3 == 0 {
+			name = "match"
+		}
+		entries = append(entries, index.SymbolEntry{
+			Name: name, Kind: tcl.DefProc, File: "f.tcl", NameStart: 5, NameEnd: 6,
+		})
+	}
+
+	got := buildWorkspaceSymbols(entries, "match", sourceOf)
+
+	want := 0
+	for _, e := range entries {
+		if strings.Contains(e.Name, "match") {
+			want++
+		}
+	}
+	if len(got) != want {
+		t.Fatalf("got %d symbols, want %d matches", len(got), want)
+	}
+	for _, si := range got {
+		if si.Name != "match" {
+			t.Fatalf("non-matching symbol leaked through: %q", si.Name)
+		}
 	}
 }
 
