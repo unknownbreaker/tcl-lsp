@@ -514,6 +514,23 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 	return r.lookupScoped(target, file)
 }
 
+// CommandRefKind returns the definition kind a command reference resolves to (by
+// TCL command precedence) and whether it resolves to a known workspace symbol.
+// Semantic tokens use it to color only calls that resolve to user procs/methods,
+// leaving builtins to fall back to syntax highlighting. Method-MRO resolution
+// ($obj method) is out of scope here -- those stay uncolored.
+func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind, bool) {
+	if ref.Ref.Kind != tcl.RefCommand {
+		return 0, false
+	}
+	for _, name := range r.commandCandidates(ref.Ref.Name, ref.Namespace) {
+		if locs := r.lookupScoped(name, file); len(locs) > 0 {
+			return locs[0].Kind, true
+		}
+	}
+	return 0, false
+}
+
 // FileHighlights returns every occurrence of the symbol at offset WITHIN file --
 // its reference sites and its in-file declaration(s) -- for document highlight.
 // Unlike References it never scans other files, so it stays cheap at cursor-move

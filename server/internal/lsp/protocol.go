@@ -141,6 +141,31 @@ type SelectionRange struct {
 	Parent *SelectionRange `json:"parent,omitempty"`
 }
 
+// SemanticTokensLegend names the token types/modifiers by index; the encoded
+// data references them positionally.
+type SemanticTokensLegend struct {
+	TokenTypes     []string `json:"tokenTypes"`
+	TokenModifiers []string `json:"tokenModifiers"`
+}
+
+// SemanticTokensOptions is the semanticTokensProvider capability (an object, not
+// a bool): it carries the legend and advertises full-document support.
+type SemanticTokensOptions struct {
+	Legend SemanticTokensLegend `json:"legend"`
+	Full   bool                 `json:"full"`
+}
+
+// SemanticTokensParams is a textDocument/semanticTokens/full request.
+type SemanticTokensParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+// SemanticTokens is the response: a flat array of 5-tuples (deltaLine,
+// deltaStartChar, length, tokenType, tokenModifiers), relative-encoded per spec.
+type SemanticTokens struct {
+	Data []uint `json:"data"`
+}
+
 // CallHierarchyItem identifies a callable in the call hierarchy (a proc or
 // method, or a file for top-level/page-level call sites). The SelectionRange (the
 // name token) doubles as the re-resolution anchor for incoming/outgoing calls.
@@ -250,15 +275,16 @@ type InitializeResult struct {
 
 // ServerCapabilities is the subset we advertise.
 type ServerCapabilities struct {
-	TextDocumentSync          int  `json:"textDocumentSync"` // 1 = full sync
-	DefinitionProvider        bool `json:"definitionProvider"`
-	ReferencesProvider        bool `json:"referencesProvider"`
-	DocumentSymbolProvider    bool `json:"documentSymbolProvider"`
-	WorkspaceSymbolProvider   bool `json:"workspaceSymbolProvider"`
-	CallHierarchyProvider     bool `json:"callHierarchyProvider"`
-	FoldingRangeProvider      bool `json:"foldingRangeProvider"`
-	DocumentHighlightProvider bool `json:"documentHighlightProvider"`
-	SelectionRangeProvider    bool `json:"selectionRangeProvider"`
+	TextDocumentSync          int                    `json:"textDocumentSync"` // 1 = full sync
+	DefinitionProvider        bool                   `json:"definitionProvider"`
+	ReferencesProvider        bool                   `json:"referencesProvider"`
+	DocumentSymbolProvider    bool                   `json:"documentSymbolProvider"`
+	WorkspaceSymbolProvider   bool                   `json:"workspaceSymbolProvider"`
+	CallHierarchyProvider     bool                   `json:"callHierarchyProvider"`
+	FoldingRangeProvider      bool                   `json:"foldingRangeProvider"`
+	DocumentHighlightProvider bool                   `json:"documentHighlightProvider"`
+	SelectionRangeProvider    bool                   `json:"selectionRangeProvider"`
+	SemanticTokensProvider    *SemanticTokensOptions `json:"semanticTokensProvider,omitempty"`
 }
 
 // Dynamic capability registration (server -> client). After `initialized` the
