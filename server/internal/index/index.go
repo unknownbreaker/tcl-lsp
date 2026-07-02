@@ -8,8 +8,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
@@ -78,11 +80,18 @@ func New() *Index {
 // table).
 func (ix *Index) IndexFile(path, content string) {
 	ix.RemoveFile(path)
-	ix.src[path] = content
 	// One parse produces all four analyses (defs, refs, namespaces, classes);
 	// see source.IndexUnit. Calling source.Defs/Refs/Namespaces/Classes
 	// separately would re-parse (and, for .rvt, re-Extract) the file four times.
-	unit := source.IndexUnit(path, content)
+	ix.storeUnit(path, content, source.IndexUnit(path, content))
+}
+
+// storeUnit inserts a parsed file's analyses into the index's shared maps. It is
+// split from the (pure, expensive) source.IndexUnit parse so the parallel initial
+// index can run the parse off the ix concurrently while these mutations -- the
+// only shared state -- stay single-threaded. See IndexDirProgress.
+func (ix *Index) storeUnit(path, content string, unit tcl.FileIndex) {
+	ix.src[path] = content
 	ix.fileNS[path] = unit.Namespaces
 	// Precompute reference sites once here so a references request iterates
 	// stored data instead of re-parsing every workspace file (the dominant cost
@@ -453,11 +462,13 @@ func (ix *Index) IndexDir(root string) error {
 // client should throttle (this layer does not).
 func (ix *Index) IndexDirProgress(root string, progress func(indexed int)) error {
 	var errs []error
-	indexed := 0
+
+	// Phase 1: collect the source files (sequential). The walk is cheap, and its
+	// lexical order is what makes the parallel store below deterministic.
+	var paths []string
 	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// Unreadable entry: record and keep walking the rest of the tree.
-			errs = append(errs, err)
+			errs = append(errs, err) // unreadable entry: record, keep walking
 			return nil
 		}
 		if d.IsDir() {
@@ -466,23 +477,91 @@ func (ix *Index) IndexDirProgress(root string, progress func(indexed int)) error
 			}
 			return nil
 		}
-		if !strings.HasSuffix(p, ".tcl") && !strings.HasSuffix(p, ".rvt") {
-			return nil
-		}
-		b, err := os.ReadFile(p)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("indexing %s: %w", p, err))
-			return nil
-		}
-		ix.IndexFile(p, string(b))
-		indexed++
-		if progress != nil {
-			progress(indexed)
+		if strings.HasSuffix(p, ".tcl") || strings.HasSuffix(p, ".rvt") {
+			paths = append(paths, p)
 		}
 		return nil
 	})
 	if walkErr != nil {
 		errs = append(errs, walkErr)
+	}
+
+	// Phase 2: read + parse in parallel -- the dominant cost, and independent per
+	// file. source.IndexUnit (called in the workers) is pure, so this is race-free;
+	// each results slot is written by exactly one worker and read only after
+	// wg.Wait, so the slice needs no lock. This buffers all parse results in memory
+	// before the store phase; freed once stored.
+	type parsed struct {
+		content string
+		unit    tcl.FileIndex
+		err     error
+	}
+	results := make([]parsed, len(paths))
+
+	workers := runtime.GOMAXPROCS(0)
+	if workers > len(paths) {
+		workers = len(paths)
+	}
+
+	// Progress is driven by parse completion (the slow phase) and reported by a
+	// single goroutine, so progress() -- which writes to the server's output -- is
+	// never called from more than one goroutine. It counts completions in arrival
+	// order; the caller only shows the running count, so order does not matter.
+	var progressCh chan struct{}
+	reporterDone := make(chan struct{})
+	if progress != nil && len(paths) > 0 {
+		progressCh = make(chan struct{}, workers)
+		go func() {
+			count := 0
+			for range progressCh {
+				count++
+				progress(count)
+			}
+			close(reporterDone)
+		}()
+	} else {
+		close(reporterDone)
+	}
+
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				b, err := os.ReadFile(paths[i])
+				if err != nil {
+					results[i] = parsed{err: fmt.Errorf("indexing %s: %w", paths[i], err)}
+					continue // an unreadable file is not "indexed" -- do not count it
+				}
+				content := string(b)
+				results[i] = parsed{content: content, unit: source.IndexUnit(paths[i], content)}
+				if progressCh != nil {
+					progressCh <- struct{}{} // count only successfully-parsed files
+				}
+			}
+		}()
+	}
+	for i := range paths {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+	if progressCh != nil {
+		close(progressCh)
+	}
+	<-reporterDone
+
+	// Phase 3: store into the index serially, in walk order -- an identical result
+	// to the old sequential index, so lookups (and their tests) are unchanged.
+	for i, r := range results {
+		if r.err != nil {
+			errs = append(errs, r.err)
+			continue
+		}
+		ix.RemoveFile(paths[i])
+		ix.storeUnit(paths[i], r.content, r.unit)
 	}
 	return errors.Join(errs...)
 }

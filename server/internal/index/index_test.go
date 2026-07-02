@@ -1,6 +1,7 @@
 package index
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -170,6 +171,54 @@ func TestIndexDirProgress(t *testing.T) {
 		if n != i+1 {
 			t.Fatalf("running count not monotonic from 1: %v", counts)
 		}
+	}
+}
+
+// Stress the parallel worker pool with many files and confirm every symbol is
+// indexed and the progress count reaches the total. Run under -race, this is the
+// main guard against a data race in the parallel parse.
+func TestIndexDirProgressManyFiles(t *testing.T) {
+	dir := t.TempDir()
+	const n = 200
+	for i := 0; i < n; i++ {
+		writeFile(t, dir, fmt.Sprintf("f%03d.tcl", i), fmt.Sprintf("proc p%03d {} {}", i))
+	}
+
+	var last int
+	ix := New()
+	if err := ix.IndexDirProgress(dir, func(c int) { last = c }); err != nil {
+		t.Fatalf("IndexDirProgress error: %v", err)
+	}
+	if last != n {
+		t.Fatalf("progress reached %d, want %d", last, n)
+	}
+	for i := 0; i < n; i++ {
+		if locs := ix.Lookup(fmt.Sprintf("::p%03d", i)); len(locs) != 1 {
+			t.Fatalf("::p%03d not indexed exactly once: %#v", i, locs)
+		}
+	}
+}
+
+// The parallel store happens in walk (lexical) order, so a name defined in
+// several files resolves to those files in a deterministic order -- identical to
+// the old sequential index.
+func TestIndexDirProgressDeterministicOrder(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.tcl", "proc dup {} {}")
+	writeFile(t, dir, "b.tcl", "proc dup {} {}")
+	writeFile(t, dir, "c.tcl", "proc dup {} {}")
+
+	ix := New()
+	if err := ix.IndexDirProgress(dir, nil); err != nil {
+		t.Fatalf("IndexDirProgress error: %v", err)
+	}
+	locs := ix.Lookup("::dup")
+	var bases []string
+	for _, l := range locs {
+		bases = append(bases, filepath.Base(l.File))
+	}
+	if !reflect.DeepEqual(bases, []string{"a.tcl", "b.tcl", "c.tcl"}) {
+		t.Fatalf("def sites = %v, want lexical [a b c].tcl (walk-order deterministic)", bases)
 	}
 }
 
