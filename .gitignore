@@ -61,3 +61,7 @@ temp/
 # Go server build outputs
 /server/tcl-lsp
 /server/dist/
+
+# Per-machine environment artifact (tools/extract.tcl); commit it only if your
+# team's tclsh environments are uniform.
+.tcl-lsp.env
