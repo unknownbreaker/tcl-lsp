@@ -60,6 +60,15 @@ first. Research lives in `research/`; designs/plans in `docs/`.
 - Research output lives in `research/` as Markdown (create it when starting).
 - Plans live in `docs/plans/` once research is mapped.
 - Keep changes small and verified; resist re-expanding scope.
+- **Release on every server change (do not wait to be asked).** Any change that
+  affects the Go server under `server/` is not "done" until a release ships it,
+  so the prebuilt binary consumers download always matches the merged server
+  code. Flow: bump `lua/tcl-lsp/version.lua` to the new tag *in the same change*,
+  and once it merges run `make -C server publish VERSION=vX.Y.Z` from `main`
+  (builds the four targets, cuts the GitHub Release, re-pins version.lua as a
+  no-op). Bump **patch** (`v0.1.1`) for fixes/perf/internal changes, **minor**
+  (`v0.2.0`) for user-visible features. Changes touching only docs, the Lua/Vim
+  clients, or tests need **no** release. See `docs/RELEASING.md`.
 
 ## Recovering v1
 
