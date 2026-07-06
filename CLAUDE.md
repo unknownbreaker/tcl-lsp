@@ -32,6 +32,13 @@ Shipped:
 - **Itcl OO** — classes, methods, ivars, inheritance, `$obj method` receiver typing.
 - **Reaching-definitions** for proc-locals (a `$x` jumps to the assignment(s) that
   actually reach it), run only when needed, off the goto-def hot path.
+- **Environment extraction** — `tools/extract.tcl` introspects a *live tclsh*
+  (offline, deliberately run) and emits `.tcl-lsp.env`: external package source
+  files (indexed for real definitions) plus commands with no indexable source —
+  C extensions and runtime-*generated* procs — declared by name (existence only:
+  semantic tokens color them; goto-def stays silent). Closes the definition-side
+  gaps static parsing cannot see; dynamic *call sites* (`$cmd`, `eval`) remain
+  fundamentally out of reach (state vs. events).
 
 **Performance:** one parse per file feeds all four analyses; the initial workspace
 index and the workspace read-scans (find-references, incoming call hierarchy,

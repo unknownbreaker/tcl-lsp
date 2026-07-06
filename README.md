@@ -138,6 +138,32 @@ render LSP progress (`fidget.nvim` / `noice.nvim`, both default in LazyVim; coc'
 `coc#status()`) show it; others just see a brief startup pause while goto-def and
 references wait on the index.
 
+## External packages (environment extraction)
+
+The static index only sees your workspace — commands from `package require`d
+libraries (and procs *generated at runtime* by package init code) are invisible
+to it. TCL's introspection closes that gap: run the extractor **with the same
+tclsh your code runs under**, listing the packages you use:
+
+```sh
+tclsh tools/extract.tcl fa_utils json sqlite3 > .tcl-lsp.env
+```
+
+It loads each package in a live interpreter and records what actually
+materialized: the package **source files** (indexed for real — goto-def jumps
+into them) and the **commands** they provide, including runtime-generated procs
+and C extension commands (declared by name: semantic tokens color their calls;
+goto-def stays silent rather than jumping somewhere wrong). The server picks up
+`.tcl-lsp.env` from the workspace root at startup; paths that don't exist on a
+machine are skipped harmlessly.
+
+Notes: the extractor **executes package init code** — run it deliberately in a
+trusted environment, never automatically. The artifact is a snapshot of one
+machine's environment (absolute paths), so it's gitignored by default; re-run it
+when your packages change, or commit it if your team's environments are uniform.
+Dynamic *call sites* (`$cmd`, `eval`) remain out of reach — that boundary is
+fundamental, not a missing feature.
+
 ## Itcl OO support
 
 The dominant Rivet/speedtables idiom — `itcl::class`, `[::C #auto]`, `$obj method`
