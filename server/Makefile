@@ -68,7 +68,7 @@ publish:
 	@test -n "$(VERSION)" || { echo "usage: make publish VERSION=vX.Y.Z"; exit 1; }
 	$(MAKE) release
 	gh release create $(VERSION) $(DIST)/* --title $(VERSION) --generate-notes
-	printf 'return "%s"\n' "$(VERSION)" > ../lua/tcl-lsp/version.lua
+	sed -i.bak 's/^return ".*"/return "$(VERSION)"/' ../lua/tcl-lsp/version.lua && rm -f ../lua/tcl-lsp/version.lua.bak
 	@echo "published $(VERSION) and bumped lua/tcl-lsp/version.lua — commit + push it."
 
 clean:
