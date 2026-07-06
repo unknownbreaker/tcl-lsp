@@ -93,6 +93,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 			},
 		}})
 		s.indexWorkspace(root, p.Capabilities.Window.WorkDoneProgress)
+		s.indexExtraPaths(p.InitializationOptions.ExtraIndexPaths)
 	case "initialized":
 		// Per the spec, dynamic registration happens after initialized. Register
 		// for file watching so the client reports on-disk .tcl/.rvt changes; this
@@ -292,6 +293,36 @@ func (s *Server) loadEnvironment(root string) {
 	s.ix.DeclareCommands(env.Commands)
 	if indexed > 0 || len(env.Commands) > 0 {
 		log.Printf("environment: indexed %d package files, declared %d commands", indexed, len(env.Commands))
+	}
+}
+
+// indexExtraPaths statically indexes client-configured external source
+// locations (extra_index_paths in the editor config) -- the zero-ritual default
+// for company package checkouts and library dirs. Read-only: nothing is
+// executed, nothing is written. A missing path is skipped silently (a shared
+// editor config may name dirs some machines lack); a directory indexes its
+// whole subtree, a file just itself.
+func (s *Server) indexExtraPaths(paths []string) {
+	indexed := 0
+	for _, p := range paths {
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if fi.IsDir() {
+			if err := s.ix.IndexDir(p); err != nil {
+				log.Printf("extra index path (%s): %v", p, err)
+			}
+			indexed++
+			continue
+		}
+		if b, rerr := os.ReadFile(p); rerr == nil {
+			s.ix.IndexFile(p, string(b))
+			indexed++
+		}
+	}
+	if indexed > 0 {
+		log.Printf("extra index paths: indexed %d of %d configured", indexed, len(paths))
 	}
 }
 

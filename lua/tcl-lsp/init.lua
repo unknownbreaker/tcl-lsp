@@ -50,6 +50,13 @@ local defaults = {
   -- foldexpr (e.g. Treesitter) stays the default everywhere else. Default off;
   -- you still choose foldlevel/foldcolumn/etc. yourself.
   folding = false,
+  -- Directories (or files) of EXTERNAL TCL sources -- company package checkouts,
+  -- tcllib dirs -- statically indexed at startup in addition to the workspace,
+  -- so goto-def/references/semantic tokens reach into them. Read-only: nothing
+  -- is executed, no artifact is written, missing paths are skipped (safe to
+  -- share one config across machines). Example:
+  --   extra_index_paths = { "/opt/fa/tcl-lib", vim.fn.expand("~/Repos/fa-tcl") }
+  extra_index_paths = {},
 }
 
 -- action_fns maps a `keymaps` action name to the vim.lsp.buf function it triggers.
@@ -127,11 +134,18 @@ function M.setup(opts)
     cmd = { bin }
   end
 
-  vim.lsp.config("tcl_lsp", {
+  local config = {
     cmd = cmd,
     filetypes = opts.filetypes,
     root_markers = opts.root_markers,
-  })
+  }
+  -- Only send init_options when paths are configured: an empty Lua table
+  -- JSON-encodes as an object ({}), which would not decode into the server's
+  -- []string field.
+  if #opts.extra_index_paths > 0 then
+    config.init_options = { extraIndexPaths = opts.extra_index_paths }
+  end
+  vim.lsp.config("tcl_lsp", config)
   vim.lsp.enable("tcl_lsp")
 
   -- Apply user keymaps buffer-local when our server attaches, so they exist only

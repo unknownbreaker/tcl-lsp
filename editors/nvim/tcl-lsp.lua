@@ -61,6 +61,9 @@ return {
 
       -- folding = true,  -- enable LSP code folding for tcl/rvt (window-local,
       --                  -- new splits included; other filetypes untouched)
+
+      -- extra_index_paths = { "/opt/fa/tcl-lib" },  -- external package sources,
+      --                  -- statically indexed at startup (goto-def reaches in)
     },
   },
 
