@@ -8,8 +8,6 @@
 --
 -- Requires Neovim 0.11+ (native vim.lsp.config / vim.lsp.enable).
 
-local build = require("tcl-lsp.build")
-
 local M = {}
 
 -- plugin_root resolves this file's install dir up to the repo root
@@ -120,9 +118,11 @@ function M.setup(opts)
     cmd = { cmd }
   end
   if not cmd then
-    local bin = build.ensure_built(root, opts.auto_build)
+    -- Prefer a prebuilt release binary (no toolchain needed); fall back to a
+    -- source build for developers / offline / unsupported platforms.
+    local bin = require("tcl-lsp.download").resolve(root, opts)
     if not bin then
-      return -- ensure_built already told the user what to do
+      return -- resolve already told the user what to do
     end
     cmd = { bin }
   end
