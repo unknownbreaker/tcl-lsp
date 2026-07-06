@@ -42,21 +42,27 @@ What the supported features bring that a regex/ctags tool can't:
 
 ## Install (Neovim ≥ 0.11)
 
-Needs `go` + `make` on PATH — the server is built from source and auto-rebuilds
-when its sources change, so there's no manual step and no binary to install.
+No toolchain required. On first load the plugin downloads the prebuilt server
+binary for your OS/arch from a GitHub Release (needs `curl` or `wget`), verifies
+its SHA-256, and caches it under `stdpath("cache")/tcl-lsp/` — every launch after
+is instant. `go` + `make` are only a fallback (unsupported platform, offline, or
+local development).
 
 ```lua
 -- lazy.nvim
 {
   "unknownbreaker/tcl-lsp",
   ft = { "tcl", "rvt" },
-  build = "make -C server build",
   init = function()
     vim.filetype.add({ extension = { tcl = "tcl", rvt = "rvt" } }) -- map .rvt before load
   end,
   opts = {}, -- calls require("tcl-lsp").setup(opts) — see Configuration below
 }
 ```
+
+Supported prebuilt targets: macOS (arm64/amd64) and Linux (amd64/arm64). Other
+platforms fall back to a source build. Maintainers: see
+[`docs/RELEASING.md`](docs/RELEASING.md) for cutting a release.
 
 A fully-commented spec (and a dev/local-clone variant) lives at
 [`editors/nvim/tcl-lsp.lua`](editors/nvim/tcl-lsp.lua). For **packer**,

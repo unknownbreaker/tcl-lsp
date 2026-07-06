@@ -2,32 +2,22 @@
 --
 -- Install: copy this file to ~/.config/nvim/lua/plugins/tcl-lsp.lua and restart.
 -- lazy.nvim clones the repo, then (because of `opts`) calls
--- require("tcl-lsp").setup(opts). All the real work -- finding/building the
--- bundled Go server and wiring it into Neovim's native LSP -- lives in the
--- plugin's lua/tcl-lsp module, so this spec stays tiny.
+-- require("tcl-lsp").setup(opts). All the real work -- fetching the server
+-- binary and wiring it into Neovim's native LSP -- lives in the plugin's
+-- lua/tcl-lsp module, so this spec stays tiny.
 --
--- The server is built from source on install and rebuilt automatically whenever
--- the server sources are newer than the compiled binary -- so an update always
--- gets a fresh server. The lazy.nvim `build` directive below rebuilds at update
--- time; on top of that, the plugin self-heals at load time (it rebuilds a stale
--- binary), which is what makes auto-rebuild work under ANY plugin manager or a
--- manual `git pull`, not just lazy. Building needs `go` + `make` (the plugin
--- tells you if they're missing). No `make install`, no PATH setup, no binary
--- path to maintain. After an update, :LspRestart swaps the running server for
--- the rebuilt one.
+-- No toolchain needed: on first load the plugin downloads the prebuilt server
+-- binary for your OS/arch from a GitHub Release (needs curl or wget), verifies
+-- its SHA-256, and caches it under stdpath("cache")/tcl-lsp/. Every launch after
+-- is instant. `go` + `make` are only a fallback (unsupported platform, offline,
+-- or local development). After a plugin update that bumps the pinned version,
+-- :LspRestart swaps in the freshly downloaded server.
 
 return {
   {
-    -- MODE A (default): lazy.nvim manages the clone. Works on any machine with
-    -- go + make. `rebuild` is now the default branch, so no branch pin needed.
+    -- MODE A (default): lazy.nvim manages the clone. No `build` directive -- the
+    -- server binary is downloaded on first load, not compiled here.
     "unknownbreaker/tcl-lsp",
-
-    -- Recompile the bundled Go server whenever lazy.nvim installs OR updates the
-    -- plugin. Without this, `ensure_built` only builds when the binary is missing,
-    -- so a `:Lazy update` that pulls new server code would leave the OLD binary in
-    -- place and you'd silently run a stale server. (Run :LspRestart after an update
-    -- to swap the already-running process for the freshly built one.) Needs go + make.
-    build = "make -C server build",
 
     -- Load only when you open a TCL/RVT buffer (the idiomatic lazy pattern for a
     -- filetype-scoped LSP). vim.lsp.enable doesn't spawn the server until a
@@ -51,8 +41,9 @@ return {
       --                                             -- .git must win so one server indexes the
       --                                             -- whole repo (.tcl defs + .rvt call sites).
       -- cmd          = nil,   -- path to a server binary to use instead of the
-      --                       -- bundled one (string or list); nil = bundled
-      -- auto_build   = true,  -- build the bundled Go server on first use if missing
+      --                       -- downloaded one (string or list); nil = download
+      -- auto_build   = true,  -- fall back to a source build (needs go+make) if
+      --                       -- the prebuilt download is unavailable
 
       -- Keymaps, set buffer-local when the server attaches (only in tcl/rvt
       -- buffers; never clobbers your other maps). Default: none.
@@ -73,10 +64,11 @@ return {
     },
   },
 
-  -- MODE B (developing the LSP itself): point at your working clone instead of a
-  -- lazy-managed one, so your edits drive the server. Comment out Mode A above,
-  -- uncomment this, and set `dir` to your clone. Same module, same opts; rebuild
-  -- with :TclLspRebuild (or `make watch` in server/) then :LspRestart.
+  -- MODE B (developing the LSP itself): point at your working clone AND set `cmd`
+  -- to your locally-built binary, so your edits -- not the released download --
+  -- drive the server. Build it first with `make -C server build` (or `make watch`
+  -- in server/ for a rebuild-on-save loop), then :LspRestart to reload after a
+  -- rebuild. Comment out Mode A above and uncomment this.
   --
   -- {
   --   dir = vim.fn.expand("~/Repos/tcl-lsp"), -- your clone (repo ROOT)
@@ -85,6 +77,6 @@ return {
   --   init = function()
   --     vim.filetype.add({ extension = { tcl = "tcl", rvt = "rvt" } })
   --   end,
-  --   opts = {},
+  --   opts = { cmd = vim.fn.expand("~/Repos/tcl-lsp/server/tcl-lsp") }, -- local build
   -- },
 }
