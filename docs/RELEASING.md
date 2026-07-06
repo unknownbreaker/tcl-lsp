@@ -49,8 +49,9 @@ tcl-lsp-<os>-<arch>      os ∈ {darwin, linux}   arch ∈ {arm64, amd64}
 SHA256SUMS
 ```
 
-If you add a platform, update both `server/Makefile` (`release` target) and the
-platform map in `lua/tcl-lsp/download.lua`.
+If you add a platform, update `server/Makefile` (`release` target) and the
+platform map in **both** clients: `lua/tcl-lsp/download.lua` (Neovim) and
+`autoload/tcl_lsp.vim` (`tcl_lsp#platform`, classic Vim).
 
 ## Building artifacts without publishing
 

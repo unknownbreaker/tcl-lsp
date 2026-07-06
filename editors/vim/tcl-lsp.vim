@@ -3,10 +3,10 @@
 " Classic Vimscript — works in Vim and Neovim. Source this from your vimrc:
 "     source /path/to/tcl-lsp/editors/vim/tcl-lsp.vim
 "
-" By default it builds the bundled Go server on first use and rebuilds it
-" whenever the sources are newer than the binary (parity with the Neovim
-" plugin), so a `git pull` of this repo never leaves you on a stale server.
-" Building needs `go` + `make`; without them an existing binary is used as-is.
+" On first use it downloads the prebuilt server binary for your OS/arch from a
+" GitHub Release (needs curl or wget), verifies its SHA-256, and caches it under
+" ~/.cache/tcl-lsp/ -- parity with the Neovim plugin, no toolchain required.
+" `go` + `make` are only a fallback (unsupported platform, offline, or dev).
 "
 " Prerequisites:
 "   - vim-lsp (+ async.vim) installed.
@@ -52,7 +52,7 @@ function! s:tcl_lsp_register() abort
   " or refresh the bundled server.
   let l:cmd = get(g:, 'tcl_lsp_cmd', '')
   if empty(l:cmd)
-    let l:cmd = tcl_lsp#ensure_built(s:root, get(g:, 'tcl_lsp_auto_build', 1))
+    let l:cmd = tcl_lsp#resolve(s:root, get(g:, 'tcl_lsp_auto_build', 1))
   endif
   if empty(l:cmd) || !executable(l:cmd)
     echohl WarningMsg
