@@ -50,7 +50,6 @@ type Index struct {
 	classes          map[string]*ClassInfo                    // classFQ -> aggregated class info
 	fileClassKeys    map[string][]string                      // file -> class FQs it contributed to
 	fileClassInherit map[string]map[string][]string           // file -> classFQ -> inherit edges from that file
-	declared         map[string]bool                          // FQ names declared by the environment file (no location)
 }
 
 // nsMerged is the merged namespace-path and import set for one namespace, cached
@@ -73,7 +72,6 @@ func New() *Index {
 		classes:          map[string]*ClassInfo{},
 		fileClassKeys:    map[string][]string{},
 		fileClassInherit: map[string]map[string][]string{},
-		declared:         map[string]bool{},
 	}
 }
 
@@ -294,26 +292,6 @@ func (ix *Index) Lookup(name string) []Location {
 	out := make([]Location, len(locs))
 	copy(out, locs)
 	return out
-}
-
-// DeclareCommands registers fully-qualified command names that exist in the
-// runtime environment but have no indexable definition (C extension commands,
-// runtime-generated procs) -- extracted by tools/extract.tcl. Declared names
-// resolve for existence-based features (semantic tokens; future diagnostics
-// allowlists) but carry no location, so goto-definition stays silent on them
-// rather than jumping somewhere wrong. Never cleared by RemoveFile: they are
-// environment facts, not file contributions.
-func (ix *Index) DeclareCommands(names []string) {
-	for _, n := range names {
-		if n != "" {
-			ix.declared[n] = true
-		}
-	}
-}
-
-// DeclaredCommand reports whether name was declared by the environment file.
-func (ix *Index) DeclaredCommand(name string) bool {
-	return ix.declared[name]
 }
 
 // Files returns the indexed file paths, sorted for deterministic iteration.

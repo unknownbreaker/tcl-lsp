@@ -515,11 +515,10 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 }
 
 // CommandRefKind returns the definition kind a command reference resolves to (by
-// TCL command precedence) and whether it resolves to a known symbol: an indexed
-// definition, or a command DECLARED by the environment file (extracted from a
-// live tclsh -- C extension commands and runtime-generated procs, which have no
-// indexable location but certainly exist). Semantic tokens use it to color only
-// calls that resolve, leaving core builtins to fall back to syntax highlighting.
+// TCL command precedence) and whether it resolves to an indexed definition.
+// Semantic tokens use it to color only calls that resolve to known procs/methods
+// -- so color means "there is source to jump to" -- leaving builtins (and
+// anything without indexed source) to fall back to syntax highlighting.
 // Method-MRO resolution ($obj method) is out of scope here -- those stay
 // uncolored.
 func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind, bool) {
@@ -529,9 +528,6 @@ func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind
 	for _, name := range r.commandCandidates(ref.Ref.Name, ref.Namespace) {
 		if locs := r.lookupScoped(name, file); len(locs) > 0 {
 			return locs[0].Kind, true
-		}
-		if r.ix.DeclaredCommand(name) {
-			return tcl.DefProc, true // existence only; no location to jump to
 		}
 	}
 	return 0, false

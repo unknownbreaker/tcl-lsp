@@ -33,16 +33,17 @@ Shipped:
 - **Reaching-definitions** for proc-locals (a `$x` jumps to the assignment(s) that
   actually reach it), run only when needed, off the goto-def hot path.
 - **External packages** — `extra_index_paths` (editor config →
-  initializationOptions) statically indexes external source dirs at startup: the
-  zero-ritual DEFAULT (nothing executed, nothing written, missing paths skipped).
-  For definitions with no source text — runtime-*generated* procs and C-extension
-  commands — the POWER TOOL is `tools/extract.tcl`: it introspects a *live tclsh*
-  (offline, deliberately run — it executes package init code) and emits an
-  artifact (user-global `~/.config/tcl-lsp/environment.env` via `-global`; a
-  per-workspace `.tcl-lsp.env` overrides it): sourced files indexed, sourceless
-  commands declared by name (existence only: semantic tokens color them; goto-def
-  stays silent). Dynamic *call sites* (`$cmd`, `eval`) remain fundamentally out
-  of reach (state vs. events).
+  initializationOptions.extraIndexPaths) statically indexes external source
+  dirs/files at startup: the Tcl script library (`$tcl_library`), company package
+  checkouts, any TCL repo. Read-only, nothing executed, nothing written, missing
+  paths skipped. This is the ONLY external-reach mechanism — a tclsh-introspection
+  extractor was built (v0.2–v0.4) and deliberately REMOVED (v0.5): its sole
+  unique value was semantic-token coloring for sourceless names (C-extension
+  commands, runtime-generated procs), which didn't justify a manual,
+  code-executing, stale-able ritual. Do not re-add it without a written design.
+  Consequence: color/jumps mean "there is source"; C builtins and runtime-
+  generated procs stay uncolored; dynamic *call sites* (`$cmd`, `eval`) remain
+  fundamentally out of reach (state vs. events).
 
 **Performance:** one parse per file feeds all four analyses; the initial workspace
 index and the workspace read-scans (find-references, incoming call hierarchy,

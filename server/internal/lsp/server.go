@@ -6,11 +6,9 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/unknownbreaker/tcl-lsp/internal/envfile"
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/resolve"
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
@@ -246,53 +244,8 @@ func (s *Server) indexWorkspace(root string, progress bool) {
 	if err := s.ix.IndexDirProgress(root, onFile); err != nil {
 		log.Printf("workspace index (%s): %v", root, err)
 	}
-	s.loadEnvironment(root)
 	if progress {
 		s.progressEnd(token, fmt.Sprintf("Indexed %d files", len(s.ix.Files())))
-	}
-}
-
-// loadEnvironment reads the optional environment artifact (produced offline by
-// tools/extract.tcl from a live tclsh) and folds it into the index: external
-// package source files are indexed like workspace files (real definitions,
-// goto-def jumps into them), and package-provided commands with no indexable
-// source (C extensions, runtime-generated procs) are declared by name. Lookup
-// order: the per-workspace .tcl-lsp.env at root (a team that commits one wants
-// it to win), else the user-global ~/.config/tcl-lsp/environment.env -- the
-// default workflow, which keeps project repos free of tool artifacts. Paths that
-// don't exist on this machine are skipped silently -- the artifact may have been
-// extracted on a different host, and a missing entry just means less reach,
-// never an error.
-func (s *Server) loadEnvironment(root string) {
-	env, ok, err := envfile.Load(filepath.Join(root, ".tcl-lsp.env"))
-	if err != nil {
-		log.Printf("environment file: %v", err)
-		return
-	}
-	if !ok {
-		if gp := envfile.DefaultGlobalPath(); gp != "" {
-			env, ok, err = envfile.Load(gp)
-			if err != nil {
-				log.Printf("environment file: %v", err)
-				return
-			}
-		}
-	}
-	if !ok {
-		return
-	}
-	indexed := 0
-	for _, p := range env.IndexFiles {
-		b, rerr := os.ReadFile(p)
-		if rerr != nil {
-			continue // extracted on another machine, or the package moved
-		}
-		s.ix.IndexFile(p, string(b))
-		indexed++
-	}
-	s.ix.DeclareCommands(env.Commands)
-	if indexed > 0 || len(env.Commands) > 0 {
-		log.Printf("environment: indexed %d package files, declared %d commands", indexed, len(env.Commands))
 	}
 }
 
