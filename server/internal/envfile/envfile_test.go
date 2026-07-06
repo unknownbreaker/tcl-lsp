@@ -38,6 +38,18 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestDefaultGlobalPath(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/xdg")
+	if got := DefaultGlobalPath(); got != filepath.Join("/xdg", "tcl-lsp", "environment.env") {
+		t.Fatalf("with XDG_CONFIG_HOME: %q", got)
+	}
+	t.Setenv("XDG_CONFIG_HOME", "")
+	got := DefaultGlobalPath()
+	if !strings.HasSuffix(got, filepath.Join(".config", "tcl-lsp", "environment.env")) {
+		t.Fatalf("fallback should be under ~/.config: %q", got)
+	}
+}
+
 func TestLoadMissingIsNotAnError(t *testing.T) {
 	env, ok, err := Load("/no/such/dir/.tcl-lsp.env")
 	if err != nil || ok {

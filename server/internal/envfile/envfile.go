@@ -13,6 +13,7 @@ import (
 	"bufio"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -49,6 +50,24 @@ func Parse(r io.Reader) (Env, error) {
 		}
 	}
 	return env, sc.Err()
+}
+
+// DefaultGlobalPath returns the user-global artifact location:
+// $XDG_CONFIG_HOME/tcl-lsp/environment.env, else ~/.config/tcl-lsp/environment.env.
+// The global file keeps project repos free of tool artifacts: one extraction per
+// machine serves every workspace. (Deliberately hand-rolled XDG rather than
+// os.UserConfigDir, which points at ~/Library on macOS -- CLI convention, and it
+// must agree byte-for-byte with tools/extract.tcl's -global path.)
+func DefaultGlobalPath() string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		base = filepath.Join(home, ".config")
+	}
+	return filepath.Join(base, "tcl-lsp", "environment.env")
 }
 
 // Load parses the artifact at path. A missing file is not an error -- the

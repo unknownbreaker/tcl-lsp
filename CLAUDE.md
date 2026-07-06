@@ -33,7 +33,10 @@ Shipped:
 - **Reaching-definitions** for proc-locals (a `$x` jumps to the assignment(s) that
   actually reach it), run only when needed, off the goto-def hot path.
 - **Environment extraction** — `tools/extract.tcl` introspects a *live tclsh*
-  (offline, deliberately run) and emits `.tcl-lsp.env`: external package source
+  (offline, deliberately run) and emits an environment artifact: user-global
+  `~/.config/tcl-lsp/environment.env` via `-global` (the default — no file in any
+  project repo), or a per-workspace `.tcl-lsp.env` that overrides it. Contents:
+  external package source
   files (indexed for real definitions) plus commands with no indexable source —
   C extensions and runtime-*generated* procs — declared by name (existence only:
   semantic tokens color them; goto-def stays silent). Closes the definition-side

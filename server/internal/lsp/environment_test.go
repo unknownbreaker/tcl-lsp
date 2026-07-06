@@ -87,6 +87,66 @@ func TestServerEnvironmentDeclaredCommand(t *testing.T) {
 	}
 }
 
+// With no per-workspace file, the user-global environment
+// (~/.config/tcl-lsp/environment.env) is used -- the default workflow that
+// keeps project repos free of tool artifacts.
+func TestServerEnvironmentGlobalFile(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if err := os.MkdirAll(filepath.Join(xdg, "tcl-lsp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "tcl-lsp", "environment.env"),
+		[]byte("command\t::global_cmd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir() // no .tcl-lsp.env here
+	if err := os.WriteFile(filepath.Join(root, "caller.tcl"), []byte("global_cmd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{RootURI: pathToURI(root)}))
+	in.Write(frame(t, "textDocument/semanticTokens/full", 2, SemanticTokensParams{
+		TextDocument: TextDocumentIdentifier{URI: pathToURI(filepath.Join(root, "caller.tcl"))}}))
+	in.Write(frame(t, "exit", nil, nil))
+	var st SemanticTokens
+	_ = json.Unmarshal(responseByID(runServer(t, in.Bytes()), "2").Result, &st)
+	if len(st.Data) == 0 {
+		t.Fatalf("global environment file should declare ::global_cmd (call should color)")
+	}
+}
+
+// A per-workspace .tcl-lsp.env WINS over the global file (first found, no merge).
+func TestServerEnvironmentRootBeatsGlobal(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if err := os.MkdirAll(filepath.Join(xdg, "tcl-lsp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "tcl-lsp", "environment.env"),
+		[]byte("command\t::from_global\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeEnvFile(t, root, "command\t::from_root\n")
+	// caller uses the GLOBAL name; since the root file wins, it must NOT resolve.
+	if err := os.WriteFile(filepath.Join(root, "caller.tcl"), []byte("from_global\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{RootURI: pathToURI(root)}))
+	in.Write(frame(t, "textDocument/semanticTokens/full", 2, SemanticTokensParams{
+		TextDocument: TextDocumentIdentifier{URI: pathToURI(filepath.Join(root, "caller.tcl"))}}))
+	in.Write(frame(t, "exit", nil, nil))
+	var st SemanticTokens
+	_ = json.Unmarshal(responseByID(runServer(t, in.Bytes()), "2").Result, &st)
+	if len(st.Data) != 0 {
+		t.Fatalf("root env file should shadow the global one; ::from_global must not resolve, got tokens %v", st.Data)
+	}
+}
+
 // Entries whose paths don't exist on this machine (artifact extracted
 // elsewhere) are skipped without error, and the rest of the env still loads.
 func TestServerEnvironmentSkipsMissingPaths(t *testing.T) {
