@@ -14,20 +14,46 @@ intractable. That work is preserved on the `v1` branch (its tip) and at the
 `archive-v1` tag (an earlier checkpoint in the same history); the `main` branch
 now holds v2. Recover any piece with `git checkout v1 -- <path>`.
 
-## Current Phase: Phase A + Phase B shipped, plus document/workspace symbols
+## Current Phase: navigation + structure features, parallelized, prebuilt-distributed
 
-**goto-definition** and **goto-reference** are implemented for both `.tcl` files
-(Phase A) and `.rvt` Rivet templates (Phase B), including cross-file resolution
-between `.rvt` and `.tcl`. **Document symbols** (`textDocument/documentSymbol`,
-hierarchical) and **workspace symbols** (`workspace/symbol`) are also implemented,
-serializing the index's existing symbol data (procs, namespace vars, Itcl
-classes/methods/ivars). The implementation lives under `server/` (Go LSP server
-with stdio/JSON-RPC framing). Research lives in `research/`; plans in `docs/plans/`.
+The server implements a coherent, deliberately-bounded feature set, all obeying one
+rule: **report only what can be derived with certainty from structure and the
+workspace index, and stay silent otherwise — never assert something that can be
+wrong.** Everything below works for both `.tcl` and `.rvt`, with cross-file
+`.rvt` ⇄ `.tcl` resolution.
 
-Scope is deliberately limited to those features. Document and workspace symbols
-were a considered, index-backed addition; the remaining LSP features (completion,
-hover, formatting, diagnostics, rename, etc.) remain out of scope — do not propose
-or scaffold them.
+Shipped:
+- **Navigation** — goto-definition, find-references, document + workspace symbols
+  (source-ordered), call hierarchy (incoming/outgoing, procs and methods).
+- **Structure** — code folding, document highlight, selection range, semantic
+  tokens. Structural / index-backed; they degrade to silence, never to a wrong
+  answer (e.g. semantic tokens colors only defs, `$`-vars, and calls that resolve
+  to user procs/methods — builtins fall back to syntax highlighting).
+- **Itcl OO** — classes, methods, ivars, inheritance, `$obj method` receiver typing.
+- **Reaching-definitions** for proc-locals (a `$x` jumps to the assignment(s) that
+  actually reach it), run only when needed, off the goto-def hot path.
+
+**Performance:** one parse per file feeds all four analyses; the initial workspace
+index and the workspace read-scans (find-references, incoming call hierarchy,
+workspace symbols) run in parallel across GOMAXPROCS *while the single-goroutine
+dispatch loop is blocked on the request*, so the index needs no locking. The one
+lazily-mutated cache (`nsCache`) is pre-warmed single-threaded before a parallel
+reference scan. Race-detector-tested (`go test -race`).
+
+**Distribution:** consumers download a prebuilt, SHA-256-verified server binary
+from a GitHub Release — both the Neovim plugin (`lua/tcl-lsp/download.lua`) and the
+classic-Vim client (`autoload/tcl_lsp.vim`), sharing one pinned version
+(`lua/tcl-lsp/version.lua`). Source build is a fallback. Cut releases with
+`make -C server publish VERSION=vX.Y.Z` (see `docs/RELEASING.md`). The Go server
+lives under `server/` (stdio/JSON-RPC).
+
+**Still out of scope, by design — do not propose or scaffold:** hover, completion,
+signature help, rename, formatting, diagnostics, code actions, inlay hints. They
+need inferred types (which dynamic, interpreted TCL can't give a static server) or
+make assertions that can be *wrong* — the exact bet v2 refuses, and the reason v1
+grew intractable. The one conceivable future addition is *conservative, opt-in,
+off-by-default* undefined-proc diagnostics, which would need a written design
+first. Research lives in `research/`; designs/plans in `docs/`.
 
 ## Working Agreements
 
