@@ -142,25 +142,28 @@ references wait on the index.
 
 The static index only sees your workspace — commands from `package require`d
 libraries (and procs *generated at runtime* by package init code) are invisible
-to it. TCL's introspection closes that gap: run the extractor **with the same
-tclsh your code runs under**, listing the packages you use:
+to it. TCL's introspection closes that gap: run the extractor once **with the
+same tclsh your code runs under**, listing the packages you use:
 
 ```sh
-tclsh tools/extract.tcl fa_utils json sqlite3 > .tcl-lsp.env
+tclsh tools/extract.tcl -global fa_utils json sqlite3
 ```
 
-It loads each package in a live interpreter and records what actually
-materialized: the package **source files** (indexed for real — goto-def jumps
-into them) and the **commands** they provide, including runtime-generated procs
-and C extension commands (declared by name: semantic tokens color their calls;
-goto-def stays silent rather than jumping somewhere wrong). The server picks up
-`.tcl-lsp.env` from the workspace root at startup; paths that don't exist on a
-machine are skipped harmlessly.
+`-global` writes the artifact to `~/.config/tcl-lsp/environment.env` (or
+`$XDG_CONFIG_HOME`), where the server finds it for **every** workspace on the
+machine — **no file is added to any project repo**. The extractor loads each
+package in a live interpreter and records what actually materialized: the
+package **source files** (indexed for real — goto-def jumps into them) and the
+**commands** they provide, including runtime-generated procs and C extension
+commands (declared by name: semantic tokens color their calls; goto-def stays
+silent rather than jumping somewhere wrong). Paths that don't exist on a machine
+are skipped harmlessly.
+
+A team that *wants* a shared, committed artifact can instead redirect stdout to
+a per-workspace `.tcl-lsp.env` at a project root; it overrides the global file.
 
 Notes: the extractor **executes package init code** — run it deliberately in a
-trusted environment, never automatically. The artifact is a snapshot of one
-machine's environment (absolute paths), so it's gitignored by default; re-run it
-when your packages change, or commit it if your team's environments are uniform.
+trusted environment, never automatically; re-run it when your packages change.
 Dynamic *call sites* (`$cmd`, `eval`) remain out of reach — that boundary is
 fundamental, not a missing feature.
 

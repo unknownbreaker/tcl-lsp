@@ -251,19 +251,31 @@ func (s *Server) indexWorkspace(root string, progress bool) {
 	}
 }
 
-// loadEnvironment reads the optional .tcl-lsp.env artifact at the workspace root
-// (produced offline by tools/extract.tcl from a live tclsh) and folds it into
-// the index: external package source files are indexed like workspace files
-// (real definitions, goto-def jumps into them), and package-provided commands
-// with no indexable source (C extensions, runtime-generated procs) are declared
-// by name. Paths that don't exist on this machine are skipped silently -- the
-// artifact may have been extracted on a different host, and a missing entry
-// just means less reach, never an error.
+// loadEnvironment reads the optional environment artifact (produced offline by
+// tools/extract.tcl from a live tclsh) and folds it into the index: external
+// package source files are indexed like workspace files (real definitions,
+// goto-def jumps into them), and package-provided commands with no indexable
+// source (C extensions, runtime-generated procs) are declared by name. Lookup
+// order: the per-workspace .tcl-lsp.env at root (a team that commits one wants
+// it to win), else the user-global ~/.config/tcl-lsp/environment.env -- the
+// default workflow, which keeps project repos free of tool artifacts. Paths that
+// don't exist on this machine are skipped silently -- the artifact may have been
+// extracted on a different host, and a missing entry just means less reach,
+// never an error.
 func (s *Server) loadEnvironment(root string) {
 	env, ok, err := envfile.Load(filepath.Join(root, ".tcl-lsp.env"))
 	if err != nil {
 		log.Printf("environment file: %v", err)
 		return
+	}
+	if !ok {
+		if gp := envfile.DefaultGlobalPath(); gp != "" {
+			env, ok, err = envfile.Load(gp)
+			if err != nil {
+				log.Printf("environment file: %v", err)
+				return
+			}
+		}
 	}
 	if !ok {
 		return
