@@ -99,6 +99,11 @@ require("tcl-lsp").setup({
   },
 
   folding = false, -- true: enable LSP code folding for tcl/rvt (see Usage)
+
+  -- External TCL sources (company package checkouts, tcllib dirs) indexed
+  -- read-only at startup, so goto-def/references/tokens reach into them.
+  -- Static: nothing executed, nothing written, missing paths skipped.
+  extra_index_paths = {}, -- e.g. { "/opt/fa/tcl-lib", vim.fn.expand("~/Repos/fa-tcl") }
 })
 ```
 
@@ -138,34 +143,43 @@ render LSP progress (`fidget.nvim` / `noice.nvim`, both default in LazyVim; coc'
 `coc#status()`) show it; others just see a brief startup pause while goto-def and
 references wait on the index.
 
-## External packages (environment extraction)
+## External packages
 
-The static index only sees your workspace — commands from `package require`d
-libraries (and procs *generated at runtime* by package init code) are invisible
-to it. TCL's introspection closes that gap: run the extractor once **with the
-same tclsh your code runs under**, listing the packages you use:
+The index only sees your workspace by default. To make goto-def, references, and
+semantic tokens reach into `package require`d libraries, point the server at
+their sources — one line of editor config, shared via your dotfiles, never a
+file in any project repo:
+
+```lua
+require("tcl-lsp").setup({
+  extra_index_paths = { "/opt/fa/tcl-lib", vim.fn.expand("~/Repos/fa-tcl") },
+})
+```
+
+(Vim: `let g:tcl_lsp_extra_index_paths = ['/opt/fa/tcl-lib']`.) The paths are
+indexed **statically and read-only** at startup: nothing is executed, nothing is
+written, missing paths are skipped — safe to share one config across machines.
+This covers script packages, the common case, with real jump targets.
+
+**Power tool: environment extraction.** Two things have no source text to index:
+procs *generated at runtime* by package init code, and C-extension commands. For
+those, `tools/extract.tcl` introspects a **live tclsh** — run it deliberately
+(it executes package init code; never automatic), with the same tclsh your code
+runs under:
 
 ```sh
 tclsh tools/extract.tcl -global fa_utils json sqlite3
 ```
 
-`-global` writes the artifact to `~/.config/tcl-lsp/environment.env` (or
-`$XDG_CONFIG_HOME`), where the server finds it for **every** workspace on the
-machine — **no file is added to any project repo**. The extractor loads each
-package in a live interpreter and records what actually materialized: the
-package **source files** (indexed for real — goto-def jumps into them) and the
-**commands** they provide, including runtime-generated procs and C extension
-commands (declared by name: semantic tokens color their calls; goto-def stays
-silent rather than jumping somewhere wrong). Paths that don't exist on a machine
-are skipped harmlessly.
+`-global` writes an artifact to `~/.config/tcl-lsp/environment.env` (respects
+`$XDG_CONFIG_HOME`) that the server reads for every workspace: sourced package
+files get indexed, and sourceless commands are declared by name (semantic tokens
+color their calls; goto-def stays silent rather than jumping somewhere wrong).
+Re-run it when packages change; a per-workspace `.tcl-lsp.env` (stdout mode)
+overrides the global file for teams that deliberately commit one.
 
-A team that *wants* a shared, committed artifact can instead redirect stdout to
-a per-workspace `.tcl-lsp.env` at a project root; it overrides the global file.
-
-Notes: the extractor **executes package init code** — run it deliberately in a
-trusted environment, never automatically; re-run it when your packages change.
-Dynamic *call sites* (`$cmd`, `eval`) remain out of reach — that boundary is
-fundamental, not a missing feature.
+Dynamic *call sites* (`$cmd`, `eval`) remain out of reach under any mechanism —
+that boundary is fundamental, not a missing feature.
 
 ## Itcl OO support
 

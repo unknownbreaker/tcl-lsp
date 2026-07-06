@@ -223,9 +223,22 @@ type ReferenceParams struct {
 
 // InitializeParams is the subset of initialize we use.
 type InitializeParams struct {
-	RootURI      string             `json:"rootUri"`
-	RootPath     string             `json:"rootPath"`
-	Capabilities ClientCapabilities `json:"capabilities"`
+	RootURI               string                `json:"rootUri"`
+	RootPath              string                `json:"rootPath"`
+	Capabilities          ClientCapabilities    `json:"capabilities"`
+	InitializationOptions InitializationOptions `json:"initializationOptions"`
+}
+
+// InitializationOptions carries client-configured server options.
+// ExtraIndexPaths are directories (or single files) of EXTERNAL TCL sources --
+// company package checkouts, tcllib dirs -- indexed read-only at startup in
+// addition to the workspace, so goto-def/references/tokens reach into them.
+// Static indexing only: no code is executed, nothing is written, missing paths
+// are skipped. This is the zero-ritual default for external packages; the
+// tools/extract.tcl environment artifact remains the power tool for
+// runtime-generated procs and C-extension command names.
+type InitializationOptions struct {
+	ExtraIndexPaths []string `json:"extraIndexPaths"`
 }
 
 // ClientCapabilities is the subset of client capabilities we read.

@@ -32,16 +32,17 @@ Shipped:
 - **Itcl OO** — classes, methods, ivars, inheritance, `$obj method` receiver typing.
 - **Reaching-definitions** for proc-locals (a `$x` jumps to the assignment(s) that
   actually reach it), run only when needed, off the goto-def hot path.
-- **Environment extraction** — `tools/extract.tcl` introspects a *live tclsh*
-  (offline, deliberately run) and emits an environment artifact: user-global
-  `~/.config/tcl-lsp/environment.env` via `-global` (the default — no file in any
-  project repo), or a per-workspace `.tcl-lsp.env` that overrides it. Contents:
-  external package source
-  files (indexed for real definitions) plus commands with no indexable source —
-  C extensions and runtime-*generated* procs — declared by name (existence only:
-  semantic tokens color them; goto-def stays silent). Closes the definition-side
-  gaps static parsing cannot see; dynamic *call sites* (`$cmd`, `eval`) remain
-  fundamentally out of reach (state vs. events).
+- **External packages** — `extra_index_paths` (editor config →
+  initializationOptions) statically indexes external source dirs at startup: the
+  zero-ritual DEFAULT (nothing executed, nothing written, missing paths skipped).
+  For definitions with no source text — runtime-*generated* procs and C-extension
+  commands — the POWER TOOL is `tools/extract.tcl`: it introspects a *live tclsh*
+  (offline, deliberately run — it executes package init code) and emits an
+  artifact (user-global `~/.config/tcl-lsp/environment.env` via `-global`; a
+  per-workspace `.tcl-lsp.env` overrides it): sourced files indexed, sourceless
+  commands declared by name (existence only: semantic tokens color them; goto-def
+  stays silent). Dynamic *call sites* (`$cmd`, `eval`) remain fundamentally out
+  of reach (state vs. events).
 
 **Performance:** one parse per file feeds all four analyses; the initial workspace
 index and the workspace read-scans (find-references, incoming call hierarchy,

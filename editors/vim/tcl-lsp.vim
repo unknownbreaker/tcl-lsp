@@ -16,6 +16,8 @@
 " Options (set before sourcing):
 "   let g:tcl_lsp_cmd = '/abs/path/to/tcl-lsp'   " use a prebuilt binary; skips the build
 "   let g:tcl_lsp_auto_build = 0                 " never build; use whatever binary exists
+"   let g:tcl_lsp_extra_index_paths = ['/opt/fa/tcl-lib']  " external package
+"       sources indexed read-only at startup (goto-def reaches into them)
 "
 " Use :LspDefinition and :LspReferences (or your vim-lsp keymaps).
 
@@ -60,12 +62,20 @@ function! s:tcl_lsp_register() abort
     echohl None
     return
   endif
-  call lsp#register_server({
+  let l:server = {
     \ 'name': 'tcl-lsp',
     \ 'cmd': {server_info -> [l:cmd]},
     \ 'allowlist': ['tcl', 'rvt'],
     \ 'root_uri': function('s:tcl_lsp_root_uri'),
-    \ })
+    \ }
+  " External TCL source dirs/files to index in addition to the workspace
+  " (static, read-only; missing paths skipped). Mirror of the Neovim plugin's
+  " extra_index_paths option.
+  let l:extra = get(g:, 'tcl_lsp_extra_index_paths', [])
+  if !empty(l:extra)
+    let l:server['initialization_options'] = {'extraIndexPaths': l:extra}
+  endif
+  call lsp#register_server(l:server)
 endfunction
 
 augroup tcl_lsp_vim_lsp

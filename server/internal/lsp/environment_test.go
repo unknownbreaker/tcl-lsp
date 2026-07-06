@@ -87,6 +87,39 @@ func TestServerEnvironmentDeclaredCommand(t *testing.T) {
 	}
 }
 
+// extra_index_paths (initializationOptions.extraIndexPaths): external dirs are
+// statically indexed at startup -- goto-def jumps into them -- with missing
+// paths skipped (a shared editor config may name dirs some machines lack).
+func TestServerExtraIndexPaths(t *testing.T) {
+	root := t.TempDir()
+	extDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(extDir, "pkg.tcl"), []byte("proc extpkg_helper {} {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "caller.tcl"), []byte("extpkg_helper\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{
+		RootURI: pathToURI(root),
+		InitializationOptions: InitializationOptions{
+			ExtraIndexPaths: []string{extDir, "/no/such/dir/on/this/machine"},
+		},
+	}))
+	in.Write(frame(t, "textDocument/definition", 2, TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: pathToURI(filepath.Join(root, "caller.tcl"))},
+		Position:     Position{Line: 0, Character: 0},
+	}))
+	in.Write(frame(t, "exit", nil, nil))
+	resp := responseByID(runServer(t, in.Bytes()), "2")
+	var locs []Location
+	_ = json.Unmarshal(resp.Result, &locs)
+	if len(locs) != 1 || locs[0].URI != pathToURI(filepath.Join(extDir, "pkg.tcl")) {
+		t.Fatalf("goto-def should jump into the extra-indexed dir; got %#v", locs)
+	}
+}
+
 // With no per-workspace file, the user-global environment
 // (~/.config/tcl-lsp/environment.env) is used -- the default workflow that
 // keeps project repos free of tool artifacts.
