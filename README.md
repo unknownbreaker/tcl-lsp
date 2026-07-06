@@ -143,43 +143,37 @@ render LSP progress (`fidget.nvim` / `noice.nvim`, both default in LazyVim; coc'
 `coc#status()`) show it; others just see a brief startup pause while goto-def and
 references wait on the index.
 
-## External packages
+## External packages & the Tcl library
 
 The index only sees your workspace by default. To make goto-def, references, and
-semantic tokens reach into `package require`d libraries, point the server at
-their sources — one line of editor config, shared via your dotfiles, never a
-file in any project repo:
+semantic tokens reach into **any** external TCL source — the Tcl script library
+itself, `package require`d libraries, company package checkouts, other repos —
+point the server at their directories. One line of editor config, shared via
+your dotfiles, never a file in any project repo:
 
 ```lua
 require("tcl-lsp").setup({
-  extra_index_paths = { "/opt/fa/tcl-lib", vim.fn.expand("~/Repos/fa-tcl") },
+  extra_index_paths = {
+    "/opt/homebrew/Cellar/tcl-tk/9.0.3/lib/tcl9.0", -- Tcl's script library
+    "/opt/fa/tcl-lib",                              -- company packages
+    vim.fn.expand("~/Repos/fa-tcl"),                -- any other TCL repo
+  },
 })
 ```
 
-(Vim: `let g:tcl_lsp_extra_index_paths = ['/opt/fa/tcl-lib']`.) The paths are
-indexed **statically and read-only** at startup: nothing is executed, nothing is
+(Vim: `let g:tcl_lsp_extra_index_paths = ['/opt/fa/tcl-lib']`.) Find your Tcl
+library path with `echo 'puts $tcl_library' | tclsh`. The paths are indexed
+**statically and read-only** at startup: nothing is executed, nothing is
 written, missing paths are skipped — safe to share one config across machines.
-This covers script packages, the common case, with real jump targets.
+With the Tcl library indexed, goto-def works on script-implemented library
+procs (`parray`, the `::tcl::clock::*` machinery, `msgcat`, …).
 
-**Power tool: environment extraction.** Two things have no source text to index:
-procs *generated at runtime* by package init code, and C-extension commands. For
-those, `tools/extract.tcl` introspects a **live tclsh** — run it deliberately
-(it executes package init code; never automatic), with the same tclsh your code
-runs under:
-
-```sh
-tclsh tools/extract.tcl -global fa_utils json sqlite3
-```
-
-`-global` writes an artifact to `~/.config/tcl-lsp/environment.env` (respects
-`$XDG_CONFIG_HOME`) that the server reads for every workspace: sourced package
-files get indexed, and sourceless commands are declared by name (semantic tokens
-color their calls; goto-def stays silent rather than jumping somewhere wrong).
-Re-run it when packages change; a per-workspace `.tcl-lsp.env` (stdout mode)
-overrides the global file for teams that deliberately commit one.
-
-Dynamic *call sites* (`$cmd`, `eval`) remain out of reach under any mechanism —
-that boundary is fundamental, not a missing feature.
+Two things stay out of reach by design, because they have no source text:
+**C-implemented commands** (`set`, `puts`, `string`, C extensions) and procs
+*generated at runtime* by package code. That makes the coloring meaningful:
+a colored call means "there is source you can jump to." Dynamic *call sites*
+(`$cmd`, `eval`) are likewise out of reach under any mechanism — a fundamental
+boundary, not a missing feature.
 
 ## Itcl OO support
 

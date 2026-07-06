@@ -231,12 +231,12 @@ type InitializeParams struct {
 
 // InitializationOptions carries client-configured server options.
 // ExtraIndexPaths are directories (or single files) of EXTERNAL TCL sources --
-// company package checkouts, tcllib dirs -- indexed read-only at startup in
-// addition to the workspace, so goto-def/references/tokens reach into them.
-// Static indexing only: no code is executed, nothing is written, missing paths
-// are skipped. This is the zero-ritual default for external packages; the
-// tools/extract.tcl environment artifact remains the power tool for
-// runtime-generated procs and C-extension command names.
+// the tclsh script library ($tcl_library), company package checkouts, tcllib
+// dirs, any TCL repo -- indexed read-only at startup in addition to the
+// workspace, so goto-def/references/tokens reach into them. Static indexing
+// only: no code is executed, nothing is written, missing paths are skipped.
+// Definitions with no source text (C builtins, runtime-generated procs) are
+// out of reach by design: color and jumps mean "there is source".
 type InitializationOptions struct {
 	ExtraIndexPaths []string `json:"extraIndexPaths"`
 }
