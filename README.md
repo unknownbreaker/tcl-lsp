@@ -1,10 +1,10 @@
 # tcl-lsp
 
-A focused Language Server for **TCL** and **RVT** (Apache Rivet templates), for
-Neovim and Vim. One self-contained Go binary; the Neovim and Vim clients drive it.
+A focused Language Server for **TCL** and **RVT** (Apache Rivet templates).
+One self-contained Go binary, with clients for **Neovim** and **classic Vim**.
 
-Scope is deliberately tight — a few features done well (scope-correct, cross-file,
-`.rvt`-aware, Itcl-aware) rather than a broad, shallow set.
+Scope is deliberately tight: a few features done well — scope-correct,
+cross-file, `.rvt`-aware, Itcl-aware — rather than a broad, shallow set.
 
 ## Features
 
@@ -20,36 +20,46 @@ Scope is deliberately tight — a few features done well (scope-correct, cross-f
 | Semantic tokens              | ✅ |
 | Itcl ([incr Tcl]) OO         | ✅ |
 
-Not supported, out of scope by design (see [Why a v2 reset](#why-a-v2-reset)):
-hover, completion, signature help, rename, formatting, diagnostics, code actions,
-inlay hints.
+**The one rule** everything follows:
 
-The supported set stays within one rule: it only reports what it can derive with
-certainty from structure and the index, and stays silent otherwise — so it never
-asserts something wrong. (Semantic tokens colors definitions, `$`-variables, and
-calls that resolve to your procs/methods; builtins fall back to syntax
-highlighting rather than being mis-colored.)
+- Report only what is derivable with certainty from structure and the index.
+- Stay silent otherwise — never assert something that can be wrong.
+- Example: semantic tokens color only calls that resolve to indexed source;
+  builtins keep normal syntax highlighting instead of being mis-colored.
 
-What the supported features bring that a regex/ctags tool can't:
+**Out of scope by design** (see [Why a v2 reset](#why-a-v2-reset)):
+
+- hover, completion, signature help
+- rename, formatting, code actions, inlay hints
+- diagnostics
+
+**Beyond regex/ctags:**
 
 - **Cross-file & `.rvt`-aware** — resolution flows `.rvt` ⇄ `.tcl`.
-- **Reaching-definitions** — `$x` jumps to the assignment(s) that actually reach
-  it (through loops, conditionals, `break`/`return`), not just the first binding.
-- **Scope-correct** — namespaces, `namespace path`/`import`, `global`/`upvar`/
-  `variable` link-chasing, and arrays.
-- **Itcl OO** — classes, methods, ivars, inheritance, and the `$obj method`
-  receiver call. See [Itcl OO support](#itcl-oo-support).
+- **Reaching-definitions** — `$x` jumps to the assignment(s) that actually
+  reach it, through loops and conditionals.
+- **Scope-correct** — namespaces, `namespace path`/`import`,
+  `global`/`upvar`/`variable` link-chasing, arrays.
+- **Itcl OO** — classes, methods, ivars, inheritance, `$obj method` receiver
+  calls. See [Itcl OO support](#itcl-oo-support).
 
-## Install & initial config (Neovim ≥ 0.11)
+## Quick start
 
-No toolchain required. On first load the plugin downloads the prebuilt server
-binary for your OS/arch from a GitHub Release (needs `curl` or `wget`), verifies
-its SHA-256, and caches it under `stdpath("cache")/tcl-lsp/` — every launch after
-is instant. `go` + `make` are only a fallback (unsupported platform, offline, or
-local development).
+No toolchain needed for either editor:
 
-Copy this to `~/.config/nvim/lua/plugins/tcl-lsp.lua` (lazy.nvim / LazyVim) and
-restart — it's the recommended starting point, not just the minimum:
+- On first load, the client downloads the prebuilt server binary for your
+  OS/arch from a GitHub Release (needs `curl` or `wget`).
+- The download is SHA-256-verified, then cached — every later launch is
+  instant and offline.
+- Prebuilt targets: macOS (arm64/amd64), Linux (amd64/arm64). Anything else
+  falls back to building from source (`go` + `make`).
+
+### Neovim (≥ 0.11, lazy.nvim / LazyVim)
+
+1. Copy the spec below to `~/.config/nvim/lua/plugins/tcl-lsp.lua`.
+2. Adjust `extra_index_paths` to your machine (see comments).
+3. Restart Neovim and open any `.tcl` or `.rvt` file.
+4. Verify: put the cursor on a proc call and press `gd`.
 
 ```lua
 {
@@ -62,11 +72,10 @@ restart — it's the recommended starting point, not just the minimum:
     -- LSP code folding for tcl/rvt buffers (other filetypes untouched).
     folding = true,
 
-    -- External TCL sources to index alongside your project, so navigation
-    -- reaches beyond the repo you have open. Adjust paths to your machine;
-    -- entries that don't exist are skipped, so this is safe to share.
+    -- External TCL sources to index alongside your project. Entries that
+    -- don't exist on a machine are skipped, so one config is safe to share.
     extra_index_paths = {
-      "/opt/homebrew/opt/tcl-tk/lib", -- Tcl's own script library + tcllib (macOS/Homebrew)
+      "/opt/homebrew/opt/tcl-tk/lib", -- Tcl's script library + tcllib (macOS/Homebrew)
       -- "/usr/share/tcltk",          -- common Linux equivalent
       -- "/opt/fa/tcl-lib",           -- your company packages / other TCL repos
     },
@@ -74,72 +83,77 @@ restart — it's the recommended starting point, not just the minimum:
 }
 ```
 
-Find your Tcl library path with `echo 'puts $tcl_library' | tclsh` if the
-defaults above don't match your machine.
+> Find your Tcl library path with: `echo 'puts $tcl_library' | tclsh`
 
-### What this config means
+A fully-commented spec (plus a dev/local-clone variant) lives at
+[`editors/nvim/tcl-lsp.lua`](editors/nvim/tcl-lsp.lua).
 
-Open any `.tcl` or `.rvt` file. The server downloads (first time only), indexes
-your project plus the `extra_index_paths`, and then — using LazyVim's standard
-keys as examples:
+### Classic Vim (vim-lsp)
 
-- **`gd` on a call jumps to its definition — across files and languages.** On
-  `render_header` in a `.rvt` template, `gd` lands on `proc render_header` in
-  whatever `.tcl` file defines it. On `$obj configure`, it resolves the method
-  through the Itcl class (inheritance included).
-- **`gd` works on *library* code too — that's `extra_index_paths`.** On
-  `parray`, it jumps into Tcl's own `parray.tcl`; on `::msgcat::mc`, into the
-  msgcat module; on your company procs, into their repo — because those paths
-  are indexed read-only at startup (nothing executed, nothing written).
-- **`grr` on a proc lists every call site** — including calls made from `.rvt`
-  templates. (Treat it as "at least these": dynamically-built calls like
-  `$cmd args` or `eval $s` are invisible to any static tool — `grep` is the
-  backstop before deleting a proc.)
-- **`$x` jumps to the assignment that actually reaches it** — through loops and
-  conditionals, not just the first `set x` in the file.
-- **Color tells you what's navigable.** Semantic highlighting colors exactly the
-  calls that resolve to indexed source — so a colored call means "`gd` will
-  work here." Plain means C-implemented (`puts`, `string`), runtime-generated,
-  or dynamic: nothing to jump to, by the nature of the thing.
-- **`za` folds the body under the cursor** (procs, namespaces, classes,
-  `if`/`foreach` blocks — including TCL inside `.rvt` `<? ?>` regions), because
-  `folding = true` wired the LSP foldexpr for these filetypes.
-- **`<leader>ss` searches symbols project-wide**; `gO` shows the file outline in
-  source order.
-
-**Classic Vim** (vim-lsp) gets the same server and the same reach — in your
-vimrc, before sourcing the bundled config:
+1. Install [vim-lsp](https://github.com/prabirshrestha/vim-lsp) (+ async.vim).
+2. Clone this repo somewhere, e.g. `~/tools/tcl-lsp`.
+3. Add to your vimrc (paths before the `source` line):
 
 ```vim
 let g:tcl_lsp_extra_index_paths = ['/opt/homebrew/opt/tcl-tk/lib', '/opt/fa/tcl-lib']
-source /path/to/tcl-lsp/editors/vim/tcl-lsp.vim
+source ~/tools/tcl-lsp/editors/vim/tcl-lsp.vim
 ```
 
-Supported prebuilt targets: macOS (arm64/amd64) and Linux (amd64/arm64). Other
-platforms fall back to a source build. Maintainers: see
-[`docs/RELEASING.md`](docs/RELEASING.md) for cutting a release.
+4. Restart Vim. Use `:LspDefinition` / `:LspReferences` (or your vim-lsp maps).
 
-A fully-commented spec (and a dev/local-clone variant) lives at
-[`editors/nvim/tcl-lsp.lua`](editors/nvim/tcl-lsp.lua). For **packer**,
-**vim-plug**, and **Vim** (vim-lsp / coc.nvim), see
-[`editors/README.md`](editors/README.md).
+### Other setups
 
-## Configuration
+- **packer**, **vim-plug**, **coc.nvim**: see
+  [`editors/README.md`](editors/README.md).
+- Maintainers cutting releases: see [`docs/RELEASING.md`](docs/RELEASING.md).
 
-Pass options to `setup()` — through lazy.nvim's `opts`, or by calling
-`require("tcl-lsp").setup({ … })` directly. Everything is optional; defaults shown.
+## What you get
+
+With the quick-start config, using LazyVim's standard keys as examples:
+
+| Key | Does | Example |
+| --- | --- | --- |
+| `gd` | goto definition, cross-file and cross-language | `render_header` in a `.rvt` jumps to its `proc` in a `.tcl` |
+| `gd` | …including into indexed *library* code | `parray` jumps into Tcl's own `parray.tcl` |
+| `gd` on `$x` | jumps to the assignment that actually *reaches* it | not just the first `set x` in the file |
+| `grr` | find references, including `.rvt` call sites | see caveat below |
+| `<leader>ci` / `<leader>co` | incoming / outgoing call hierarchy | works for procs and Itcl methods |
+| `za` | fold the body under the cursor | procs, namespaces, classes, `if`/`foreach`, `.rvt` `<? ?>` regions |
+| `<leader>ss` | project-wide symbol search | procs, namespace vars, classes, methods |
+| `gO` | file outline, in source order | outline panels (`aerial.nvim`) pick it up too |
+
+**How to read the colors** (semantic tokens):
+
+- A **colored** call = resolves to indexed source = `gd` will work on it.
+- A **plain** call = C-implemented (`puts`, `string`), runtime-generated, or
+  dynamic — nothing to jump to, by the nature of the thing.
+
+**Honest caveats:**
+
+- Treat find-references results as *"at least these."* Dynamically-built calls
+  (`$cmd args`, `eval $s`) are invisible to any static tool, in any language.
+- Before deleting or renaming a proc, back the LSP up with a plain `grep`.
+- Call hierarchy traces bare and qualified calls; explicit `$obj method` edges
+  aren't traced yet.
+- Folding is curated: script bodies only — not arg lists, expressions, or data
+  braces.
+
+## Configuration reference
+
+Pass options via lazy.nvim's `opts`, or call `require("tcl-lsp").setup({ … })`
+directly. Everything is optional; defaults shown.
 
 ```lua
 require("tcl-lsp").setup({
   filetypes    = { "tcl", "rvt" },           -- buffers the server attaches to
   root_markers = { ".git", "pkgIndex.tcl" }, -- project root (order = priority; .git first)
-  cmd          = nil,                        -- override the server binary; nil = bundled
-  auto_build   = true,                       -- build the bundled server when missing/stale
+  cmd          = nil,                        -- override the server binary; nil = downloaded
+  auto_build   = true,                       -- source-build fallback if download unavailable
 
-  -- Keymaps, set buffer-local on attach (only in tcl/rvt buffers; they never
-  -- clobber your other maps). Default: none. The two forms mix freely.
+  -- Buffer-local keymaps, set on attach (tcl/rvt buffers only; never clobber
+  -- your other maps). Default: none. The two forms mix freely.
   keymaps = {
-    -- a named action -> the key that triggers it (the plugin owns the function)
+    -- named action -> key (the plugin owns the function)
     definition      = "gd",
     references      = "grr",
     document_symbol = "gO",
@@ -153,92 +167,85 @@ require("tcl-lsp").setup({
     -- { "<leader>cx", function() ... end, desc = "...", mode = "n" },
   },
 
-  folding = false, -- true: enable LSP code folding for tcl/rvt (see Usage)
+  folding = false, -- true: enable LSP code folding for tcl/rvt
 
-  -- External TCL sources (company package checkouts, tcllib dirs) indexed
-  -- read-only at startup, so goto-def/references/tokens reach into them.
-  -- Static: nothing executed, nothing written, missing paths skipped.
+  -- External TCL sources indexed read-only at startup (see next section).
   extra_index_paths = {}, -- e.g. { "/opt/fa/tcl-lib", vim.fn.expand("~/Repos/fa-tcl") }
 })
 ```
 
-Each `keymaps` entry carries a `desc`, so which-key (if installed) lists it
-automatically — no which-key config needed. Leave `keymaps` unset and your
-editor's existing LSP maps (LazyVim's `gd`/`grr`/`<leader>ss`…) keep working.
+Notes:
 
-## Usage
-
-Open a `.tcl`/`.rvt` file; the server attaches and indexes the project on first
-connect. Use the keymaps you configured above, or your editor's defaults:
-
-- **Go-to-definition / references** — `gd` / `grr` (LazyVim defaults). Vim:
-  `:LspDefinition` / `:LspReferences`.
-- **Symbols** — a document outline (procs, namespace vars, Itcl classes + members;
-  `.rvt` page symbols hoisted to the top) and a project-wide name search. LazyVim:
-  `<leader>ss` / `<leader>sS`. An outline panel (`aerial.nvim`) or breadcrumbs
-  (`nvim-navic`) pick it up automatically.
-- **Call hierarchy** — incoming/outgoing calls for procs and methods, across files
-  and `.rvt`. The built-ins fill the quickfix list; `lspsaga.nvim`
-  (`:Lspsaga incoming_calls`) gives a drill-down tree. Traces bare and qualified
-  calls; explicit `$obj method` edges aren't traced yet.
-- **Code folding** — fold ranges for proc/method/namespace/class and control-flow
-  bodies, plus the TCL inside `.rvt` `<? ?>` blocks (folds where tree-sitter
-  struggles with the mixed HTML/TCL). Curated: it folds script bodies only, not
-  arg lists, expressions, or data braces. Not on by default — set `folding = true`
-  in `setup()` and the plugin wires `foldmethod`/`foldexpr` window-local for
-  tcl/rvt buffers (new splits included), leaving every other filetype's folding
-  alone. You keep control of `foldlevel`/`foldcolumn`/etc. Prefer to wire it
-  yourself? Point Neovim 0.11+'s LSP foldexpr at our server in your own
-  `LspAttach`: `vim.wo.foldexpr = "v:lua.vim.lsp.foldexpr()"`.
-
-**Indexing feedback.** On first connect the server indexes the whole project (a few
-seconds on a big repo), reported via LSP work-done progress: an `Indexing TCL
-workspace` spinner with a live file count, then `Indexed N files`. Statuslines that
-render LSP progress (`fidget.nvim` / `noice.nvim`, both default in LazyVim; coc's
-`coc#status()`) show it; others just see a brief startup pause while goto-def and
-references wait on the index.
+- Each `keymaps` entry carries a `desc`, so **which-key** lists it
+  automatically.
+- Leave `keymaps` unset and your editor's existing LSP maps (LazyVim's
+  `gd`/`grr`/`<leader>ss`…) keep working.
+- Prefer wiring folding yourself instead of `folding = true`? Set
+  `vim.wo.foldexpr = "v:lua.vim.lsp.foldexpr()"` (+ `foldmethod=expr`) in your
+  own `LspAttach`.
+- Classic Vim options: `g:tcl_lsp_cmd`, `g:tcl_lsp_auto_build`,
+  `g:tcl_lsp_extra_index_paths` — documented in
+  [`editors/vim/tcl-lsp.vim`](editors/vim/tcl-lsp.vim).
 
 ## External packages & the Tcl library
 
-`extra_index_paths` (see the [initial config](#install--initial-config-neovim--011))
-is how navigation reaches beyond the repo you have open: the Tcl script library,
-`package require`d libraries, company package checkouts, any other TCL repo.
-The mechanics, precisely:
+`extra_index_paths` is how navigation reaches beyond the repo you have open —
+the Tcl script library, `package require`d libraries, company package
+checkouts, any other TCL repo.
+
+**Mechanics:**
 
 - **Static and read-only.** Each path (a directory's whole subtree, or a single
-  file) is parsed at startup exactly like workspace files. Nothing is executed,
-  nothing is written, nothing goes stale — the real sources are re-read every
-  start.
-- **Safe to share one config.** Missing paths are skipped silently, so a snippet
-  in team dotfiles can list macOS and Linux locations side by side; each machine
-  uses what exists.
-- **It lives in editor config, never in a project repo** — no tool artifacts in
+  file) is parsed at startup exactly like workspace files.
+- **Nothing executed, nothing written, nothing stale** — the real sources are
+  re-read every start.
+- **Safe to share one config.** Missing paths are skipped silently; a team
+  snippet can list macOS and Linux locations side by side.
+- **Lives in editor config, never in a project repo** — no tool artifacts in
   company repositories.
 
-Two things stay out of reach by design, because they have no source text:
-**C-implemented commands** (`set`, `puts`, `string`, C extensions) and procs
-*generated at runtime* by package code. That is what makes the coloring
-meaningful — a colored call means "there is source you can jump to." Dynamic
-*call sites* (`$cmd`, `eval`) are likewise out of reach under any mechanism — a
-fundamental boundary, not a missing feature.
+**Out of reach by design** (no source text exists):
+
+- C-implemented commands — `set`, `puts`, `string`, C extensions.
+- Procs *generated at runtime* by package code.
+- Dynamic *call sites* (`$cmd`, `eval`) — a fundamental boundary for any
+  static tool, not a missing feature.
+
+That boundary is what makes the coloring meaningful: **colored = there is
+source you can jump to.**
+
+## Indexing feedback
+
+- On first connect, the server indexes the whole project (parallelized; a few
+  seconds on a big repo).
+- Progress is reported via LSP work-done progress: an `Indexing TCL workspace`
+  spinner with a live file count, then `Indexed N files`.
+- Statuslines that render LSP progress show it out of the box: `fidget.nvim` /
+  `noice.nvim` (both LazyVim defaults), coc's `coc#status()`.
+- Without one of those, you just see a brief startup pause while the first
+  request waits on the index.
 
 ## Itcl OO support
 
-The dominant Rivet/speedtables idiom — `itcl::class`, `[::C #auto]`, `$obj method`
-— resolves end-to-end:
+The dominant Rivet/speedtables idiom — `itcl::class`, `[::C #auto]`,
+`$obj method` — resolves end-to-end:
 
-- **Classes**, **methods/ivars** (inline and external `itcl::body`, with or without
-  `public`/`protected`/`private` modifiers — the usual real-world form), and
-  **`inherit`** chains all resolve and appear in the symbol outlines.
-- **`$obj method`** is receiver-typed: `set d [::STDisplay #auto]; $d field` types
-  `$d` and resolves `field` on its class (including inherited), as a statement or
-  bracketed (`[$obj method]`).
+- **Classes** appear in outlines with their members.
+- **Methods and ivars** resolve — inline and external `itcl::body`, with or
+  without `public`/`protected`/`private` modifiers (the usual real-world form).
+- **`inherit` chains** resolve through the class hierarchy.
+- **`$obj method` is receiver-typed** — `set d [::STDisplay #auto]; $d field`
+  types `$d` and resolves `field` on its class, including inherited members,
+  as a statement or bracketed (`[$obj method]`).
 
-Graceful boundaries (returns nothing rather than jump wrong): **TclOO**
-(`oo::class`) is not supported — Itcl only; receivers with no locally-known class
-(a parameter, a factory return, a cross-method ivar) stay unresolved; simple
-`inherit`-order MRO, no C3 / dynamic dispatch / mixins; `public { … }` protection
-*blocks* aren't parsed (declare members individually).
+**Graceful boundaries** (returns nothing rather than jumping wrong):
+
+- **TclOO** (`oo::class`) is not supported — Itcl only.
+- Receivers with no locally-known class (a parameter, a factory return, a
+  cross-method ivar) stay unresolved.
+- Simple `inherit`-order MRO — no C3, dynamic dispatch, or mixins.
+- `public { … }` protection *blocks* aren't parsed — declare members
+  individually.
 
 Pinned against verbatim real Itcl/Rivet code (`flightaware/speedtables`,
 `mxmanghi/rivetweb`, `apache/tcl-rivet`); see
@@ -246,17 +253,19 @@ Pinned against verbatim real Itcl/Rivet code (`flightaware/speedtables`,
 
 ## Why a v2 reset
 
-v1 (313 commits) tried to do too much and accumulated performance regressions that
-were impossible to untangle. v2 inverts the approach: understand TCL's scope rules
-first, write them down, then build the minimum that works — which is why heavier
-analysis (the reaching-definitions dataflow) runs only when needed, off the
-goto-def hot path. Research lives in `research/`, designs and plans in `docs/`, and
-deferred work (e.g. TclOO) in [`docs/BACKLOG.md`](docs/BACKLOG.md).
+- v1 (313 commits) tried to do too much and accumulated performance
+  regressions that became impossible to untangle.
+- v2 inverts the approach: understand TCL's scope rules first, write them
+  down, then build the minimum that works.
+- Heavier analysis (reaching-definitions dataflow) runs only when needed, off
+  the goto-def hot path.
+- Research lives in `research/`; designs and plans in `docs/`; deferred work
+  in [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Recovering the old prototype
 
-The full v1 history is on the `v1` branch (its tip) and the `archive-v1` tag (an
-earlier checkpoint):
+The full v1 history is on the `v1` branch (its tip) and the `archive-v1` tag
+(an earlier checkpoint):
 
 ```bash
 git checkout v1 -- <path>     # pull a v1 file back as reference
