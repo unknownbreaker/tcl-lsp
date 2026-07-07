@@ -40,7 +40,7 @@ What the supported features bring that a regex/ctags tool can't:
 - **Itcl OO** — classes, methods, ivars, inheritance, and the `$obj method`
   receiver call. See [Itcl OO support](#itcl-oo-support).
 
-## Install (Neovim ≥ 0.11)
+## Install & initial config (Neovim ≥ 0.11)
 
 No toolchain required. On first load the plugin downloads the prebuilt server
 binary for your OS/arch from a GitHub Release (needs `curl` or `wget`), verifies
@@ -48,16 +48,71 @@ its SHA-256, and caches it under `stdpath("cache")/tcl-lsp/` — every launch af
 is instant. `go` + `make` are only a fallback (unsupported platform, offline, or
 local development).
 
+Copy this to `~/.config/nvim/lua/plugins/tcl-lsp.lua` (lazy.nvim / LazyVim) and
+restart — it's the recommended starting point, not just the minimum:
+
 ```lua
--- lazy.nvim
 {
   "unknownbreaker/tcl-lsp",
   ft = { "tcl", "rvt" },
   init = function()
     vim.filetype.add({ extension = { tcl = "tcl", rvt = "rvt" } }) -- map .rvt before load
   end,
-  opts = {}, -- calls require("tcl-lsp").setup(opts) — see Configuration below
+  opts = {
+    -- LSP code folding for tcl/rvt buffers (other filetypes untouched).
+    folding = true,
+
+    -- External TCL sources to index alongside your project, so navigation
+    -- reaches beyond the repo you have open. Adjust paths to your machine;
+    -- entries that don't exist are skipped, so this is safe to share.
+    extra_index_paths = {
+      "/opt/homebrew/opt/tcl-tk/lib", -- Tcl's own script library + tcllib (macOS/Homebrew)
+      -- "/usr/share/tcltk",          -- common Linux equivalent
+      -- "/opt/fa/tcl-lib",           -- your company packages / other TCL repos
+    },
+  },
 }
+```
+
+Find your Tcl library path with `echo 'puts $tcl_library' | tclsh` if the
+defaults above don't match your machine.
+
+### What this config means
+
+Open any `.tcl` or `.rvt` file. The server downloads (first time only), indexes
+your project plus the `extra_index_paths`, and then — using LazyVim's standard
+keys as examples:
+
+- **`gd` on a call jumps to its definition — across files and languages.** On
+  `render_header` in a `.rvt` template, `gd` lands on `proc render_header` in
+  whatever `.tcl` file defines it. On `$obj configure`, it resolves the method
+  through the Itcl class (inheritance included).
+- **`gd` works on *library* code too — that's `extra_index_paths`.** On
+  `parray`, it jumps into Tcl's own `parray.tcl`; on `::msgcat::mc`, into the
+  msgcat module; on your company procs, into their repo — because those paths
+  are indexed read-only at startup (nothing executed, nothing written).
+- **`grr` on a proc lists every call site** — including calls made from `.rvt`
+  templates. (Treat it as "at least these": dynamically-built calls like
+  `$cmd args` or `eval $s` are invisible to any static tool — `grep` is the
+  backstop before deleting a proc.)
+- **`$x` jumps to the assignment that actually reaches it** — through loops and
+  conditionals, not just the first `set x` in the file.
+- **Color tells you what's navigable.** Semantic highlighting colors exactly the
+  calls that resolve to indexed source — so a colored call means "`gd` will
+  work here." Plain means C-implemented (`puts`, `string`), runtime-generated,
+  or dynamic: nothing to jump to, by the nature of the thing.
+- **`za` folds the body under the cursor** (procs, namespaces, classes,
+  `if`/`foreach` blocks — including TCL inside `.rvt` `<? ?>` regions), because
+  `folding = true` wired the LSP foldexpr for these filetypes.
+- **`<leader>ss` searches symbols project-wide**; `gO` shows the file outline in
+  source order.
+
+**Classic Vim** (vim-lsp) gets the same server and the same reach — in your
+vimrc, before sourcing the bundled config:
+
+```vim
+let g:tcl_lsp_extra_index_paths = ['/opt/homebrew/opt/tcl-tk/lib', '/opt/fa/tcl-lib']
+source /path/to/tcl-lsp/editors/vim/tcl-lsp.vim
 ```
 
 Supported prebuilt targets: macOS (arm64/amd64) and Linux (amd64/arm64). Other
@@ -145,35 +200,27 @@ references wait on the index.
 
 ## External packages & the Tcl library
 
-The index only sees your workspace by default. To make goto-def, references, and
-semantic tokens reach into **any** external TCL source — the Tcl script library
-itself, `package require`d libraries, company package checkouts, other repos —
-point the server at their directories. One line of editor config, shared via
-your dotfiles, never a file in any project repo:
+`extra_index_paths` (see the [initial config](#install--initial-config-neovim--011))
+is how navigation reaches beyond the repo you have open: the Tcl script library,
+`package require`d libraries, company package checkouts, any other TCL repo.
+The mechanics, precisely:
 
-```lua
-require("tcl-lsp").setup({
-  extra_index_paths = {
-    "/opt/homebrew/Cellar/tcl-tk/9.0.3/lib/tcl9.0", -- Tcl's script library
-    "/opt/fa/tcl-lib",                              -- company packages
-    vim.fn.expand("~/Repos/fa-tcl"),                -- any other TCL repo
-  },
-})
-```
-
-(Vim: `let g:tcl_lsp_extra_index_paths = ['/opt/fa/tcl-lib']`.) Find your Tcl
-library path with `echo 'puts $tcl_library' | tclsh`. The paths are indexed
-**statically and read-only** at startup: nothing is executed, nothing is
-written, missing paths are skipped — safe to share one config across machines.
-With the Tcl library indexed, goto-def works on script-implemented library
-procs (`parray`, the `::tcl::clock::*` machinery, `msgcat`, …).
+- **Static and read-only.** Each path (a directory's whole subtree, or a single
+  file) is parsed at startup exactly like workspace files. Nothing is executed,
+  nothing is written, nothing goes stale — the real sources are re-read every
+  start.
+- **Safe to share one config.** Missing paths are skipped silently, so a snippet
+  in team dotfiles can list macOS and Linux locations side by side; each machine
+  uses what exists.
+- **It lives in editor config, never in a project repo** — no tool artifacts in
+  company repositories.
 
 Two things stay out of reach by design, because they have no source text:
 **C-implemented commands** (`set`, `puts`, `string`, C extensions) and procs
-*generated at runtime* by package code. That makes the coloring meaningful:
-a colored call means "there is source you can jump to." Dynamic *call sites*
-(`$cmd`, `eval`) are likewise out of reach under any mechanism — a fundamental
-boundary, not a missing feature.
+*generated at runtime* by package code. That is what makes the coloring
+meaningful — a colored call means "there is source you can jump to." Dynamic
+*call sites* (`$cmd`, `eval`) are likewise out of reach under any mechanism — a
+fundamental boundary, not a missing feature.
 
 ## Itcl OO support
 
