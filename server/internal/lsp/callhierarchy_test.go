@@ -73,6 +73,58 @@ func TestCallHierarchy(t *testing.T) {
 	}
 }
 
+// TestCallHierarchyOutgoingCrossFileCoordinates pins the LSP coordinate
+// contract for a CROSS-FILE outgoing call: To carries the CALLEE's file and the
+// callee-name position in THAT file's coordinates, while FromRanges are the
+// call-site positions in the CALLER's file. The fixture places the callee at a
+// line the caller's file doesn't even have, so any mispairing (e.g. a client
+// applying FromRanges in To's file — Neovim's deprecated built-in quickfix
+// handler does exactly this) is unambiguous. Same-file callees mask that bug,
+// which is why it must be pinned cross-file.
+func TestCallHierarchyOutgoingCrossFileCoordinates(t *testing.T) {
+	callee := "# pad\n# pad\n# pad\n# pad\n# pad\nproc far_helper {} {}\n" // def at line 5
+	caller := "proc caller {} {\n  far_helper\n}\n"                       // call at line 1
+	s := newCHServer(map[string]string{
+		"file:///callee.tcl": callee,
+		"file:///caller.tcl": caller,
+	})
+
+	items := s.prepareCallHierarchy(CallHierarchyPrepareParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///caller.tcl"},
+		Position:     posOf(caller, "caller"),
+	})
+	if len(items) != 1 {
+		t.Fatalf("prepare returned %d items, want 1", len(items))
+	}
+	out := s.outgoingCalls(CallHierarchyOutgoingCallsParams{Item: items[0]})
+	if len(out) != 1 {
+		t.Fatalf("outgoing returned %d calls, want 1: %#v", len(out), out)
+	}
+	c := out[0]
+
+	// To: the callee's definition, in the callee file's coordinates.
+	if c.To.URI != "file:///callee.tcl" {
+		t.Errorf("To.URI = %q, want callee.tcl", c.To.URI)
+	}
+	if want := posOf(callee, "far_helper"); c.To.SelectionRange.Start != want {
+		t.Errorf("To.SelectionRange.Start = %+v, want %+v (callee-file coords)", c.To.SelectionRange.Start, want)
+	}
+
+	// FromRanges: the call site, in the CALLER file's coordinates.
+	if len(c.FromRanges) != 1 {
+		t.Fatalf("FromRanges = %#v, want exactly 1", c.FromRanges)
+	}
+	if want := posOf(caller, "far_helper"); c.FromRanges[0].Start != want {
+		t.Errorf("FromRanges[0].Start = %+v, want %+v (caller-file coords)", c.FromRanges[0].Start, want)
+	}
+
+	// The mispairing detector: the two coordinate systems must actually differ
+	// in this fixture, or the assertions above prove nothing.
+	if c.FromRanges[0].Start.Line == c.To.SelectionRange.Start.Line {
+		t.Fatalf("fixture degenerate: caller call-site line == callee def line")
+	}
+}
+
 // TestCallHierarchyItcl: method-to-method edges via the Itcl Tier-2 resolution —
 // a bare intra-class call inside one method resolves to a sibling method.
 func TestCallHierarchyItcl(t *testing.T) {
