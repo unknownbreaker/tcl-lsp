@@ -116,6 +116,47 @@ local function apply_folding(buf)
   end
 end
 
+-- _outgoing_call_items converts a callHierarchy/outgoingCalls result into
+-- quickfix items that jump to each CALLEE's definition. Pure; exposed for tests.
+--
+-- Why we don't use Neovim's built-in handler: the deprecated built-in pairs the
+-- callee's file (to.uri) with fromRanges -- which the LSP spec defines as
+-- positions in the CALLER's file. Same-file callees mask the mismatch (the two
+-- coordinate systems coincide); cross-file callees land on the right file at a
+-- meaningless line. Jumping to the callee's own definition is both correct and
+-- what "outgoing calls" means. Multiple call sites collapse to one entry, with
+-- the count shown.
+function M._outgoing_call_items(result)
+  local items = {}
+  for _, call in ipairs(result or {}) do
+    local to = call.to
+    if to and to.uri then
+      local pos = (to.selectionRange or to.range).start
+      local n = call.fromRanges and #call.fromRanges or 0
+      table.insert(items, {
+        filename = vim.uri_to_fname(to.uri),
+        lnum = pos.line + 1,
+        col = pos.character + 1,
+        text = (to.detail or to.name or "?") .. (n > 1 and (" (" .. n .. " call sites)") or ""),
+      })
+    end
+  end
+  return items
+end
+
+-- outgoing_calls_handler replaces Neovim's built-in quickfix handler for
+-- callHierarchy/outgoingCalls (see _outgoing_call_items). Incoming calls keep
+-- the built-in handler: its from.uri + fromRanges pairing is coherent.
+local function outgoing_calls_handler(_, result)
+  local items = M._outgoing_call_items(result)
+  if #items == 0 then
+    vim.notify("tcl-lsp: no outgoing calls", vim.log.levels.INFO)
+    return
+  end
+  vim.fn.setqflist({}, " ", { title = "LSP outgoing calls", items = items })
+  vim.cmd("botright copen")
+end
+
 function M.setup(opts)
   opts = vim.tbl_deep_extend("force", defaults, opts or {})
   local root = plugin_root()
@@ -138,6 +179,11 @@ function M.setup(opts)
     cmd = cmd,
     filetypes = opts.filetypes,
     root_markers = opts.root_markers,
+    handlers = {
+      -- Fix cross-file outgoing calls landing on the wrong line (see
+      -- _outgoing_call_items). Scoped to our client; other LSPs unaffected.
+      ["callHierarchy/outgoingCalls"] = outgoing_calls_handler,
+    },
   }
   -- Only send init_options when paths are configured: an empty Lua table
   -- JSON-encodes as an object ({}), which would not decode into the server's
