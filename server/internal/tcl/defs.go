@@ -44,7 +44,7 @@ type Definition struct {
 func FileDefs(src string) []Definition {
 	var out []Definition
 	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", collectors{defs: &out})
-	return out
+	return promoteLinkedAssignments(out)
 }
 
 func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
@@ -119,46 +119,34 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			Class:     class,
 		})
 		if frame == FrameProc {
+			// Inside a proc, `variable cfg` LINKS the local name to the namespace
+			// variable (like `global` links to ::cfg) -- Origin makes the link
+			// chaseable and lets later assignments promote to the namespace var.
 			*out = append(*out, Definition{
 				Kind: DefLocal, Name: w[1].Text, Namespace: ns,
 				NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
-				Class: class,
+				Origin: qualifyName(w[1].Text, ns),
+				Class:  class,
 			})
 		}
 	}
-	if isCmd(w, "set") && frame == FrameNamespace && len(w) >= 2 {
+	if isCmd(w, "set") && len(w) >= 2 {
 		if name, s, e, ok := arrayBaseName(w[1]); ok {
-			*out = append(*out, Definition{
-				Kind:      DefNamespaceVar,
-				Name:      qualifyName(name, ns),
-				Namespace: ns,
-				NameStart: base + s,
-				NameEnd:   base + e,
-				FullStart: cmdStart,
-				FullEnd:   cmdEnd,
-				Scope:     scope,
-				Class:     class,
-			})
+			emitVarAssign(name, s, e, base, ns, frame, scope, class, cmdStart, cmdEnd, out)
 		}
 	}
-	if isCmd(w, "set") && frame == FrameProc && len(w) >= 2 {
-		if name, s, e, ok := arrayBaseName(w[1]); ok {
-			*out = append(*out, Definition{
-				Kind: DefLocal, Name: name, Namespace: ns,
-				NameStart: base + s, NameEnd: base + e, Scope: scope,
-				Class: class,
-			})
+	// `array set NAME data` defines/assigns array NAME exactly like `set` -- the
+	// dominant idiom for global config tables (`array set ::cfg {...}`).
+	if isCmd(w, "array") && len(w) >= 3 && w[1].Kind == WordBare && w[1].Text == "set" {
+		if name, s, e, ok := arrayBaseName(w[2]); ok {
+			emitVarAssign(name, s, e, base, ns, frame, scope, class, cmdStart, cmdEnd, out)
 		}
 	}
 	if frame == FrameProc && len(w) >= 2 {
 		switch {
 		case isCmd(w, "incr"), isCmd(w, "append"), isCmd(w, "lappend"):
 			if name, s, e, ok := arrayBaseName(w[1]); ok {
-				*out = append(*out, Definition{
-					Kind: DefLocal, Name: name, Namespace: ns,
-					NameStart: base + s, NameEnd: base + e, Scope: scope,
-					Class: class,
-				})
+				emitVarAssign(name, s, e, base, ns, frame, scope, class, cmdStart, cmdEnd, out)
 			}
 		}
 	}
@@ -237,6 +225,95 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 	if frame == FrameProc {
 		emitLoopVarDefs(w, base, ns, scope, class, out)
 	}
+}
+
+// emitVarAssign records a variable-assignment target (`set`, `array set`,
+// `incr`/`append`/`lappend`). At namespace frame -- or for a QUALIFIED name in
+// any frame -- it is a namespace-variable definition: `set ::x 1` inside a proc
+// writes the global directly in TCL, so indexing it as a proc-local both hid
+// the workspace definition and blocked cross-file `$::x` resolution. A bare
+// name at proc frame stays a proc-local binding.
+func emitVarAssign(name string, s, e, base int, ns string, frame FrameKind, scope int, class string, cmdStart, cmdEnd int, out *[]Definition) {
+	if frame == FrameNamespace || strings.Contains(name, "::") {
+		*out = append(*out, Definition{
+			Kind:      DefNamespaceVar,
+			Name:      qualifyName(name, ns),
+			Namespace: ns,
+			NameStart: base + s,
+			NameEnd:   base + e,
+			FullStart: cmdStart,
+			FullEnd:   cmdEnd,
+			Scope:     scope,
+			Class:     class,
+		})
+		return
+	}
+	*out = append(*out, Definition{
+		Kind: DefLocal, Name: name, Namespace: ns,
+		NameStart: base + s, NameEnd: base + e, Scope: scope,
+		Class: class,
+	})
+}
+
+// promoteLinkedAssignments appends a namespace-variable definition for each
+// proc-local assignment that writes through an earlier same-scope link
+// (`global cfg; set cfg 1`, `upvar #0 x y; set y 1`): executing the proc
+// assigns the link's ORIGIN variable, so the assignment site is a
+// workspace-visible definition of it -- the way many real codebases create
+// their globals (an init proc). The DefLocal binding is kept, so proc-local
+// resolution (reaching-defs, highlights) is unchanged; the promoted def only
+// makes `$::cfg` elsewhere find the site. Promotions are inserted immediately
+// after their local, keeping defs in ascending source order (the symbol
+// builder relies on that ordering).
+func promoteLinkedAssignments(defs []Definition) []Definition {
+	type key struct {
+		scope int
+		name  string
+	}
+	type link struct {
+		start  int
+		origin string
+	}
+	links := map[key][]link{}
+	for _, d := range defs {
+		if d.Origin == "" || (d.Kind != DefGlobalLink && d.Kind != DefLocal) {
+			continue
+		}
+		k := key{d.Scope, d.Name}
+		links[k] = append(links[k], link{d.NameStart, d.Origin})
+	}
+	if len(links) == 0 {
+		return defs
+	}
+	out := make([]Definition, 0, len(defs))
+	for _, d := range defs {
+		out = append(out, d)
+		if d.Kind != DefLocal || d.Origin != "" {
+			continue // promote only plain assignments, not the links themselves
+		}
+		// TCL links are last-write-wins for a local name: an assignment writes
+		// through the NEAREST PRECEDING link, so a rebound alias (`global cfg`
+		// then `upvar #0 other cfg`) attributes later sets to ::other, not ::cfg.
+		bestStart, origin := -1, ""
+		for _, l := range links[key{d.Scope, d.Name}] {
+			if l.start < d.NameStart && l.start > bestStart {
+				bestStart, origin = l.start, l.origin
+			}
+		}
+		if origin == "" {
+			continue
+		}
+		ns := "::"
+		if i := strings.LastIndex(origin, "::"); i > 0 {
+			ns = origin[:i]
+		}
+		out = append(out, Definition{
+			Kind: DefNamespaceVar, Name: origin, Namespace: ns,
+			NameStart: d.NameStart, NameEnd: d.NameEnd,
+			Scope: d.Scope, Class: d.Class,
+		})
+	}
+	return out
 }
 
 // isPlainName is currently equivalent to isLiteralName; kept as a distinct
