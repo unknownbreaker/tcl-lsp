@@ -85,5 +85,6 @@ func FileAll(src string) FileIndex {
 		ns:      fi.Namespaces,
 		classes: fi.Classes,
 	})
+	fi.Defs = promoteLinkedAssignments(fi.Defs)
 	return fi
 }

@@ -36,8 +36,12 @@ func (r *Resolver) localAt(file, src string, offset int) (name string, scope int
 		}
 	}
 	for _, ref := range source.Refs(file, src) {
+		// A QUALIFIED $var in a proc body ($::gvar, $app::x) is never a
+		// proc-local in TCL -- it names the namespace variable directly -- so it
+		// must fall through to workspace resolution, not be claimed as a local.
 		if ref.Ref.Kind == tcl.RefVariable && ref.Frame == tcl.FrameProc &&
-			offset >= ref.Ref.Start && offset < ref.Ref.End {
+			offset >= ref.Ref.Start && offset < ref.Ref.End &&
+			!strings.Contains(ref.Ref.Name, "::") {
 			return ref.Ref.Name, ref.Scope, true
 		}
 	}

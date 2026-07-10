@@ -83,7 +83,7 @@ func TestCallHierarchy(t *testing.T) {
 // which is why it must be pinned cross-file.
 func TestCallHierarchyOutgoingCrossFileCoordinates(t *testing.T) {
 	callee := "# pad\n# pad\n# pad\n# pad\n# pad\nproc far_helper {} {}\n" // def at line 5
-	caller := "proc caller {} {\n  far_helper\n}\n"                       // call at line 1
+	caller := "proc caller {} {\n  far_helper\n}\n"                        // call at line 1
 	s := newCHServer(map[string]string{
 		"file:///callee.tcl": callee,
 		"file:///caller.tcl": caller,
