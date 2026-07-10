@@ -1,5 +1,7 @@
 package tcl
 
+import "strings"
+
 // RefKind classifies a reference by its syntactic position.
 type RefKind int
 
@@ -44,7 +46,74 @@ func CommandRefs(c Command) []Reference {
 		}
 		refs = append(refs, wordRefs(w)...)
 	}
+	refs = append(refs, nameArgRefs(c)...)
 	return refs
+}
+
+// arrayNameSubcmds are the `array` subcommands whose first argument is defined
+// by the command's contract to be an array VARIABLE NAME that is read (or, for
+// unset, destroyed) -- not written-and-defined. `array set` is deliberately
+// absent: its target already emits a Definition, and emitting a reference too
+// would double-list the site in find-references (declarations are added
+// separately via includeDeclaration).
+var arrayNameSubcmds = map[string]bool{
+	"anymore": true, "donesearch": true, "exists": true, "get": true,
+	"names": true, "nextelement": true, "size": true, "startsearch": true,
+	"statistics": true, "unset": true,
+}
+
+// nameArgRefs emits variable references for bareword VARIABLE-NAME arguments of
+// commands whose contract defines those positions as variable names:
+//
+//	info exists NAME
+//	unset ?-nocomplain? ?--? NAME ?NAME ...?
+//	array <read-subcmd> NAME
+//
+// These names are passed as data (no `$`), so the ordinary scanners never see
+// them -- `if {[info exists ::cfg($k)]}` was invisible to goto-def and
+// find-references. Restricting to this fixed command list keeps the never-wrong
+// bet: the position IS a variable name by the command's contract, not by
+// inference (subject to the same accepted lightweight-parsing caveat as every
+// literal-head match here: a user proc shadowing `info`/`unset`/`array` would
+// be misread -- see isCmd's note). For an array element the reference covers
+// only the base name (the subscript may be dynamic and is scanned separately
+// for its own $refs); dynamic names ($n, [expr]) are skipped by arrayBaseName.
+func nameArgRefs(c Command) []Reference {
+	w := c.Words
+	if len(w) == 0 || w[0].Kind != WordBare {
+		return nil
+	}
+	var nameWords []Word
+	switch w[0].Text {
+	case "info":
+		if len(w) >= 3 && w[1].Kind == WordBare && w[1].Text == "exists" {
+			nameWords = w[2:3]
+		}
+	case "unset":
+		// Per unset(n), flags (-nocomplain, --) form a LEADING run only, and
+		// `--` terminates flag parsing -- after it, every word (even one
+		// starting with '-') is a variable name: `unset -- -foo` unsets -foo.
+		args := w[1:]
+		for len(args) > 0 && args[0].Kind == WordBare && strings.HasPrefix(args[0].Text, "-") {
+			terminator := args[0].Text == "--"
+			args = args[1:]
+			if terminator {
+				break
+			}
+		}
+		nameWords = args
+	case "array":
+		if len(w) >= 3 && w[1].Kind == WordBare && arrayNameSubcmds[w[1].Text] {
+			nameWords = w[2:3]
+		}
+	}
+	var out []Reference
+	for _, nw := range nameWords {
+		if name, s, e, ok := arrayBaseName(nw); ok {
+			out = append(out, Reference{Kind: RefVariable, Name: name, Start: s, End: e})
+		}
+	}
+	return out
 }
 
 // exprBracketRefs scans an expr's braced argument for [command substitution]
