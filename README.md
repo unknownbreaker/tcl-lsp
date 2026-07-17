@@ -196,7 +196,11 @@ checkouts, any other TCL repo.
 **Mechanics:**
 
 - **Static and read-only.** Each path (a directory's whole subtree, or a single
-  file) is parsed at startup exactly like workspace files.
+  file) is parsed at startup exactly like workspace files. `.tcl`, `.rvt`, and
+  `.tm` (Tcl module) files are indexed.
+- **Symlinks are followed** (with cycle protection) — point it at a Nix profile
+  (`~/.nix-profile`) or a Homebrew `opt/` path and the whole symlink forest is
+  indexed; jump targets keep the stable profile path, not the store path.
 - **Nothing executed, nothing written, nothing stale** — the real sources are
   re-read every start.
 - **Safe to share one config.** Missing paths are skipped silently; a team
