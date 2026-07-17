@@ -565,3 +565,75 @@ func (ix *Index) IndexDirProgress(root string, progress func(indexed int)) error
 	}
 	return errors.Join(errs...)
 }
+
+// IndexExtraTree indexes an EXTERNAL source tree (extra_index_paths), FOLLOWING
+// symlinks -- unlike the workspace walk. Nix profiles and Homebrew opt/ paths
+// are symlink forests: the root, the package directories, and even individual
+// files are links into a store, and filepath.WalkDir follows none of them, so
+// the standard walk indexes almost nothing there. Cycles are guarded by
+// tracking each directory's resolved identity. Files keep their TRAVERSAL path
+// (the stable profile-relative name), not the resolved store path, so goto-def
+// targets survive store churn. Also indexes .tm (Tcl modules), which external
+// libraries ship alongside .tcl; the workspace walk is deliberately unchanged
+// (not following links there avoids escaping the repo). Returns the number of
+// files indexed.
+//
+// seen maps resolved identities (dirs AND files) already visited, for cycle and
+// duplicate protection. Pass ONE map across all configured roots: overlapping
+// roots (a profile and its subdir, two generation links into the same store)
+// must still collapse each real file to a single goto-def location.
+func (ix *Index) IndexExtraTree(root string, seen map[string]bool) (int, error) {
+	indexed := 0
+	var errs []error
+	var walk func(path string)
+	walk = func(path string) {
+		fi, err := os.Stat(path) // follows symlinks
+		if err != nil {
+			errs = append(errs, err)
+			return
+		}
+		if !fi.IsDir() {
+			if strings.HasSuffix(path, ".tcl") || strings.HasSuffix(path, ".rvt") || strings.HasSuffix(path, ".tm") {
+				// Dedup files by resolved identity too: two links to the same
+				// store file must not yield two goto-def locations. The first
+				// traversal path (ReadDir-sorted, so deterministic) wins.
+				real, rerr := filepath.EvalSymlinks(path)
+				if rerr != nil {
+					errs = append(errs, rerr)
+					return
+				}
+				if seen[real] {
+					return
+				}
+				seen[real] = true
+				b, rerr := os.ReadFile(path)
+				if rerr != nil {
+					errs = append(errs, rerr)
+					return
+				}
+				ix.IndexFile(path, string(b))
+				indexed++
+			}
+			return
+		}
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			errs = append(errs, err)
+			return
+		}
+		if seen[real] {
+			return // cycle, or the same store dir reachable via two links
+		}
+		seen[real] = true
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			errs = append(errs, err)
+			return
+		}
+		for _, e := range entries { // ReadDir sorts: deterministic order
+			walk(filepath.Join(path, e.Name()))
+		}
+	}
+	walk(root)
+	return indexed, errors.Join(errs...)
+}
