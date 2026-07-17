@@ -218,6 +218,51 @@ checkouts, any other TCL repo.
 That boundary is what makes the coloring meaningful: **colored = there is
 source you can jump to.**
 
+### Per-project package visibility
+
+Some projects shouldn't see every package you have installed (wrong-project
+hits in symbol search, goto-def landing in libraries a project doesn't use).
+There is no exclude option — instead, give those projects a *narrower include
+list*, computed per project in your own editor config:
+
+- The paths are sent to the server once, at startup, and Neovim runs one
+  server per project — so whatever list is computed when the plugin loads is
+  what that project sees.
+- With lazy.nvim, make `opts` a function and pick the list by project
+  directory. Config stays in your dotfiles; nothing lands in the project repo.
+
+```lua
+opts = function()
+  local profile = vim.fn.expand("~/.nix-profile")
+
+  -- Projects that should see only SOME packages: dir pattern -> include list.
+  -- Lua patterns, matched against cwd; anchor with `$` and escape `-` as `%-`.
+  local per_project = {
+    ["legacy%-app$"] = {
+      profile .. "/lib/tcllib",
+      profile .. "/lib/company-core",
+    },
+  }
+
+  local paths = { profile } -- every other project: the whole profile
+  for pattern, list in pairs(per_project) do
+    if vim.fn.getcwd():match(pattern) then
+      paths = list
+      break
+    end
+  end
+
+  return { folding = true, extra_index_paths = paths }
+end,
+```
+
+Why include-lists instead of excludes: an include list stays correct as new
+packages appear in the profile (they're simply not indexed), while an exclude
+list silently starts indexing anything new. The `opts` function runs when the
+first tcl/rvt buffer opens, keyed on the launch directory — after editing the
+map, restart Neovim from the project dir to re-evaluate it (`:LspRestart`
+alone won't).
+
 ## Indexing feedback
 
 - On first connect, the server indexes the whole project (parallelized; a few
