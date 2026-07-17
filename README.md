@@ -228,31 +228,31 @@ list*, computed per project in your own editor config:
 - The paths are sent to the server once, at startup, and Neovim runs one
   server per project — so whatever list is computed when the plugin loads is
   what that project sees.
+- Each listed path is indexed **recursively** (whole subtree, symlinks
+  followed), so one entry per package is enough — however deep its sources go.
 - With lazy.nvim, make `opts` a function and pick the list by project
   directory. Config stays in your dotfiles; nothing lands in the project repo.
 
 ```lua
-opts = function()
+-- The `function(_, opts)` form MERGES: it receives the opts accumulated from
+-- any other spec fragments; mutate and return nothing. (A `function()` that
+-- returns a fresh table would REPLACE those opts instead.)
+opts = function(_, opts)
+  opts.folding = true
+
   local profile = vim.fn.expand("~/.nix-profile")
 
-  -- Projects that should see only SOME packages: dir pattern -> include list.
-  -- Lua patterns, matched against cwd; anchor with `$` and escape `-` as `%-`.
+  -- Projects that should see only SOME packages:
+  -- project directory name (exact match) -> include list.
   local per_project = {
-    ["legacy%-app$"] = {
+    ["legacy-app"] = {
       profile .. "/lib/tcllib",
       profile .. "/lib/company-core",
     },
   }
 
-  local paths = { profile } -- every other project: the whole profile
-  for pattern, list in pairs(per_project) do
-    if vim.fn.getcwd():match(pattern) then
-      paths = list
-      break
-    end
-  end
-
-  return { folding = true, extra_index_paths = paths }
+  local project = vim.fn.fnamemodify(vim.fn.getcwd(), ":t") -- cwd's last component
+  opts.extra_index_paths = per_project[project] or { profile }
 end,
 ```
 
@@ -262,6 +262,13 @@ list silently starts indexing anything new. The `opts` function runs when the
 first tcl/rvt buffer opens, keyed on the launch directory — after editing the
 map, restart Neovim from the project dir to re-evaluate it (`:LspRestart`
 alone won't).
+
+Need fuzzier matching than exact directory names (e.g. all checkouts named
+`legacy-app*`)? Match `vim.fn.getcwd()` with a [Lua pattern] instead:
+`vim.fn.getcwd():match("legacy%-app")` — note `%-` for a literal dash and `$`
+to anchor at the end of the path.
+
+[Lua pattern]: https://www.lua.org/manual/5.1/manual.html#5.4.1
 
 ## Indexing feedback
 
