@@ -253,29 +253,25 @@ func (s *Server) indexWorkspace(root string, progress bool) {
 // locations (extra_index_paths in the editor config) -- the zero-ritual default
 // for company package checkouts and library dirs. Read-only: nothing is
 // executed, nothing is written. A missing path is skipped silently (a shared
-// editor config may name dirs some machines lack); a directory indexes its
-// whole subtree, a file just itself.
+// editor config may name dirs some machines lack). Unlike the workspace walk,
+// the tree walk FOLLOWS symlinks (IndexExtraTree): Nix profiles and Homebrew
+// opt/ paths are symlink forests that a non-following walk silently skips.
 func (s *Server) indexExtraPaths(paths []string) {
-	indexed := 0
+	found, files := 0, 0
+	seen := map[string]bool{} // shared across roots: overlapping paths dedup to one location
 	for _, p := range paths {
-		fi, err := os.Stat(p)
+		if _, err := os.Stat(p); err != nil {
+			continue // not on this machine
+		}
+		n, err := s.ix.IndexExtraTree(p, seen)
 		if err != nil {
-			continue
+			log.Printf("extra index path (%s): %v", p, err)
 		}
-		if fi.IsDir() {
-			if err := s.ix.IndexDir(p); err != nil {
-				log.Printf("extra index path (%s): %v", p, err)
-			}
-			indexed++
-			continue
-		}
-		if b, rerr := os.ReadFile(p); rerr == nil {
-			s.ix.IndexFile(p, string(b))
-			indexed++
-		}
+		found++
+		files += n
 	}
-	if indexed > 0 {
-		log.Printf("extra index paths: indexed %d of %d configured", indexed, len(paths))
+	if found > 0 {
+		log.Printf("extra index paths: indexed %d files from %d of %d configured paths", files, found, len(paths))
 	}
 }
 
