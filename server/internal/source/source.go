@@ -15,16 +15,12 @@ import (
 // IsRVT reports whether path is a Rivet template, by extension.
 func IsRVT(path string) bool { return strings.HasSuffix(path, ".rvt") }
 
-// Defs returns the definitions declared in content, in source coordinates. For
-// .rvt, name ranges are translated from the stitched script back to the .rvt;
-// wrapper-synthetic definitions (which map to -1) are dropped.
-func Defs(path, content string) []tcl.Definition {
-	if !IsRVT(path) {
-		return tcl.FileDefs(content)
-	}
-	doc := rvt.Extract(content)
+// translateDefs maps definitions from stitched-script offsets back to .rvt
+// source coordinates, dropping wrapper-synthetic entries (which map to -1).
+// Shared by Defs and IndexUnit so the translation rule exists exactly once.
+func translateDefs(doc rvt.Document, in []tcl.Definition) []tcl.Definition {
 	var out []tcl.Definition
-	for _, d := range tcl.FileDefs(doc.Script) {
+	for _, d := range in {
 		s := doc.ToSource(d.NameStart)
 		if s < 0 {
 			continue
@@ -41,6 +37,32 @@ func Defs(path, content string) []tcl.Definition {
 	return out
 }
 
+// translateRefs maps references from stitched-script offsets back to .rvt
+// source coordinates, dropping wrapper-synthetic entries (see translateDefs).
+func translateRefs(doc rvt.Document, in []tcl.ContextRef) []tcl.ContextRef {
+	var out []tcl.ContextRef
+	for _, r := range in {
+		s := doc.ToSource(r.Ref.Start)
+		if s < 0 {
+			continue
+		}
+		r.Ref.Start, r.Ref.End = s, s+(r.Ref.End-r.Ref.Start)
+		out = append(out, r)
+	}
+	return out
+}
+
+// Defs returns the definitions declared in content, in source coordinates. For
+// .rvt, name ranges are translated from the stitched script back to the .rvt;
+// wrapper-synthetic definitions (which map to -1) are dropped.
+func Defs(path, content string) []tcl.Definition {
+	if !IsRVT(path) {
+		return tcl.FileDefs(content)
+	}
+	doc := rvt.Extract(content)
+	return translateDefs(doc, tcl.FileDefs(doc.Script))
+}
+
 // IndexUnit returns all four per-file analyses (defs, refs, namespaces, classes)
 // for content in SOURCE coordinates, from a SINGLE parse -- and, for .rvt, a
 // single Extract. It is the workspace index's entry point (index.IndexFile);
@@ -54,35 +76,8 @@ func IndexUnit(path, content string) tcl.FileIndex {
 	}
 	doc := rvt.Extract(content)
 	fi := tcl.FileAll(doc.Script)
-
-	var defs []tcl.Definition
-	for _, d := range fi.Defs {
-		s := doc.ToSource(d.NameStart)
-		if s < 0 {
-			continue
-		}
-		d.NameStart, d.NameEnd = s, s+(d.NameEnd-d.NameStart)
-		if fs := doc.ToSource(d.FullStart); fs >= 0 {
-			d.FullEnd = fs + (d.FullEnd - d.FullStart)
-			d.FullStart = fs
-		} else {
-			d.FullStart, d.FullEnd = d.NameStart, d.NameEnd // fall back to name range
-		}
-		defs = append(defs, d)
-	}
-	fi.Defs = defs
-
-	var refs []tcl.ContextRef
-	for _, r := range fi.Refs {
-		s := doc.ToSource(r.Ref.Start)
-		if s < 0 {
-			continue
-		}
-		r.Ref.Start, r.Ref.End = s, s+(r.Ref.End-r.Ref.Start)
-		refs = append(refs, r)
-	}
-	fi.Refs = refs
-
+	fi.Defs = translateDefs(doc, fi.Defs)
+	fi.Refs = translateRefs(doc, fi.Refs)
 	return fi
 }
 
@@ -94,16 +89,7 @@ func Refs(path, content string) []tcl.ContextRef {
 		return tcl.FileRefs(content)
 	}
 	doc := rvt.Extract(content)
-	var out []tcl.ContextRef
-	for _, r := range tcl.FileRefs(doc.Script) {
-		s := doc.ToSource(r.Ref.Start)
-		if s < 0 {
-			continue
-		}
-		r.Ref.Start, r.Ref.End = s, s+(r.Ref.End-r.Ref.Start)
-		out = append(out, r)
-	}
-	return out
+	return translateRefs(doc, tcl.FileRefs(doc.Script))
 }
 
 // Namespaces returns per-namespace declarations for content. NamespaceInfo holds

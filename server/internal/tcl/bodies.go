@@ -88,11 +88,12 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		return []bodyScope{{Inner: inner, Base: innerBase, NS: qualifyNamespace(w[2].Text, ns), Frame: FrameNamespace, Scope: 0, Class: class}}
 	case isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced:
-		// The proc body runs in the namespace where the proc is defined. For a
-		// qualified proc name (proc ::a::b {} {...}) the body runs in ::a, not the
-		// current namespace; that refinement is not yet modeled, so we use ns.
+		// The proc body runs in the namespace where the proc is DEFINED: for a
+		// qualified name (proc ::a::b {} {...}) that is ::a -- the name's own
+		// namespace -- not the lexically enclosing one. This is what makes
+		// `variable cfg` inside proc ::a::b link to ::a::cfg.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
-		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
+		return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(w[1].Text, ns), Frame: FrameProc, Scope: innerBase, Class: class}}
 	case (isCmd(w, "itcl::class") || isCmd(w, "::itcl::class")) && len(w) >= 3 && w[len(w)-1].Kind == WordBraced:
 		// itcl::class NAME BODY — the body is a member-declaration scope.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
@@ -134,10 +135,11 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		return nil
 	default:
 		// A decorated proc definition (`CACHE_PROC proc name args body`): its body
-		// is a proc scope, exactly like a plain proc.
-		if _, _, body, ok := decoratedProcDef(w); ok {
+		// is a proc scope, exactly like a plain proc (including the qualified-name
+		// namespace rule).
+		if name, _, body, ok := decoratedProcDef(w); ok {
 			inner, innerBase := bracedInner(body, base)
-			return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
+			return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(name.Text, ns), Frame: FrameProc, Scope: innerBase, Class: class}}
 		}
 		// Control-flow (if/while/for/foreach/catch/try) and custom-command script
 		// bodies run in the enclosing namespace and frame -- no new scope.
@@ -159,6 +161,20 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 // head must not be `proc` (handled directly by the proc cases) nor a list/data
 // builtin (so `lappend x proc foo {} {}` is not misread). This covers single,
 // argument-taking, and stacked decorators, a qualified NAME, and trailing flags.
+// procBodyNS returns the namespace a proc's body runs in: for a qualified proc
+// name (`::a::b`, `a::b`) the namespace part of the qualified name; for a plain
+// name, the lexically enclosing namespace.
+func procBodyNS(name, ns string) string {
+	if !strings.Contains(name, "::") {
+		return ns
+	}
+	fq := qualifyName(name, ns)
+	if i := strings.LastIndex(fq, "::"); i > 0 {
+		return fq[:i]
+	}
+	return "::" // `::name` -- defined directly in the global namespace
+}
+
 func decoratedProcDef(w []Word) (name, args, body Word, ok bool) {
 	if len(w) < 5 || w[0].Kind != WordBare || listOrDataHeads[w[0].Text] {
 		return // need at least DECORATOR proc NAME ARGS BODY, head a decorator word

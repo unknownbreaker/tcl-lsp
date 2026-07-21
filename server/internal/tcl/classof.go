@@ -16,7 +16,7 @@ func ClassOf(src string, receiverUseOff int) []string {
 	}
 
 	// Get the enclosing scope (proc or namespace body) so we can walk its commands.
-	inner, innerBase, _, _, _, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, receiverUseOff)
+	inner, innerBase, _, _, _, _, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, receiverUseOff)
 	if !found {
 		return nil
 	}

@@ -59,11 +59,13 @@ local defaults = {
   extra_index_paths = {},
 }
 
--- action_fns maps a `keymaps` action name to the vim.lsp.buf function it triggers.
+-- action_fns maps a `keymaps` action name to the vim.lsp.buf function it
+-- triggers. Only actions the server actually advertises are offered --
+-- hover/declaration/type_definition are deliberately absent (out of scope for
+-- this server; binding them would give a key that silently does nothing, and
+-- an unknown name now correctly warns instead).
 local action_fns = {
   definition = vim.lsp.buf.definition,
-  declaration = vim.lsp.buf.declaration,
-  type_definition = vim.lsp.buf.type_definition,
   references = vim.lsp.buf.references,
   document_symbol = vim.lsp.buf.document_symbol,
   workspace_symbol = function()
@@ -71,7 +73,6 @@ local action_fns = {
   end,
   incoming_calls = vim.lsp.buf.incoming_calls,
   outgoing_calls = vim.lsp.buf.outgoing_calls,
-  hover = vim.lsp.buf.hover,
 }
 
 -- _keymap_specs flattens the `keymaps` (named action -> lhs) and `keys`

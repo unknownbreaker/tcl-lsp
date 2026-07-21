@@ -14,7 +14,6 @@ func TestClassOfLocalInstantiation(t *testing.T) {
 	}
 }
 
-
 func TestClassOfUnknownIsNil(t *testing.T) {
 	// receiver is a parameter -> no local instantiation -> no type
 	src := "proc f {obj} {\n  $obj field\n}"

@@ -9,7 +9,7 @@ package tcl
 // straight-line proc body. Also supports namespace-level variables (used by RVT
 // templates).
 func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
-	inner, innerBase, argsWord, argsBase, frame, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, useOff)
+	inner, innerBase, argsWord, argsBase, ns, frame, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, useOff)
 	if !found {
 		return nil, false
 	}
@@ -17,7 +17,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	if len(inner) > maxReachingBytes {
 		return nil, false // oversized: caller falls back to first-binding
 	}
-	a := &analyzer{useOff: useOff}
+	a := &analyzer{useOff: useOff, ns: ns, frame: frame}
 	entry := reachSet{}
 	// Seed entry set with proc params (namespace-level code has no params).
 	if frame == FrameProc {
@@ -36,31 +36,31 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 
 // enclosingProcOrScope returns the interior text and absolute base of the innermost
 // scope (proc or namespace) containing useOff, plus the proc's args Word and base
-// for interpreting it (empty/zero for namespace scopes). Also returns the frame
-// kind (FrameProc or FrameNamespace).
-func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int) (inner string, innerBase int, argsWord Word, argsBase int, frameKind FrameKind, found bool) {
+// for interpreting it (empty/zero for namespace scopes). Also returns the scope's
+// namespace and frame kind (FrameProc or FrameNamespace).
+func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int) (inner string, innerBase int, argsWord Word, argsBase int, scopeNS string, frameKind FrameKind, found bool) {
 	for _, c := range cmds {
 		for _, b := range childBodies(c, base, ns, frame, scope, "") {
 			if useOff < b.Base || useOff >= b.Base+len(b.Inner) {
 				continue
 			}
 			// Try to find a deeper (more nested) scope first.
-			if in2, base2, aw2, ab2, fk2, ok2 := enclosingProcOrScope(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, useOff); ok2 {
-				return in2, base2, aw2, ab2, fk2, true
+			if in2, base2, aw2, ab2, ns2, fk2, ok2 := enclosingProcOrScope(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, useOff); ok2 {
+				return in2, base2, aw2, ab2, ns2, fk2, true
 			}
 			// This body is the innermost one containing useOff. Accept it if it's
 			// a scope-introducing frame (proc or namespace).
 			if b.Frame == FrameProc && b.Scope == b.Base {
 				// Recover the args word from the proc command.
 				aw, ab := procArgsWord(c, base)
-				return b.Inner, b.Base, aw, ab, FrameProc, true
+				return b.Inner, b.Base, aw, ab, b.NS, FrameProc, true
 			}
 			if b.Frame == FrameNamespace && b.Scope == 0 {
-				return b.Inner, b.Base, Word{}, base, FrameNamespace, true
+				return b.Inner, b.Base, Word{}, base, b.NS, FrameNamespace, true
 			}
 		}
 	}
-	return "", 0, Word{}, 0, FrameNamespace, false
+	return "", 0, Word{}, 0, "::", FrameNamespace, false
 }
 
 // procArgsWord returns the args Word and base for the proc command c (or a
@@ -98,6 +98,11 @@ type analyzer struct {
 	found     bool
 	loopStack []*frameAcc
 	ret       reachSet
+	// Enclosing scope of the whole analyzed body, threaded into localBindings so
+	// `variable NAME` links carry the qualified Origin (proc frames only) --
+	// mirroring emitDefs. See the localBindings doc comment.
+	ns    string
+	frame FrameKind
 }
 
 // seq threads the reaching set left-to-right through a command sequence.
@@ -146,7 +151,7 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	defer func() { a.loopStack = a.loopStack[:len(a.loopStack)-1] }()
 
 	bodyEntry := in.clone()
-	for _, d := range localBindings(c, base) {
+	for _, d := range localBindings(c, base, a.ns, a.frame) {
 		bodyEntry[d.Name] = []Definition{d}
 	}
 	bodies := scriptBodies(c.Words)
@@ -228,7 +233,7 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 	gens := reachSet{}
 	for _, b := range scriptBodies(c.Words) {
 		inner, ibase := bracedInner(b, base)
-		collectBindings(Parse(inner), ibase, gens)
+		a.collectBindings(Parse(inner), ibase, gens)
 	}
 	// For inline-form switch (`switch ?opts? string pat body pat body ...`),
 	// scriptBodies returns only the last braced word (the default arm, by the
@@ -238,7 +243,7 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 		for _, w := range c.Words[2:] {
 			if w.Kind == WordBraced {
 				inner, ibase := bracedInner(w, base)
-				collectBindings(Parse(inner), ibase, gens)
+				a.collectBindings(Parse(inner), ibase, gens)
 			}
 		}
 	}
@@ -258,21 +263,22 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 		}
 	}
 	out := bodyView.clone()
-	for _, d := range localBindings(c, base) { // catch resultVar / optionsVar
+	for _, d := range localBindings(c, base, a.ns, a.frame) { // catch resultVar / optionsVar
 		out[d.Name] = appendDedup(out[d.Name], d)
 	}
 	return out, true
 }
 
 // collectBindings unions every local binding made anywhere in cmds (recursing
-// all child script bodies) into `into`.
-func collectBindings(cmds []Command, base int, into reachSet) {
+// all child script bodies) into `into`. Bindings inherit the analyzer's scope
+// context (a.ns/a.frame): the whole analyzed body is treated as one frame.
+func (a *analyzer) collectBindings(cmds []Command, base int, into reachSet) {
 	for _, c := range cmds {
-		for _, d := range localBindings(c, base) {
+		for _, d := range localBindings(c, base, a.ns, a.frame) {
 			into[d.Name] = appendDedup(into[d.Name], d)
 		}
 		for _, b := range childBodies(c, base, "::", FrameProc, base, "") {
-			collectBindings(Parse(b.Inner), b.Base, into)
+			a.collectBindings(Parse(b.Inner), b.Base, into)
 		}
 	}
 }
@@ -316,7 +322,7 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		}
 		return in, false
 	}
-	binds := localBindings(c, base)
+	binds := localBindings(c, base, a.ns, a.frame)
 	if isRMW(c) && !a.found {
 		for _, d := range binds {
 			if a.useOff >= d.NameStart && a.useOff < d.NameEnd {
@@ -420,10 +426,17 @@ func (a *analyzer) recordUses(c Command, base int, in reachSet) {
 }
 
 // localBindings returns the variable bindings introduced by a single command c,
-// applying the same rules as emitDefs but always as if inside a proc frame
-// (since localBindings is only called on commands inside a proc body).
-// base is the absolute offset of the parse context that produced c's offsets.
-func localBindings(c Command, base int) []Definition {
+// applying the same rules as emitDefs. base is the absolute offset of the parse
+// context that produced c's offsets; ns and frame are the analyzed scope's
+// namespace and kind (the analyzer treats the whole scope as one frame).
+//
+// KEEP IN SYNC with emitDefs (defs.go): this is a second copy of the binding
+// rules, projected to what reaching-defs needs. The `variable`-link Origin was
+// once dropped here while defs.go carried it, producing a wrong goto-def jump
+// (see variable_link_reaching_test.go in internal/resolve) -- any rule change
+// in one file must be mirrored in the other, and pinned by a resolve-level test
+// exercising BOTH paths.
+func localBindings(c Command, base int, ns string, frame FrameKind) []Definition {
 	var out []Definition
 	w := c.Words
 	if len(w) == 0 {
@@ -453,12 +466,19 @@ func localBindings(c Command, base int) []Definition {
 		}
 	}
 
-	// variable NAME ?val? (proc frame: also a local link to the ns var)
+	// variable NAME ?val? -- in a proc frame this LINKS the local name to the
+	// namespace variable, so Origin carries the qualified target for the
+	// resolver to chase (mirrors emitDefs' FrameProc case). In a namespace
+	// frame the declaration IS the definition: no Origin.
 	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) {
-		out = append(out, Definition{
+		d := Definition{
 			Kind: DefLocal, Name: w[1].Text,
 			NameStart: base + w[1].Start, NameEnd: base + w[1].End,
-		})
+		}
+		if frame == FrameProc {
+			d.Origin = qualifyName(w[1].Text, ns)
+		}
+		out = append(out, d)
 	}
 
 	// global NAME ... (DefGlobalLink per name)

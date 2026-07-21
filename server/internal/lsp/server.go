@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
@@ -25,8 +24,9 @@ type Server struct {
 }
 
 // isIndexable reports whether a path is a workspace file the index tracks.
+// The suffix rule lives in one place: index.IsIndexable.
 func isIndexable(path string) bool {
-	return strings.HasSuffix(path, ".tcl") || strings.HasSuffix(path, ".rvt")
+	return index.IsIndexable(path)
 }
 
 // NewServer builds a server over conn with an empty index.
