@@ -106,7 +106,7 @@ func TestRealInlineProcSamePage(t *testing.T) {
 // Fixture H — absolute-qualified variable reads across namespaces.
 func TestRealNamespacedVarRead(t *testing.T) {
 	files := map[string]string{
-		"state.tcl": "namespace eval ::rivetweb {\n  variable page_title \"Home\"\n}",
+		"state.tcl":  "namespace eval ::rivetweb {\n  variable page_title \"Home\"\n}",
 		"page_h.rvt": "<title><? puts -nonewline $::rivetweb::page_title ?></title>",
 	}
 	found, all := refsFromDef(t, files, "state.tcl", "page_title", "page_h.rvt")

@@ -75,6 +75,21 @@ func New() *Index {
 	}
 }
 
+// IsIndexable reports whether path is a source file the index tracks: .tcl or
+// .rvt. This is THE suffix rule -- the workspace walk (IndexDirProgress), the
+// LSP server's file-watcher filter, and the external-tree walk all call it, so
+// a new extension is added in exactly one place. External trees additionally
+// accept .tm (isExtraIndexable).
+func IsIndexable(path string) bool {
+	return strings.HasSuffix(path, ".tcl") || strings.HasSuffix(path, ".rvt")
+}
+
+// isExtraIndexable is IsIndexable plus .tm: Tcl modules ship alongside .tcl in
+// external libraries (extra_index_paths) but are not workspace files.
+func isExtraIndexable(path string) bool {
+	return IsIndexable(path) || strings.HasSuffix(path, ".tm")
+}
+
 // IndexFile records the workspace-visible definitions in content under path. Locals
 // and global links are skipped (resolved frame-locally, not via the workspace
 // table).
@@ -130,31 +145,29 @@ func (ix *Index) storeUnit(path, content string, unit tcl.FileIndex) {
 		}
 	}
 
-	// Merge inherit edges from FileClasses.
+	// Record inherit edges from FileClasses. fileClassInherit stores each
+	// file's RAW assertions (every edge the file declares, deduped within the
+	// file) -- not a delta against the merged view. The merged ci.Inherit is
+	// DERIVED from all files' assertions (rebuildInherit), so an edge asserted
+	// by two files survives removal of either one. (The old delta model
+	// credited only the first-indexed file, and removing it dropped the edge
+	// even though another file still declared it.)
 	for classFQ, bases := range unit.Classes {
-		ci := ix.ensureClass(classFQ)
+		ix.ensureClass(classFQ)
 		classKeysSeen[classFQ] = true
-		// Track this file's contribution for precise removal.
 		if ix.fileClassInherit[path] == nil {
 			ix.fileClassInherit[path] = map[string][]string{}
 		}
-		var newEdges []string
+		seen := map[string]bool{}
+		var asserted []string
 		for _, base := range bases {
-			already := false
-			for _, existing := range ci.Inherit {
-				if existing == base {
-					already = true
-					break
-				}
-			}
-			if !already {
-				ci.Inherit = append(ci.Inherit, base)
-				newEdges = append(newEdges, base)
+			if !seen[base] {
+				seen[base] = true
+				asserted = append(asserted, base)
 			}
 		}
-		if len(newEdges) > 0 {
-			ix.fileClassInherit[path][classFQ] = append(ix.fileClassInherit[path][classFQ], newEdges...)
-		}
+		ix.fileClassInherit[path][classFQ] = asserted
+		ix.rebuildInherit(classFQ)
 	}
 
 	// Record the set of class keys this file contributed.
@@ -172,6 +185,36 @@ func (ix *Index) ensureClass(fq string) *ClassInfo {
 		}
 	}
 	return ix.classes[fq]
+}
+
+// rebuildInherit recomputes fq's merged Inherit list from every indexed file's
+// raw assertions. Files are visited in sorted order (deterministic across
+// removals); within a file, edges keep declaration order; duplicates across
+// files collapse to first occurrence. For the common single-file case this
+// reduces to that file's declaration order.
+func (ix *Index) rebuildInherit(fq string) {
+	ci := ix.classes[fq]
+	if ci == nil {
+		return
+	}
+	var files []string
+	for f, m := range ix.fileClassInherit {
+		if len(m[fq]) > 0 {
+			files = append(files, f)
+		}
+	}
+	sort.Strings(files)
+	seen := map[string]bool{}
+	var merged []string
+	for _, f := range files {
+		for _, base := range ix.fileClassInherit[f][fq] {
+			if !seen[base] {
+				seen[base] = true
+				merged = append(merged, base)
+			}
+		}
+	}
+	ci.Inherit = merged
 }
 
 // RemoveFile drops all definitions and stored source contributed by path.
@@ -195,7 +238,9 @@ func (ix *Index) RemoveFile(path string) {
 	delete(ix.fileDefs, path)
 
 	// Remove this file's class contributions (DefSites, Methods, Ivars, Inherit).
-	inheritContribs := ix.fileClassInherit[path] // may be nil
+	// Drop the file's raw inherit assertions FIRST so rebuildInherit below
+	// derives each class's merged Inherit from the remaining files only.
+	delete(ix.fileClassInherit, path)
 	for _, fq := range ix.fileClassKeys[path] {
 		ci := ix.classes[fq]
 		if ci == nil {
@@ -221,31 +266,14 @@ func (ix *Index) RemoveFile(path string) {
 				ci.Ivars[name] = filtered
 			}
 		}
-		// Remove inherit edges that this file contributed.
-		if edges, ok := inheritContribs[fq]; ok && len(edges) > 0 {
-			edgeSet := make(map[string]bool, len(edges))
-			for _, e := range edges {
-				edgeSet[e] = true
-			}
-			kept := ci.Inherit[:0]
-			for _, base := range ci.Inherit {
-				if !edgeSet[base] {
-					kept = append(kept, base)
-				}
-			}
-			if len(kept) == 0 {
-				ci.Inherit = nil
-			} else {
-				ci.Inherit = kept
-			}
-		}
+		// Re-derive the merged inherit list from the remaining files' assertions.
+		ix.rebuildInherit(fq)
 		// Drop class entry entirely when no contributions remain.
 		if len(ci.DefSites) == 0 && len(ci.Methods) == 0 && len(ci.Ivars) == 0 && len(ci.Inherit) == 0 {
 			delete(ix.classes, fq)
 		}
 	}
 	delete(ix.fileClassKeys, path)
-	delete(ix.fileClassInherit, path)
 
 	delete(ix.src, path)
 	delete(ix.fileNS, path)
@@ -477,7 +505,7 @@ func (ix *Index) IndexDirProgress(root string, progress func(indexed int)) error
 			}
 			return nil
 		}
-		if strings.HasSuffix(p, ".tcl") || strings.HasSuffix(p, ".rvt") {
+		if IsIndexable(p) {
 			paths = append(paths, p)
 		}
 		return nil
@@ -593,7 +621,7 @@ func (ix *Index) IndexExtraTree(root string, seen map[string]bool) (int, error) 
 			return
 		}
 		if !fi.IsDir() {
-			if strings.HasSuffix(path, ".tcl") || strings.HasSuffix(path, ".rvt") || strings.HasSuffix(path, ".tm") {
+			if isExtraIndexable(path) {
 				// Dedup files by resolved identity too: two links to the same
 				// store file must not yield two goto-def locations. The first
 				// traversal path (ReadDir-sorted, so deterministic) wins.

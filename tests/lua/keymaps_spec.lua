@@ -29,6 +29,17 @@ describe("tcl-lsp keymap specs", function()
     assert.are.equal(0, #specs)
   end)
 
+  it("treats out-of-scope LSP actions as unknown (server never advertises them)", function()
+    -- hover/declaration/type_definition were once offered but the server has no
+    -- such capabilities: binding them produced a key that silently did nothing.
+    -- They must now warn like any other unknown action.
+    for _, action in ipairs({ "hover", "declaration", "type_definition" }) do
+      local specs, unknown = tcl._keymap_specs({ [action] = "K" }, {})
+      assert.are.same({ action }, unknown)
+      assert.are.equal(0, #specs)
+    end
+  end)
+
   it("leaves an action set to false unbound", function()
     local specs = tcl._keymap_specs({ definition = false }, {})
     assert.are.equal(0, #specs)

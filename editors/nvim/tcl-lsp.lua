@@ -53,7 +53,7 @@ return {
       --   document_symbol = "gO",
       --   incoming_calls  = "<leader>ci",
       --   outgoing_calls  = "<leader>co",
-      --   -- also: declaration, type_definition, workspace_symbol, hover
+      --   -- also: workspace_symbol (set any action to false to leave it unbound)
       -- },
       -- keys = {  -- lazy.nvim-style escape hatch for arbitrary maps
       --   -- { "<leader>cx", function() ... end, desc = "...", mode = "n" },
