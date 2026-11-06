@@ -17,11 +17,12 @@ func (s *Server) selectionRanges(p SelectionRangeParams) []*SelectionRange {
 	path := uriToPath(p.TextDocument.URI)
 	src := s.sourceOf(path)
 	folds := source.Folds(path, src)
+	lines := newLineIndex(src)
 
 	out := make([]*SelectionRange, 0, len(p.Positions))
 	for _, pos := range p.Positions {
 		off := ByteOffset(src, pos.Line, pos.Character)
-		out = append(out, buildSelectionRange(src, folds, off))
+		out = append(out, buildSelectionRange(lines, folds, off))
 	}
 	return out
 }
@@ -30,7 +31,8 @@ func (s *Server) selectionRanges(p SelectionRangeParams) []*SelectionRange {
 // chain growing outward to the whole document. Levels: the identifier token at
 // off, every braced body containing off, and the document. Non-nesting or
 // duplicate levels are dropped so each range strictly contains its child.
-func buildSelectionRange(src string, folds []tcl.FoldRange, off int) *SelectionRange {
+func buildSelectionRange(lines *lineIndex, folds []tcl.FoldRange, off int) *SelectionRange {
+	src := lines.src
 	type span struct{ start, end int }
 	var spans []span
 
@@ -73,8 +75,8 @@ func buildSelectionRange(src string, folds []tcl.FoldRange, off int) *SelectionR
 	for i := len(chain) - 1; i >= 0; i-- {
 		node = &SelectionRange{
 			Range: Range{
-				Start: offsetToPosition(src, chain[i].start),
-				End:   offsetToPosition(src, chain[i].end),
+				Start: lines.position(chain[i].start),
+				End:   lines.position(chain[i].end),
 			},
 			Parent: node,
 		}

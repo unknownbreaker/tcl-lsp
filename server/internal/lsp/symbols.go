@@ -31,17 +31,17 @@ func symbolKind(k tcl.DefKind) (SymbolKind, bool) {
 
 // leafSymbol builds a DocumentSymbol from a single definition, computing the
 // name SelectionRange and the full-extent Range (with containment fallback).
-func leafSymbol(d tcl.Definition, src string) DocumentSymbol {
-	selStart := offsetToPosition(src, d.NameStart)
-	selEnd := offsetToPosition(src, d.NameEnd)
+func leafSymbol(d tcl.Definition, lines *lineIndex) DocumentSymbol {
+	selStart := lines.position(d.NameStart)
+	selEnd := lines.position(d.NameEnd)
 	selRange := Range{Start: selStart, End: selEnd}
 
 	var fullRange Range
 	if d.FullStart == 0 && d.FullEnd == 0 {
 		fullRange = selRange
 	} else {
-		fullStart := offsetToPosition(src, d.FullStart)
-		fullEnd := offsetToPosition(src, d.FullEnd)
+		fullStart := lines.position(d.FullStart)
+		fullEnd := lines.position(d.FullEnd)
 		if posContains(fullStart, fullEnd, selStart, selEnd) {
 			fullRange = Range{Start: fullStart, End: fullEnd}
 		} else {
@@ -68,6 +68,7 @@ func leafSymbol(d tcl.Definition, src string) DocumentSymbol {
 // When hoistRequest is true, a root-level ::request namespace node is elided
 // and its children are promoted to the document root (used for .rvt pages).
 func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) []DocumentSymbol {
+	lines := newLineIndex(src)
 
 	// --- Step 1: build class nodes (with method/ivar children) ---
 
@@ -80,7 +81,7 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		if d.Kind != tcl.DefClass {
 			continue
 		}
-		sym := leafSymbol(d, src)
+		sym := leafSymbol(d, lines)
 		classSyms[d.Name] = &sym
 	}
 
@@ -93,7 +94,7 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		if !ok {
 			continue
 		}
-		child := leafSymbol(d, src)
+		child := leafSymbol(d, lines)
 		parent.Children = append(parent.Children, child)
 	}
 
@@ -136,7 +137,7 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 			if !ok {
 				continue
 			}
-			sym := leafSymbol(d, src)
+			sym := leafSymbol(d, lines)
 			sym.Kind = kind
 			// Members display their simple name; the containing namespace node (or
 			// the document root) supplies the qualification.
@@ -328,12 +329,6 @@ func sortBySourcePosition(syms []DocumentSymbol) {
 	})
 }
 
-// offsetToPosition converts a byte offset in src to an LSP Position.
-func offsetToPosition(src string, offset int) Position {
-	line, char := LSPPosition(src, offset)
-	return Position{Line: line, Character: char}
-}
-
 // posContains reports whether the range [outerStart, outerEnd] contains [innerStart, innerEnd].
 // All four positions are inclusive on both ends in LSP line/character space.
 func posContains(outerStart, outerEnd, innerStart, innerEnd Position) bool {
@@ -348,12 +343,18 @@ func posContains(outerStart, outerEnd, innerStart, innerEnd Position) bool {
 // Name against query (empty query keeps all), then converts each to a
 // SymbolInformation using sourceOf to compute byte-offset positions.
 //
-// The filter+convert is done in parallel over chunks of entries: sourceOf and
-// offsetToPosition only READ (the live-doc map and the index source), and this
-// runs while the dispatch loop is blocked on the request, so no shared state is
-// mutated concurrently. Results are concatenated in chunk order, so the output
-// order is identical to a sequential scan.
+// The line indexes are built for every entry's file before the fan-out, because
+// filling them writes to a map. The filter+convert is then done in parallel over
+// chunks of entries: the workers only READ those indexes, and this runs while the
+// dispatch loop is blocked on the request, so no shared state is mutated
+// concurrently. Results are concatenated in chunk order, so the output order is
+// identical to a sequential scan.
 func buildWorkspaceSymbols(entries []index.SymbolEntry, query string, sourceOf func(string) string) []SymbolInformation {
+	indexes := lineIndexes{}
+	for _, e := range entries {
+		indexes.forFile(e.File, sourceOf)
+	}
+
 	lq := strings.ToLower(query)
 	convert := func(e index.SymbolEntry) (SymbolInformation, bool) {
 		if lq != "" && !strings.Contains(strings.ToLower(e.Name), lq) {
@@ -363,15 +364,15 @@ func buildWorkspaceSymbols(entries []index.SymbolEntry, query string, sourceOf f
 		if !ok {
 			return SymbolInformation{}, false
 		}
-		src := sourceOf(e.File)
+		lines := indexes[e.File]
 		return SymbolInformation{
 			Name: e.Name,
 			Kind: kind,
 			Location: Location{
 				URI: pathToURI(e.File),
 				Range: Range{
-					Start: offsetToPosition(src, e.NameStart),
-					End:   offsetToPosition(src, e.NameEnd),
+					Start: lines.position(e.NameStart),
+					End:   lines.position(e.NameEnd),
 				},
 			},
 			ContainerName: e.Container,
