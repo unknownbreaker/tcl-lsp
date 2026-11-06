@@ -44,9 +44,8 @@ Recommend leaving it; document the limitation (done, see `editors/README.md`).
 
 **Status:** deferred. **Area:** `server/internal/tcl/reaching.go`, `varref.go`, `resolve.go`.
 
-The reaching-definitions feature (proc-local goto-def) shipped with three known,
-non-blocking limitations — all graceful (they fall back to first-binding, never
-crash), all noted in code comments:
+The reaching-definitions feature (proc-local goto-def) shipped with two known,
+non-blocking limitations, both noted in code comments:
 
 1. **Array-ness detection is duplicated/low-layer.** `resolve.go` has its own
    `isArrayVarAt`/`isNameByte` byte-scan to detect `$arr(key)` uses (so they
@@ -54,13 +53,12 @@ crash), all noted in code comments:
    lexer discarded: `parseVarRef` (`varref.go`) drops the `(subscript)` and emits
    only the base name. Cleaner: add a `hasSubscript`/array flag to the use-side
    `Reference` so the resolver reads it instead of re-scanning, removing the
-   duplicated `isNameByte`. Correctness is fine today; this is layering debt.
-2. **A `$x` use directly inside a `switch` arm body** yields no reaching answer
-   (falls back to first-binding). The conservative switch path collects arm
-   *bindings* but doesn't run use-recording through arm bodies as a normal
-   sequence. Low value; rare.
-3. **`try ... on e {varList} {body}` handler var-list names** aren't emitted as
-   local bindings by `localBindings`, so `$e` there falls back to first-binding.
+   duplicated `isNameByte`. This is layering debt: an element use answers with the
+   earliest binding at or before it, so a use whose only binding is below it, even
+   one a loop carries around, stays silent.
+2. **`try ... on e {varList} {body}` handler var-list names** aren't emitted as
+   local bindings by `localBindings` or `emitDefs`, so `$e` there goes silent unless
+   an earlier binding of the name exists, which is then the answer.
 
 The OO (`$obj method`) type-tracking this engine was built to enable has since
 **shipped** — Itcl classes, methods, ivars, inheritance, and the `$obj method`

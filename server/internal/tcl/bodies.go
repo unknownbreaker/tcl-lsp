@@ -1,6 +1,9 @@
 package tcl
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // This file is the single source of truth for two things every tree walker in
 // this package needs: (1) which braced words of a command are *script bodies*
@@ -330,29 +333,51 @@ func ifBodies(w []Word) []Word {
 	return bodies
 }
 
-// tryBodies returns the braced body words of a try command: the main body, each
-// on/trap handler body (3 words past the keyword, after code/pattern and the
-// variable list), and the finally body. Patterns and variable lists are skipped.
-func tryBodies(w []Word) []Word {
-	var bodies []Word
+// tryParts splits a try command's braced bodies by role. main is nil for
+// `try $script ...`, so a handler is never mistaken for the main body. The scan
+// steps by clause: `on CODE VARLIST BODY` and `trap PATTERN VARLIST BODY` are four
+// words and `finally BODY` is two, so a variable list spelled `finally` does not
+// start a clause. Patterns and variable lists are skipped.
+func tryParts(w []Word) (main *Word, handlers []Word, finally *Word) {
 	if len(w) >= 2 && w[1].Kind == WordBraced {
-		bodies = append(bodies, w[1]) // try BODY
+		main = &w[1]
 	}
-	for i := 2; i < len(w); i++ {
-		if w[i].Kind != WordBare {
-			continue
+	for i := 2; i < len(w); {
+		clause := ""
+		if w[i].Kind == WordBare {
+			clause = w[i].Text
 		}
-		switch w[i].Text {
+		switch clause {
 		case "on", "trap":
 			if i+3 < len(w) && w[i+3].Kind == WordBraced {
-				bodies = append(bodies, w[i+3])
+				handlers = append(handlers, w[i+3])
 			}
+			i += 4
 		case "finally":
 			if i+1 < len(w) && w[i+1].Kind == WordBraced {
-				bodies = append(bodies, w[i+1])
+				finally = &w[i+1]
 			}
+			i += 2
+		default:
+			i++
 		}
 	}
+	return main, handlers, finally
+}
+
+// tryBodies returns the braced body words of a try command: the main body, then
+// the on/trap handler bodies and the finally body in source order.
+func tryBodies(w []Word) []Word {
+	main, handlers, finally := tryParts(w)
+	var bodies []Word
+	if main != nil {
+		bodies = append(bodies, *main)
+	}
+	bodies = append(bodies, handlers...)
+	if finally != nil {
+		bodies = append(bodies, *finally)
+	}
+	slices.SortFunc(bodies, func(a, b Word) int { return a.Start - b.Start })
 	return bodies
 }
 

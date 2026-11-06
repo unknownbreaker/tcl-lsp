@@ -1,6 +1,7 @@
 package tcl
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,22 @@ func TestReachingLoopCarried(t *testing.T) {
 	defs := reachAtMarker(t, src, "$x") // the `puts $x` after the loop
 	if len(defs) != 2 {                 // x0 (zero iterations) or x9 (ran)
 		t.Fatalf("want 2 reaching defs (x0, x9), got %d: %#v", len(defs), defs)
+	}
+}
+
+func TestReachingUseInsideLoopSeesBackEdge(t *testing.T) {
+	src := "proc f {} {\n  set x 0\n  while {$c} {\n    set y $x\n    set x 9\n  }\n}"
+	defs := reachAtMarker(t, src, "$x") // x0 (first iteration) or x9 (later iterations)
+	if len(defs) != 2 {
+		t.Fatalf("want 2 reaching defs (x0, x9), got %d: %#v", len(defs), defs)
+	}
+}
+
+func TestReachingTryWithUnbracedBody(t *testing.T) {
+	src := "proc f {} {\n  set x 1\n  try $script on error {} {\n    puts $x\n  }\n}"
+	defs := reachAtMarker(t, src, "$x") // the handler must not be mistaken for the main body
+	if len(defs) != 1 {
+		t.Fatalf("want 1 reaching def (x1), got %d: %#v", len(defs), defs)
 	}
 }
 
@@ -155,5 +172,587 @@ func TestReachingRMWTargetIsUse(t *testing.T) {
 	}
 	if defs[0].NameStart != strings.Index(src, "set x 1")+len("set ") {
 		t.Fatalf("want the prior `set x 1`, got %#v", defs)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 4 edge cases: bindings that cannot reach, and loop-carried bindings that can.
+// ---------------------------------------------------------------------------
+
+// reachLinesAt returns the sorted 1-based source lines of the bindings that reach
+// the use whose text starts at the last occurrence of mark (cursor one byte in).
+// Duplicates are kept so a repeated answer shows up. nil means nothing reaches.
+func reachLinesAt(t *testing.T, src, mark string) []int {
+	t.Helper()
+	markOffset := strings.LastIndex(src, mark)
+	if markOffset < 0 {
+		t.Fatalf("test bug: mark %q not found in %q", mark, src)
+	}
+	defs, _ := ReachingAt(src, markOffset+1)
+	var lines []int
+	for _, def := range defs {
+		lines = append(lines, 1+strings.Count(src[:def.NameStart], "\n"))
+	}
+	slices.Sort(lines)
+	return lines
+}
+
+type reachCase struct {
+	name, src, mark string
+	want            []int
+}
+
+func runReachCases(t *testing.T, cases []reachCase) {
+	t.Helper()
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := reachLinesAt(t, c.src, c.mark); !slices.Equal(got, c.want) {
+				t.Errorf("binding lines reaching %s = %v, want %v\nsource:\n%s", c.mark, got, c.want, c.src)
+			}
+		})
+	}
+}
+
+// Hunting: first-visit-wins in a loop. A use is visited once per fixpoint
+// iteration, and its answer must be the union over every visit. Each case has a
+// binding that reaches the use only on a later visit (a back edge).
+func TestReachingLoopUsesUnionEveryVisit(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"nested loops, outer binding reaches inner use", `proc f {} {
+  set x 0
+  while {1} {
+    while {2} {
+      puts $x
+    }
+    set x 1
+  }
+}`, "$x", []int{2, 7}},
+		{"inner binding reaches an outer use through the outer back edge", `proc f {} {
+  while {1} {
+    puts $x
+    while {1} {
+      set x 1
+    }
+  }
+}`, "$x", []int{5}},
+		{"loop inside if inside loop", `proc f {} {
+  set x 0
+  while {1} {
+    if {$c} {
+      while {1} {
+        puts $x
+      }
+    }
+    set x 1
+  }
+}`, "$x", []int{2, 9}},
+		{"use on a break path still sees the later binding of the next iteration", `proc f {} {
+  set x 0
+  while {1} {
+    if {$c} {
+      puts $x
+      break
+    }
+    set x 1
+  }
+}`, "$x", []int{2, 8}},
+		{"continue path and normal end both feed the back edge", `proc f {} {
+  while {1} {
+    puts $x
+    if {$c} {
+      set x 1
+      continue
+    }
+    set x 2
+  }
+}`, "$x", []int{5, 8}},
+		{"lmap carried use", `proc f {l} {
+  lmap i $l {
+    if {$i} { puts $prev }
+    set prev $i
+  }
+}`, "$prev", []int{4}},
+		{"dict for carried use", `proc f {d} {
+  dict for {k v} $d {
+    puts $last
+    set last $k
+  }
+}`, "$last", []int{4}},
+		{"while carried use through a try main body", `proc f {} {
+  set x 0
+  while {1} {
+    try {
+      puts $x
+    } on error {} {
+    }
+    set x 1
+  }
+}`, "$x", []int{2, 8}},
+		{"try handler in a loop sees a binding made after the try", `proc f {} {
+  while {1} {
+    try {
+      set x 1
+    } on error {} {
+      puts $x
+    }
+    set x 9
+  }
+}`, "$x", []int{4, 8}},
+		{"finally binding reaches the main body on the next iteration", `proc f {} {
+  while {1} {
+    try {
+      puts $x
+    } finally {
+      set x 1
+    }
+  }
+}`, "$x", []int{6}},
+		{"catch in a loop sees the binding made after it", `proc f {} {
+  set x 0
+  while {1} {
+    catch {
+      puts $x
+    }
+    set x 1
+  }
+}`, "$x", []int{2, 7}},
+		{"switch arm in a loop sees the later binding of the same arm", `proc f {l} {
+  foreach k $l {
+    switch $k {
+      a {
+        puts $x
+        set x 1
+      }
+      b { puts hi }
+    }
+  }
+}`, "$x", []int{6}},
+	})
+}
+
+// Hunting: a union that forgets kills. A binding that always runs before the use
+// in the same iteration must hide everything from the back edge and from before.
+func TestReachingLoopUnionRespectsKillsInTheSameIteration(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"set, use, set again: only the first reaches", `proc f {} {
+  set x 0
+  while {1} {
+    set x 1
+    puts $x
+    set x 2
+  }
+}`, "$x", []int{4}},
+		{"no kill: the one binding is listed once, not once per visit", `proc f {} {
+  set x 0
+  while {1} {
+    puts $x
+  }
+}`, "$x", []int{2}},
+		{"binding reaching through several visits is deduplicated", `proc f {} {
+  set x 0
+  while {1} {
+    while {1} {
+      while {1} {
+        puts $x
+      }
+    }
+  }
+}`, "$x", []int{2}},
+	})
+}
+
+// Hunting: the isRMW branch keeps its own first-visit guard. The cursor is on the
+// name of incr/append/lappend, whose target is both a use and a binding.
+func TestReachingReadModifyWriteInLoopUnionsEveryVisit(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"lappend with a prior binding", `proc f {l} {
+  set acc {}
+  foreach i $l {
+    lappend acc $i
+  }
+}`, " acc", []int{2, 4}},
+		{"incr with a prior binding", `proc f {} {
+  set n 0
+  while {1} {
+    incr n
+  }
+}`, " n", []int{2, 4}},
+		{"append with a prior binding", `proc f {} {
+  set s {}
+  while {1} {
+    append s x
+  }
+}`, " s x", []int{2, 4}},
+		{"incr as the first binding reaches itself through the back edge", `proc f {} {
+  while {1} {
+    incr n
+  }
+}`, " n", []int{3}},
+		{"incr outside any loop with no prior binding reaches nothing", `proc f {} {
+  incr n
+}`, " n", nil},
+		{"incr after a prior binding in straight-line code", `proc f {} {
+  set n 0
+  incr n
+}`, " n", []int{2}},
+	})
+}
+
+// Hunting: `for` runs its start script once, before the first test. Folding start
+// into the iterated block makes it kill itself on every pass, so the body no longer
+// sees the initial binding. Tcl: the body sees the start's `set i 0` (first pass) and
+// the next script's `incr i` (later passes). NOT in the Task 4 brief: this fails
+// today for a reason unrelated to the guards, and needs start hoisted out of the loop.
+func TestReachingForLoopStartScriptReachesTheBody(t *testing.T) {
+	src := `proc f {} {
+  for {
+    set i 0
+  } {$i < 3} {
+    incr i
+  } {
+    puts $i
+  }
+}`
+	runReachCases(t, []reachCase{
+		{"body use sees start and next", src, "$i\n", []int{3, 5}},
+		{"next-script incr sees start and itself", src, " i\n  }", []int{3, 5}},
+	})
+}
+
+// Hunting: a union that lets a reassigned loop variable leak across iterations.
+// foreach/lmap/dict for rebind their variables at the top of every iteration, so
+// `set item zzz` below the use never reaches it. Tcl: `foreach item {a b c} {lappend
+// seen $item; set item zzz}` collects a b c. NOT in the brief: a naive union of
+// visits answers two bindings here, a regression from today's single answer.
+func TestReachingLoopVariableIsReboundEachIteration(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"foreach", `proc f {l} {
+  foreach item $l {
+    puts $item
+    set item zzz
+  }
+}`, "$item", []int{2}},
+		{"foreach, second variable", `proc f {l} {
+  foreach {a b} $l {
+    puts $b
+    set b zzz
+  }
+}`, "$b", []int{2}},
+		{"dict for", `proc f {d} {
+  dict for {k v} $d {
+    puts $k
+    set k zzz
+  }
+}`, "$k", []int{2}},
+	})
+}
+
+// Hunting: try entry views. The main body sees only what precedes the try; an
+// on/trap handler sees that plus the main body's bindings (an error can arrive at
+// any point in it), and never a sibling handler's; finally sees everything.
+func TestReachingTryEntryViews(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"main body does not see a handler's binding", `proc f {} {
+  try {
+    puts $x
+  } on error {} {
+    set x 1
+  }
+}`, "$x", nil},
+		{"handler does not see a sibling handler's binding", `proc f {} {
+  set x 0
+  try {
+    puts hi
+  } on error {} {
+    set x 1
+  } trap {A B} {} {
+    puts $x
+  }
+}`, "$x", []int{2}},
+		{"handler sees the main body but not the sibling handler", `proc f {} {
+  try {
+    set a 1
+  } on error {} {
+    set a 2
+  } on ok {} {
+    puts $a
+  }
+}`, "$a", []int{3}},
+		{"handler sees every main-body binding, even an overwritten one", `proc f {} {
+  try {
+    set x 1
+    set x 2
+  } on error {} {
+    puts $x
+  }
+}`, "$x", []int{3, 4}},
+		{"handler sees a binding nested in an if in the main body", `proc f {} {
+  try {
+    if {$c} { set x 1 }
+  } on error {} {
+    puts $x
+  }
+}`, "$x", []int{3}},
+		{"finally sees the main body and every handler", `proc f {} {
+  set x 0
+  try {
+    set x 1
+  } on error {} {
+    set x 2
+  } trap {A} {} {
+    set x 3
+  } finally {
+    puts $x
+  }
+}`, "$x", []int{2, 4, 6, 8}},
+		{"nested try: inner handler does not see the outer handler", `proc f {} {
+  set x 0
+  try {
+    try {
+      set x 1
+    } on error {} {
+      puts $x
+    }
+  } on error {} {
+    set x 2
+  }
+}`, "$x", []int{2, 5}},
+		{"nested try: outer handler sees the inner try's handler binding", `proc f {} {
+  set x 0
+  try {
+    try {
+      set x 1
+    } on error {} {
+      set x 2
+    }
+  } on error {} {
+    puts $x
+  }
+}`, "$x", []int{2, 5, 7}},
+		{"nested try: inner main body sees only what precedes the outer try", `proc f {} {
+  set x 0
+  try {
+    try {
+      puts $x
+    } on error {} {
+      set x 1
+    }
+  } on error {} {
+    set x 2
+  }
+}`, "$x", []int{2}},
+	})
+}
+
+// Hunting: the try argument scanner. A variable list spelled like a keyword must
+// not start a second clause, and a script held in a variable is not a body.
+func TestReachingTryClauseShapes(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"variable list named finally does not turn the handler body into finally", `proc f {} {
+  set x 0
+  try {
+    set a 1
+  } on error finally {
+    puts $x
+    set x 5
+  }
+}`, "$x", []int{2}},
+		{"unbraced main body: handler does not see a sibling handler", `proc f {} {
+  set x 0
+  try $script on error {} {
+    set x 1
+  } on ok {} {
+    puts $x
+  }
+}`, "$x", []int{2}},
+		{"unbraced main body: first handler is not taken as the main body", `proc f {} {
+  try $script on error {} {
+    puts $x
+  } on ok {} {
+    set x 1
+  }
+}`, "$x", nil},
+		{"unbraced main body: finally still sees the binding before the try", `proc f {} {
+  set x 0
+  try $script finally {
+    puts $x
+  }
+}`, "$x", []int{2}},
+		{"unbraced main body: finally sees the handler's binding", `proc f {} {
+  try $script on error {} {
+    set x 1
+  } finally {
+    puts $x
+  }
+}`, "$x", []int{3}},
+	})
+}
+
+// Hunting: catch and mixed views. A catch body sees what precedes the catch;
+// the code after the construct sees the join, which must stay conservative.
+func TestReachingCatchEntryViews(t *testing.T) {
+	mixed := `proc f {} {
+  set x 0
+  catch {
+    puts $x ;# A
+    set x 1
+    puts $x ;# B
+  }
+  puts $x ;# C
+}`
+	runReachCases(t, []reachCase{
+		{"catch body before its own set", mixed, "$x ;# A", []int{2}},
+		{"catch body after its own set", mixed, "$x ;# B", []int{5}},
+		{"after the catch: both may reach", mixed, "$x ;# C", []int{2, 5}},
+		{"nested catch: inner body does not see the outer body's later binding", `proc f {} {
+  set x 0
+  catch {
+    catch {
+      puts $x
+      set x 1
+    }
+    set x 2
+  }
+}`, "$x", []int{2}},
+		{"catch inside try main body: sees the binding before, not the handler's", `proc f {} {
+  set x 0
+  try {
+    catch {
+      puts $x
+    }
+  } on error {} {
+    set x 1
+  }
+}`, "$x", []int{2}},
+		{"try inside catch: handler sees only the try's own main body", `proc f {} {
+  set x 0
+  catch {
+    try {
+      set y 1
+    } on error {} {
+      puts $x
+    }
+    set x 1
+  }
+}`, "$x", []int{2}},
+	})
+}
+
+// Hunting: the exit set must stay exactly as conservative as it is today, so code
+// after a try or a switch still sees every binding made inside any clause.
+func TestReachingExitSetStaysConservative(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"after try with handlers and finally", `proc f {} {
+  set x 0
+  try {
+    set x 1
+  } on error {} {
+    set x 2
+  } finally {
+    set x 3
+  }
+  puts $x
+}`, "$x", []int{2, 4, 6, 8}},
+		{"after a switch with fall-through arms", `proc f {k} {
+  set x 0
+  switch $k {
+    a -
+    b { set x 1 }
+    c { set x 2 }
+  }
+  puts $x
+}`, "$x", []int{2, 5, 6}},
+	})
+}
+
+// Hunting: switch arms are alternatives. An arm sees what precedes the switch and
+// never a sibling arm's binding, in either list or inline form, however deep.
+func TestReachingSwitchArmEntryViews(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"fall-through arm does not see a later sibling", `proc f {k} {
+  set x 0
+  switch $k {
+    a -
+    b { puts $x }
+    c { set x 1 }
+  }
+}`, "$x", []int{2}},
+		{"inline form: sibling on the same line", `proc f {k} {
+  set x 0
+  switch $k a { puts $x } b { set x 1 }
+}`, "$x", []int{2}},
+		{"with options before the subject", `proc f {k} {
+  set x 0
+  switch -regexp -- $k {
+    a { puts $x }
+    b { set x 1 }
+  }
+}`, "$x", []int{2}},
+		{"nested switch in an arm", `proc f {k j} {
+  set x 0
+  switch $k {
+    a {
+      switch $j {
+        b { puts $x }
+        c { set x 2 }
+      }
+    }
+    d { set x 1 }
+  }
+}`, "$x", []int{2}},
+		{"binding after the switch does not reach an arm", `proc f {k} {
+  switch $k {
+    a { puts $x }
+  }
+  set x 1
+}`, "$x", nil},
+		{"arm own binding before its use", `proc f {k} {
+  switch $k {
+    a {
+      set x 1
+      puts $x
+    }
+    b { set x 2 }
+  }
+}`, "$x", []int{4}},
+		{"in a loop a sibling arm's binding legitimately reaches by the back edge", `proc f {l} {
+  set x 0
+  foreach k $l {
+    switch $k {
+      a { puts $x }
+      b { set x 1 }
+    }
+  }
+}`, "$x", []int{2, 6}},
+		{"in a loop with no prior binding only the sibling reaches", `proc f {l} {
+  foreach k $l {
+    switch $k {
+      a { puts $x }
+      b { set x 1 }
+    }
+  }
+}`, "$x", []int{5}},
+	})
+}
+
+// Hunting: ClassOf reads ReachingAt, so a wrong reaching set is a wrong method
+// jump. A loop-carried instantiation must contribute its class; a sibling
+// handler's must not.
+func TestClassOfFollowsLoopBackEdgeAndTryHandlers(t *testing.T) {
+	cases := []struct {
+		name, src string
+		want      []string
+	}{
+		{"object re-created later in the loop", "proc f {} {\n  set d [::A #auto]\n  while {1} {\n    $d field\n    set d [::B #auto]\n  }\n}", []string{"::A", "::B"}},
+		{"sibling handler's class does not leak", "proc f {} {\n  set d [::A #auto]\n  try {\n    puts hi\n  } on error {} {\n    set d [::B #auto]\n  } on ok {} {\n    $d field\n  }\n}", []string{"::A"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ClassOf(c.src, strings.LastIndex(c.src, "$d")+1)
+			slices.Sort(got)
+			if !slices.Equal(got, c.want) {
+				t.Errorf("ClassOf = %v, want %v\nsource:\n%s", got, c.want, c.src)
+			}
+		})
 	}
 }

@@ -73,21 +73,34 @@ func isArrayVarAt(src string, offset int) bool {
 	return i < len(src) && src[i] == '('
 }
 
-// localDefinition returns the definition site(s) for the proc-local (name,
-// scope). It first tries context-sensitive reaching definitions for the use at
-// offset: each reaching binding is origin-chased when it is a global/upvar link
-// (preserving prior behavior). Falls back to the earliest binding when reaching
-// analysis is unavailable (oversized proc, array element access, or a use with
-// no in-proc reaching def such as a bare global/upvar link before any local
-// assignment).
+// localBindingAt returns the proc-local binding (name, scope) whose name token holds
+// offset, or nil when the cursor is not on one.
+func localBindingAt(file, src, name string, scope, offset int) []index.Location {
+	for _, d := range source.Defs(file, src) {
+		if isLocalBinding(d.Kind) && d.Name == name && d.Scope == scope && offset >= d.NameStart && offset < d.NameEnd {
+			return []index.Location{{File: file, Name: name, Kind: tcl.DefLocal, NameStart: d.NameStart, NameEnd: d.NameEnd}}
+		}
+	}
+	return nil
+}
+
+// localDefinition returns the definition site(s) for the proc-local (name, scope).
+// It first tries context-sensitive reaching definitions for the use at offset: each
+// reaching binding is origin-chased when it is a global/upvar link. An empty
+// reaching answer is an answer: nothing reaches, so the result is nil and the caller
+// may try instance variables. The one exception is a cursor on a binding, such as a
+// first `incr x`, which answers itself. The analyzer sees every binding Defs sees,
+// so this silence cannot hide one. When the analyzer has no answer at all (oversized
+// proc, array element access, or a use it did not find), the earliest binding at or
+// before offset answers, so a loop-carried use on those paths stays silent.
 func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []index.Location {
-	// Precise reaching definitions for the use at offset. Each reaching binding
-	// origin-chases when it is a global/upvar link (preserving prior behavior).
-	// Array element accesses (e.g. $arr(key)) are excluded: the reaching engine
-	// tracks the base name without subscripts, so it cannot distinguish arr(a)
-	// from arr(b); first-binding gives more useful results for arrays.
+	// Array element accesses (e.g. $arr(key)) are excluded from reaching: the engine
+	// tracks the base name without subscripts, so it cannot tell arr(a) from arr(b).
 	if !isArrayVarAt(src, offset) {
-		if defs, ok := source.Reaching(file, src, offset); ok && len(defs) > 0 {
+		if defs, ok := source.Reaching(file, src, offset); ok {
+			if len(defs) == 0 {
+				return localBindingAt(file, src, name, scope, offset)
+			}
 			var out []index.Location
 			for _, d := range defs {
 				if d.Origin != "" {
@@ -104,12 +117,12 @@ func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []
 		}
 	}
 
-	// Fallback: earliest binding (used when reaching-defs is unavailable —
-	// oversized proc, array element access, or a use with no in-proc reaching
-	// def such as a bare global/upvar link before any local assignment).
+	// Fallback: the earliest binding, when the analyzer gave no answer. A binding
+	// after the cursor cannot answer; strictly after, so a cursor on a binding
+	// still answers itself.
 	firstStart, firstEnd, firstOrigin, have := 0, 0, "", false
 	for _, d := range source.Defs(file, src) {
-		if !isLocalBinding(d.Kind) || d.Name != name || d.Scope != scope {
+		if !isLocalBinding(d.Kind) || d.Name != name || d.Scope != scope || d.NameStart > offset {
 			continue
 		}
 		if !have || d.NameStart < firstStart {
