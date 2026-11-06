@@ -296,7 +296,9 @@ The dominant Rivet/speedtables idiom — `itcl::class`, `[::C #auto]`,
 
 **Graceful boundaries** (returns nothing rather than jumping wrong):
 
-- **TclOO** (`oo::class`) is not supported — Itcl only.
+- **TclOO** (`oo::class`) is not supported — Itcl only. Its names stay silent:
+  classes, methods and variables get no symbols, and plain variables in their
+  bodies don't resolve. Calls to known procs from those bodies still do.
 - Receivers with no locally-known class (a parameter, a factory return, a
   cross-method ivar) stay unresolved.
 - Simple `inherit`-order MRO — no C3, dynamic dispatch, or mixins.

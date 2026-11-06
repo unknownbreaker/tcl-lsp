@@ -43,6 +43,25 @@ Each of these was run against a throwaway prototype (a scratch copy of `server/`
 - **Task 1, test:** the equivalence reference is a copy of the old scan. `LSPPosition` will share the new code, so comparing against it would prove nothing.
 - **Task 6:** adds `symbol_names.py`, because result JSON keeps symbol counts and samples, not every name, so the required symbol diff had no tool.
 
+### Departures made during implementation
+
+The tasks below are kept as written. These rulings changed them, so **what shipped is what `research/08-flightaware-corpus-probe.md` "Fix design" describes, not the task text**. In particular, `enclosingFrameHeads` and "keep only a qualified name" did not ship.
+
+- **Task 2, inline `switch`:** `switch $k proc - method { puts 1 }` made a proc named `-` through `decoratedProcDef`, so that function refuses a `switch` head. The plan did not list this.
+- **Task 4, loop variables:** rebound on every iteration, or the union across visits adds a wrong answer in `foreach`.
+- **Task 4, `for`:** `start` runs once, then the body before `next`. The old order killed back-edge bindings and ran `next` first.
+- **Task 4, `tryParts`:** steps by clause, so a variable list named `finally` does not start a clause.
+- **Task 4, `finally`:** sees the main body's and handlers' bindings but not its own, overriding "all gens". Confirmed against Tcl.
+- **Task 4, empty answers:** an empty reaching answer is honored for non-array uses, and a cursor on a binding answers itself. The guard alone left sibling-branch and self-binding answers in place.
+- **Task 4, unknown bodies:** their bindings stay out of reach sets and count only when nothing else reaches. An earlier ruling made them conservative and was replaced: it answered both lines for `set x 0; puts {set x 1}; puts $x`, and an exclusion list can never be complete.
+- **Task 4, loop tests:** braced `while` and `for` tests are recorded at the loop header, which `binding-after-use-no-loop` cannot see (see the Task 6 result).
+- **Task 4, Itcl parameters:** method parameters are locals, in a separate commit. A parameter-shadowed ivar was a wrong answer.
+- **Task 5, `eval`:** keeps the enclosing frame only in its one-word form `eval {script}`, overriding the task's list.
+- **Task 5, `uplevel`:** removed from the task's list. Its brace runs in another frame, so `namespace eval ::n { uplevel #0 { set x 1 } }` would define `::n::x`.
+- **Task 5, relative names:** at `FrameOpaque` only absolute names count as definitions or uses, overriding "keep only a qualified name". A relative name depends on a frame the server cannot know, and tclsh errors on the shape.
+- **Task 5, the frame rule:** `bodiesRunHere` replaces `enclosingFrameHeads`, so the analyzer and the index agree on which bodies run here.
+- **Task 5, bare calls:** bare command calls in unknown bodies keep resolving against the lexical namespace, though TclOO methods run in the object's namespace. A wrapper cannot be told apart from a method, and silencing would lose every call in wrappers. `research/08` states the limit.
+
 ---
 
 ### Task 1: Position index
@@ -605,18 +624,20 @@ Run: `probe.py --binary <new> --corpus <dir> --results research/experiments/08_c
 
 Check against this table. The Prototype column is what a throwaway prototype of Tasks 1-5 produced; it is a guide, not a target.
 
-| Metric | Baseline | Target | Prototype |
-|---|---|---|---|
-| `switch-pattern-resolved-as-call` | 106 | 0 | 0 |
-| switch patterns colored as calls | 106 | 0 | 0 |
-| refs `switch-pattern` | 18 | 0 | 0 |
-| `command-resolved-to-non-callable:*` | 56 | 0 | 0 |
-| refs `text-mismatch` | 6 | 0 | 0 |
-| `binding-after-use-no-loop` | 83 | 0, or each row read and justified | 0 |
-| `outside-proc-unlinked` | 709 | 0 | 0 |
-| symbols not in oracle | 887 | each remaining row read | 3 |
-| airports.tcl documentSymbol / semanticTokens | 40.6 s / 20.2 s | under 2 s each | 118 ms slowest; nothing else in the repo over 200 ms |
-| test2.tcl goto-def timeouts | 2 | 0 | 0 |
+| Metric | Baseline | Target | Prototype | Shipped |
+|---|---|---|---|---|
+| `switch-pattern-resolved-as-call` | 106 | 0 | 0 | 0 |
+| switch patterns colored as calls | 106 | 0 | 0 | 0 |
+| refs `switch-pattern` | 18 | 0 | 0 | 0 |
+| `command-resolved-to-non-callable:*` | 56 | 0 | 0 | 0 |
+| refs `text-mismatch` | 6 | 0 | 0 | 0 |
+| `binding-after-use-no-loop` | 83 | 0, or each row read and justified | 0 | 15, each read: right answers in braced loop tests |
+| `outside-proc-unlinked` | 709 | 0 | 0 | 0 |
+| symbols not in oracle | 887 | each remaining row read | 3 | 3, the same rows |
+| airports.tcl documentSymbol / semanticTokens | 40.6 s / 20.2 s | under 2 s each | 118 ms slowest; nothing else in the repo over 200 ms | 162 ms / 83 ms at worst, on a heavily loaded machine; nothing else in the repo over 2 ms |
+| test2.tcl goto-def timeouts | 2 | 0 | 0 | 0 |
+
+**Shipped result.** `CANDIDATE_VAR_MISS` 4,510 → 4,709, `def_misses` 524 → 649, call `OK` 4,464 → 4,595, `VAR_OK` 15,514 → 15,936, with `VAR_OK` falling only in prometheus-tcl (415 → 398) and tclrmq (510 → 449). The 15 rows are 11 in TclProDebug and 4 in speedtables. The prototype had 0 because it did not record braced loop tests at the loop header; the harness does not tag those tests as in-loop, so this is not a regression. `research/08` has every row, the symbol diff and the costs.
 
 The 3 prototype symbols, already read:
 - `TclProDebug/lib/tcldebugger/instrument.tcl:620` (2): `lassign` writing through `variable` links; the symbols look right.

@@ -20,8 +20,13 @@ python3 -I $H/probe.py --binary /tmp/tcl-lsp --corpus /tmp/corpus --results $H/r
 python3 -I $H/probe.py --binary /tmp/tcl-lsp --corpus /tmp/corpus --results $H/results tsp turtles   # a subset
 ```
 
-Full run: about 3.5 minutes on `main@26f8ab2`, of which yajl-tcl is about 105 s. That
-is the slowdown described in research/08, so expect it to fall after the position fix.
+Full run: about 3 minutes on `main@26f8ab2`, of which yajl-tcl is about 105 s, the
+slowdown described in research/08. After the position fix in v0.6.3, yajl-tcl takes 3 to
+4 s. The other nine repos took about 70 s on `main@26f8ab2`. The only full v0.6.3 runs, about
+155 s, were on a heavily loaded machine (load average above 20). Under that load the two
+binaries were close, with no consistent direction: TclProDebug 41.7 → 51.1 s, tsp
+24.6 → 20.8 s, turtles 1.6 → 1.0 s. So expect about 75 s on an idle machine; that figure is
+an estimate, not a measurement.
 
 ```bash
 python3 -I $H/compare.py $H/baseline/counts.json $H/results      # per-repo deltas; exit 1 on any
@@ -29,10 +34,16 @@ python3 -I $H/counts.py $H/results /tmp/counts.json              # write counts;
 python3 -I $H/summarize.py --results $H/results                  # build results/SUMMARY.md
 python3 -I $H/inspect_rows.py --results $H/results <repo> <section> [class|field=value] [n] [offset]
 python3 -I $H/oracle_smoke.py /tmp/corpus [file-suffix]          # oracle only, no server
+python3 -I $H/symbol_names.py --binary /tmp/tcl-lsp --corpus /tmp/corpus --out /tmp/symbols  # one <repo>.txt per repo
+diff -r /tmp/symbols-before /tmp/symbols                         # the symbol diff between two binaries
 ```
 
 `compare.py` compares only the repos present in the results directory, and reports a
 repo that left a `<repo>.FAILED.txt`. It compares counts, not individual rows or timings.
+
+`symbol_names.py` sends `workspace/symbol` with an empty query, one server per repo, and
+writes sorted `file:line kind name` lines. Result JSON keeps symbol counts and samples only,
+and namespace-level `$x` is not probed, so this is the check on namespace-level symbols.
 
 ## The baseline
 
@@ -66,7 +77,8 @@ Files: `lspclient.py` (client), `tclparse.py` (independent Tcl word parser), `ro
 (which braced word is a script, expr, data or callback), `oracle.py` + `oracle_util.py`
 (definitions, call sites, `$var` uses, proc bindings), `probe_core.py` (repo tables,
 plausible-namespace rules), `phases.py` (A/B/C/D/G), `phases2.py` (E/F/H), `probe.py`
-(driver), `summarize.py`, `inspect_rows.py`, `counts.py`, `compare.py`, `fetch_corpus.sh`.
+(driver), `summarize.py`, `inspect_rows.py`, `counts.py`, `compare.py`, `symbol_names.py`,
+`fetch_corpus.sh`.
 
 ## Caps applied
 
@@ -107,7 +119,8 @@ plausible-namespace rules), `phases.py` (A/B/C/D/G), `phases2.py` (E/F/H), `prob
     `global`/`variable`/`upvar` link for that name, and it is not an ivar of the enclosing
     class.
   - `binding-after-use-no-loop`: an unqualified, unlinked local resolved to a binding that
-    comes later in the source, with no enclosing loop.
+    comes later in the source, with no enclosing loop. A braced `while` or `for` test does
+    not count as in a loop (see "Known gaps"), so a right answer in one lands here.
   - `name-mismatch`
 
 ## Oracle design and limitations (what triage must keep in mind)
@@ -163,7 +176,8 @@ plausible-namespace rules), `phases.py` (A/B/C/D/G), `phases2.py` (E/F/H), `prob
   - Switch patterns are only recorded for the braced arm-list form. Inline
     `switch $x a {..} b {..}` patterns are not probed.
   - **G (semantic tokens)** uses the first `semanticTokens/full` result. For yajl-tcl
-    `airports.tcl` that request timed out, so its probes have `sem=null`.
+    `airports.tcl` that request timed out in the baseline, so its probes there have
+    `sem=null`.
 - The spot-check below shows high-signal categories are mostly true positives. CANDIDATE_*
   counts are still upper bounds: confirm each root cause by reading the source.
 
@@ -192,6 +206,7 @@ plausible-namespace rules), `phases.py` (A/B/C/D/G), `phases2.py` (E/F/H), `prob
 | 18 | REFS_MISSING | piaware/fa_adept_client.tcl:105 `logger` intra-class Itcl method call; goto-def resolves it, references omits it | real asymmetry (goto-def has the `methodInClass` path, references does not) |
 | 19 | obj CANDIDATE_MISS | piaware/fa_piaware_config.tcl:420 `$metadata key` (`metadata` is an Itcl ivar) | correct silence, since the receiver is untyped. The class is only a candidate; see the caveat above |
 | 20 | VAR_SUSPECT_WRONG name-mismatch | TclProDebug/lib/tcldebugger/nub.tcl:1674 `$ns` | **oracle false positive**: `upvar #0 DbgNub(scope) ns` at line 1669 is a static alias, so chasing to `::DbgNub` is correct, if noisy at ~160 targets |
+| 21 | VAR_SUSPECT_WRONG binding-after-use (v0.6.3) | speedtables/stapi/client/pgsql.tcl:19 `$args` in `while {[llength $args]} {` → param, `set args` at 21 and 27 | **oracle false positive**: bindings in the loop body do reach the test on the next pass. All 15 remaining rows have this shape (see "Known gaps") |
 
 Residual false-positive rate observed after the fixes. Row 20 shows the ~0% for
 VAR_SUSPECT_WRONG was too low: those samples were small, so treat every rate here as a
@@ -219,6 +234,16 @@ rough guide.
 - `references` is requested with `includeDeclaration: false`.
 - `semanticTokens` for the probe-time check comes from the phase-A request. Files are not
   re-requested after the H-phase didOpen.
-- The yajl-tcl run includes 4 restarts (2 phase-A timeouts plus 2 `$::airport(...)` var probes
-  that timed out), each re-indexing that repo.
-- Result JSON keeps symbol counts and samples, not every symbol name.
+- The baseline's yajl-tcl run includes 4 restarts (2 phase-A timeouts plus 2 `$::airport(...)`
+  var probes that timed out), each re-indexing that repo. v0.6.3 has none.
+- Result JSON keeps symbol counts and samples, not every symbol name. Use `symbol_names.py`.
+- **A braced `while` or `for` test is not tagged as in-loop.** `roles.py` gives the test the role
+  `expr` and gives only the body and `next` the role `loop`. Since v0.6.3 the server records a
+  use in that test at the loop header, so a binding later in the body is a correct target, and
+  the classifier calls it `binding-after-use-no-loop`. All 15 such rows remaining at v0.6.3 are
+  right answers, each read against the source:
+  - speedtables: `stapi/client/cass.tcl:108`, `:988`, `stapi/client/pgsql.tcl:19`,
+    `stapi/server/server.tcl:514`
+  - TclProDebug, under `lib/tcldebugger/`: `bindings.tcl:548`, `:584`, `codeWin.tcl:821`,
+    `find.tcl:346` (2: `$range`, `$thisBlk`), `instrument.tcl:801`, `:1346`, `portWin.tcl:148`,
+    `proj.tcl:915`, `:1283`, `:1308`

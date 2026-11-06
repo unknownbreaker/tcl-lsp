@@ -11,6 +11,9 @@ asks the running server real questions across whole repos, then checks the answe
 against something other than the server. It found a server that is robust, wrong in
 four specific ways, and slow on one generated file.
 
+v0.6.3 fixes the wrong answers and the slowdown. Everything up to "Fix design" describes
+`main@26f8ab2`, the code before those fixes. "Fix design" describes what shipped.
+
 ## How to read the evidence
 
 Every finding carries one of these tags. They are not interchangeable.
@@ -156,7 +159,7 @@ bindings from anywhere in those bodies.
 **Harness count:** 83 rows, excluding uses in loops. 74 have all targets after the use (speedtables
 47, TclProDebug 17, piaware 5, piaware-gui 3, tsp 2). 9 are mixed: tclrmq 7 are really W1,
 piaware-gui 1, and speedtables 1 (`stapi/display/display.tcl:2331`, not read, may be a false
-positive). `docs/BACKLOG.md` currently calls this fallback "graceful".
+positive). `docs/BACKLOG.md` called this fallback "graceful" at the time.
 
 **Related, found while checking the fix (reproduced through the resolver on `main@26f8ab2`).**
 `recordUses` (`reaching.go:411-426`) keeps the set from the *first* visit to a use, so the loop
@@ -246,7 +249,8 @@ by design; they are not bugs.
 
 ## Fix design
 
-The plan is `docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`. In order:
+What shipped in v0.6.3. The plan is `docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`; where it
+differs from this section, this section is right, and the plan lists the departures. In order:
 
 1. **Position index.** A per-request line-start table with a `sort.SearchInts` lookup, then a UTF-16 count
    from the line start. Exact behaviour match with `LSPPosition`. Multi-file paths use a per-request map
@@ -256,60 +260,131 @@ The plan is `docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`. I
    arm list (its parsed words flattened and shifted to `w`'s coordinates), otherwise inline pairs. Only a
    braced body is returned, `-` is fall-through, and patterns are never walked. An odd word count with a
    braced last word returns nil; an unbraced last word is a pattern still being typed and is dropped, so
-   the other arms keep resolving mid-edit, as they do on `main@26f8ab2`. The reaching workaround goes away. `FileFolds` keeps the outer arm-list fold through a small helper.
+   the other arms keep resolving mid-edit, as they do on `main@26f8ab2`. The reaching workaround goes away.
+   `FileFolds` keeps the outer arm-list fold through a small helper. The inline form also made a fake
+   symbol by another route: `switch $k proc - method { puts 1 }` read as a decorated proc named `-`, so
+   `decoratedProcDef` now refuses a `switch` head.
 3. **Separate commands from variables.** Index keeps one table. Resolver lookups filter by side: commands
    accept `DefProc` and `DefClass`, variables accept `DefNamespaceVar` (`storeUnit` puts only those three
    kinds in `defsByName`). `targetFQ` also returns the side. That includes the `Origin` chases in
-   `localDefinition` (`resolve.go:94,123`), or a `global test` link still returns `proc test`.
-4. **Bindings that cannot reach.** The fallback ignores bindings *strictly after* the cursor
-   (`NameStart > offset`), so that a cursor on a binding still answers itself, which
-   `TestDefinitionProcLocalJumpsToReachingDefNotEarliestBinding` pins. `recordUses` unions across visits,
-   so loop-carried uses keep resolving now that the fallback no longer rescues them. In
-   `analyzeConservative`, uses are recorded from a precise view: the main body and each switch arm start
-   from `in`; `on`/`trap` start from `in` plus the main body's bindings; `finally` also sees the handlers'
-   bindings, since a handler may have run. The exit set stays conservative.
-5. **Opaque frame for unknown bodies.** A new `FrameOpaque`: a trailing-brace body of a command that is not
-   known to run its script in the enclosing frame. No unqualified variable defs and no bare `$x` answers
-   there; qualified names, procs and command calls still work, and `proc`, `namespace eval` and
-   `itcl::class` reset the frame as before. `FrameProc` and `FrameClass` are unchanged.
-   `enclosingProcOrScope` accepts the opaque frame, so `set o [::C #auto]; $o m` inside a wrapper keeps
-   working. `substRefs` drops variable refs from a proc or class body nested in a bracket.
+   `localDefinition`, or a `global test` link still returns `proc test`.
+4. **Bindings that cannot reach.**
+   - **The guard.** The earliest-binding fallback ignores bindings *strictly after* the cursor
+     (`NameStart > offset`), so that a cursor on a binding still answers itself, which
+     `TestDefinitionProcLocalJumpsToReachingDefNotEarliestBinding` pins.
+   - **An empty answer is an answer.** When the analyzer ran and nothing reaches a non-array use, the result
+     is nil and the caller may try instance variables. Otherwise a sibling branch's binding, or a use's own
+     `set x [... $x ...]`, still answered through the fallback. The fallback remains for an oversized proc, an
+     array element, and a use the analyzer did not find.
+   - **Union across visits.** `recordUses` keeps every visit's set, so a loop-carried use resolves now that
+     the fallback no longer rescues it.
+   - **Loop variables rebind every iteration,** so a reassignment of a `foreach` variable below a use does not
+     reach that use on the next pass. Without this, the union would have added a new wrong answer.
+   - **`for` order.** `start` runs once, then each pass runs the body before `next`, so `continue` still runs
+     `next` and a `next` binding reaches the following pass.
+   - **`try` steps by clause.** `tryParts` reads `on`/`trap` as four words and `finally` as two, so a variable
+     list spelled `finally` does not start a clause.
+   - **Precise entry views.** In `analyzeConservative`, the main body and each switch arm start from `in`,
+     `on`/`trap` also see the main body's bindings, and `finally` also sees the handlers' bindings, because a
+     handler may have run, but not its own later bindings. The exit set stays conservative.
+   - **Braced loop tests** of `while` and `for` are recorded at the loop header on every pass, so a binding in
+     the body reaches `[llength $args]` in `while {[llength $args]} {...}`. An unbraced test substitutes once,
+     before the command runs, and gets no such treatment.
+   - **Unknown-command bodies stay out of reach sets.** Their bindings are collected separately and count only
+     when nothing else reaches, so `set x 0; puts {set x 1}; puts $x` answers line 1 alone. The first attempt
+     treated those bodies as conservative and would have excluded known data commands such as `puts`. That was
+     rejected, because any command can take data in a brace, so an exclusion list can never be complete and each
+     gap in it is a wrong answer. Only scripts known to run here are conservative: `catch`, `try`, `switch`,
+     `time`, `timerate`, and `eval` in its one-word form `eval {script}`. With more words `eval` concatenates
+     them, and the resulting head decides what runs.
+   - **Itcl method parameters are locals,** so a parameter that shadows an ivar answers the parameter, not the
+     ivar. It was a wrong answer, and it also fixes a miss the first design left out.
+5. **Opaque frame for unknown bodies.** A new `FrameOpaque`: at namespace frame, a trailing-brace body of a
+   command not known to run its script in the enclosing frame (`bodiesRunHere`). **Only absolute names count
+   there,** as definitions and as uses: a bare name could be anything, and a relative `a::b` resolves from a
+   namespace the server cannot know (tclsh errors on the shape). `uplevel` and multi-word `eval` are not
+   pass-through: `namespace eval ::n { uplevel #0 { set x 1 } }` would otherwise define `::n::x`. Procs and
+   command calls still work, and `proc`, `namespace eval` and `itcl::class` reset the frame as before. `FrameProc`
+   and `FrameClass` are unchanged. `enclosingProcOrScope` accepts the opaque frame, so `set o [::C #auto]; $o m`
+   inside a wrapper keeps working. `substRefs` drops variable refs, unless absolute, from a proc or class body
+   nested in a bracket.
 6. **Gate and release.** Harness before/after, every remaining row read, patch release `v0.6.3`.
 
-**Checked against a throwaway prototype.** Designs 2 to 5 were applied to a scratch copy of `server/`, not
-this tree, with design 1 on its hot paths only (documentSymbol, semanticTokens, workspace/symbol,
-`toLocations`). All 8 existing test packages stayed green with no test edited, so no existing test pins a namespace
-variable through an unknown wrapper. These checks were repeated independently of the prototype's author: the existing
-tests, the full `-race` suite, and the corpus run. The corpus run gave these counts, which are **harness counts for
-the prototype, not for shipped code**:
+**Measured on the shipped code.** All 8 test packages pass, with `-race` and `vet`. These are **harness counts**, so
+the same caveats apply: upper bounds from a lenient oracle. A second full run matched the first on every count.
 
-| Metric | Baseline | Prototype |
+| Metric | Baseline | Shipped |
 | --- | ---: | ---: |
 | `switch-pattern-resolved-as-call` | 106 | 0 |
 | switch patterns colored as calls | 106 | 0 |
 | refs `switch-pattern` | 18 | 0 |
 | `command-resolved-to-non-callable:*` | 56 | 0 |
 | refs `text-mismatch` | 6 | 0 |
-| `binding-after-use-no-loop` | 83 | 0 |
+| `binding-after-use-no-loop` | 83 | 15 (right answers, see below) |
 | `outside-proc-unlinked` | 709 | 0 |
+| `name-mismatch` | 3 | 3 (the `$ns` rows, see "Not actually bugs") |
 | symbols not in oracle | 887 | 3 |
+| `airports.tcl` documentSymbol | 40.6 s | 145 to 162 ms |
+| `airports.tcl` semanticTokens | 20.2 s | 64 to 83 ms |
+| `test2.tcl` goto-def timeouts | 2 | 0 |
 | yajl-tcl timeouts / restarts | 4 / 4 | 0 / 0 |
-| yajl-tcl run, wall clock | 106.8 s | 1.8 s |
-| `CANDIDATE_VAR_MISS` (expected to rise) | 4,510 | 5,019 |
-| `def_misses` (expected to rise) | 524 | 644 |
+| yajl-tcl run, wall clock | 106.8 s | 2.8 to 4.0 s |
+| Call `OK` | 4,464 | 4,595 |
+| `VAR_OK` | 15,514 | 15,936 |
+| `CANDIDATE_VAR_MISS` (expected to rise) | 4,510 | 4,709 |
+| `def_misses` (expected to rise) | 524 | 649 |
 
-The plan's Task 6 explains these movements row by row.
+The shipped timings are from two runs on a heavily loaded machine.
+
+**Every remaining row was read against the source:**
+- `binding-after-use-no-loop`, 15 rows, are right answers that the classifier cannot see. Each use sits in a braced
+  `while` or `for` test, and each later target is a binding in that loop's body or `next` script, which does reach the
+  test on the next pass. The oracle gives the test the role `expr`, not `loop`, so it does not tag the use as in-loop.
+  TclProDebug 11, speedtables 4; the harness README names them. Tcl confirms the shape.
+- `name-mismatch`, 3 rows: the `$ns` false positive under "Not actually bugs".
+- Symbols not in the oracle, 3 rows: `TclProDebug/lib/tcldebugger/instrument.tcl:620` (2) is a `lassign` writing through
+  `variable suppress` and `variable result` links, so the symbols are right and the oracle misses them.
+  `speedtables/ctable_server/ctable_client.tcl:372` (1) is the second parser limit below.
+
+**Answers lost, row by row** (`VAR_OK` then, not now). TclOO repos: prometheus-tcl 17 and tclrmq 61, as decided. Elsewhere,
+49 rows go silent. 33 of them were wrong before: a use's own `set`, a binding in the other branch or past the end of the
+loop, or a branch that returns. The other 16 were right: 9 `tsp::proc` uses (`bench/langbench/`), 5 array elements in
+`TclProDebug/lib/tcldebugger/tabnotebook.tcl` whose only answer was a binding the loop carries around (`docs/BACKLOG.md`,
+reaching-defs item 1), and 2 at the first parser limit below.
+
+**What moved in the symbol diff** (`symbol_names.py`, per repo, removed / added): tsp 470 / 0, tclrmq 419 / 0, prometheus-tcl
+70 / 0, speedtables 34 / 3, TclProDebug 24 / 1, turtles 4 / 0, piaware 0 / 11, piaware-gui 0 / 1. Removals are TclOO, `tsp::proc`,
+the 3 switch `-` arms and wrapper-body variables; one tsp row is `set dir ..` in a `puts {...}` string. Additions are arm-body
+definitions, plus the `ctable_client.tcl:372` row. The plan's Task 6 explains the other movements.
 
 **What this costs.** Silence replaces some answers that were right:
-- TclOO same-class answers (see Decisions).
+- TclOO same-class answers (see Decisions), and locals in `tsp::proc` bodies.
 - A namespace-level variable assigned or read inside a custom wrapper that really does `uplevel`. The rule
-  cannot tell those apart from a TclOO method. 54 `ns-set`/`ns-array-set` definitions leave the outline in
-  the prototype (speedtables 34, TclProDebug 16, turtles 4). 53 are oracle `conf=heuristic` and 1 is a `bind`
-  callback. The harness cannot measure the matching `$x` uses, since it does not probe them. `.rvt` page code
-  runs at namespace level, so wrappers in pages are the most exposed. This corpus has only 4 `.rvt` files, so that cost is unmeasured (see Decisions).
-- A known residual: a bare `$x` in `set r [with_lock { puts $x }]` at namespace level still resolves to the
-  namespace variable, because references inside a bracket are tagged by the enclosing command, and dropping
-  them would lose `$y` in `proc f {y} { set r [with_lock { puts $y }] }`.
+  cannot tell those apart from a TclOO method. 59 `ns-set`/`ns-array-set` definitions leave the outline (speedtables 34,
+  TclProDebug 21, turtles 4). 6 of them are in `bind` callbacks, and 5 of those are relative qualified names. The harness
+  cannot measure the matching `$x` uses, since it does not probe them. `.rvt` page code runs at namespace level, so
+  wrappers in pages are the most exposed. This corpus has only 4 `.rvt` files, so that cost is unmeasured (see Decisions).
+- 12 references, from a quoted arm body. `tsp/tsp-generate-set.tcl:478` and five like it write `error "...[::tsp::currentLine compUnit]..."`
+  in an arm list, which Tcl reads as pattern `error` and body `"..."`. Only braced bodies are walked.
+
+**Known limits that remain:**
+- A bare call in an unknown body resolves against the lexical namespace, though TclOO methods run in the object's
+  namespace. `helper` in a method errors on 8.6.18 and 9.0.3 even when `::n::helper` exists, yet goto-def answers it. A wrapper
+  cannot be told apart from a method, and silencing would lose every call in wrappers.
+- A bare `$x` or a relative `$a::b` in an unknown body inside a bracket at namespace level still resolves, as in
+  `set r [with_lock { puts $x }]`. References inside a bracket are tagged by the enclosing command, and dropping them would
+  lose `$y` in `proc f {y} { set r [with_lock { puts $y }] }`.
+- A bare call in a proc nested in a bracket is tagged by the enclosing command: `namespace eval ::k { proc helper {} {}; if [catch {proc ::m::reader {} { helper }}] {} }`
+  answers `::k::helper`, and tclsh errors.
+- `namespace eval` in a bracket keeps a wrong tag: in `namespace eval ::k { set a 1; set r [namespace eval ::n { puts $a }] }`
+  the `$a` answers `::k::a`.
+- Two parser limits, both older than this work. A `[` inside braces inside `[...]` swallows a body: speedtables
+  `stapi/client/uri.tcl:33-34`, where `foreach c [split {\\$[} ""] {...}` loses 2 right answers. And the `"` inside
+  `[join $codeList "\n"]` ends a quoted word, so later string text parses as a command: speedtables
+  `ctable_server/ctable_client.tcl:372`.
+- `set x 0; with { set x 1 }; puts $x` omits the wrapper's `set`. The same shape on `main@26f8ab2` omitted it too.
+
+Smaller residuals are in `docs/BACKLOG.md`.
 
 ## Decisions (made by the user, 2026-11-05)
 

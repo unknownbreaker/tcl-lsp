@@ -74,3 +74,29 @@ The FlightAware corpus probe found ten kinds of missing answers, ranked in
 plan (`docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`), which
 covers wrong answers and the position slowdown only. Rows there are harness counts
 and upper bounds; confirm a root cause by reproducing it before picking one up.
+
+## Corpus-fix residuals (v0.6.3)
+
+**Status:** deferred. **Area:** `server/internal/tcl/`, `server/internal/lsp/`.
+
+The larger known limits, including the two parser limits, are in
+`research/08-flightaware-corpus-probe.md` ("Known limits that remain"). These are the smaller
+ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
+
+- **Switch, still a wrong answer.** Abbreviated or quoted options read a pattern as a call:
+  `switch -reg $x {stop {...}}`, `switch "-glob" $x {stop {...}}`. Tcl's rule is that the last two
+  words are never options. `::switch` is unhandled, so a pattern reads as a call and
+  `::switch $k proc - method {...}` makes `::-`. Same on `main@26f8ab2`.
+- **Switch, now silent.** `switch {*}$opts $x {...}` and `switch -exact {...}` find no arms, and a `;`
+  in a bare pattern shifts the pairing. Their arms' calls resolved on `main@26f8ab2`.
+- **Reaching, still a wrong answer.** `for {} {1} {set x 1} {puts $x; break}` runs `next` when the
+  body cannot complete. `set x 0; eval {set y 1;} {set x 1}; puts $x` answers `set x 0`.
+  `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. The last two are
+  the same on `main@26f8ab2`.
+- **Reaching, incomplete.** `set x 0; time {set x 1} 5; puts $x` omits the `time` body, and
+  `set a(1) 1; set a(2) 2; array names a` answers only the last `set`. Same on `main@26f8ab2`.
+- **Silent, not wrong.** `foo destructor {set x 1}`: tail matching reads an unknown command's word as
+  a member keyword. `$a` in a bracketed proc or class body loses its semantic token.
+- **Cost.** `workspace/symbol` builds line indexes for every file even on a narrow query.
+  `incomingCalls` fetches source twice per site and re-parses once per site. `refFQ` calls
+  `lookupSide` only for a length check, allocating per candidate on the workspace scan; unmeasured.
