@@ -207,6 +207,50 @@ func TestDefinitionDataAndDeferredBracesDoNotReach(t *testing.T) {
 	runDefinitionCases(t, cases)
 }
 
+// In a command whose scripts run here, a word spelled like a member keyword is a
+// pattern or a variable name, so its bindings still count. Tcl 8.6 sets x in each.
+func TestDefinitionMemberKeywordsInControlCommands(t *testing.T) {
+	runDefinitionCases(t, []definitionCase{
+		{"switch pattern method", "proc f {k} {\n  set x 0\n  switch $k method {set x 1} default {set x 2}\n  puts $x\n}", "$x", []int{2, 3, 3}},
+		{"switch pattern destructor", "proc f {k} {\n  set x 0\n  switch $k a {set x 1} destructor {set x 2}\n  puts $x\n}", "$x", []int{2, 3, 3}},
+		{"control, switch pattern meth", "proc f {k} {\n  set x 0\n  switch $k meth {set x 1} default {set x 2}\n  puts $x\n}", "$x", []int{2, 3, 3}},
+		{"switch pattern method, no prior", "proc f {k} {\n  switch $k method {set x 1} default {set x 2}\n  puts $x\n}", "$x", []int{2, 2}},
+		{"loop variable constructor in a catch", "proc f {l} {\n  catch { foreach constructor $l { set x 1 } }\n  puts $x\n}", "$x", []int{2}},
+		{"control, loop variable ctor in a catch", "proc f {l} {\n  catch { foreach ctor $l { set x 1 } }\n  puts $x\n}", "$x", []int{2}},
+		{"lmap variable constructor", "proc f {l} {\n  set x 0\n  lmap constructor $l { set x 1 }\n  puts $x\n}", "$x", []int{2, 3}},
+		{"try handler variable list destructor", "proc f {} {\n  set x 0\n  try {\n    puts hi\n  } on error destructor {\n    set x 1\n  }\n  puts $x\n}", "$x", []int{2, 6}},
+	})
+}
+
+// Only `eval {script}` runs its brace as a script here. With more words eval
+// concatenates them and the head decides, so the brace is like any unknown command's.
+func TestDefinitionEvalForms(t *testing.T) {
+	var cases []definitionCase
+	for _, command := range []string{
+		"eval after 100 {set x 1}",
+		"eval uplevel 1 {set x 1}",
+		"eval namespace eval ::n {set x 1}",
+		"eval lappend l {set x 1}",
+	} {
+		cases = append(cases, definitionCase{command, "proc f {} {\n  set x 0\n  " + command + "\n  puts $x\n}", "$x", []int{2}})
+	}
+	cases = append(cases,
+		definitionCase{"eval {set x 1}", "proc f {} {\n  set x 0\n  eval {set x 1}\n  puts $x\n}", "$x", []int{2, 3}},
+		definitionCase{"eval of a proc definition, prior", "proc f {} {\n  set x 0\n  eval proc g {} {set x 1}\n  puts $x\n}", "$x", []int{2}},
+		definitionCase{"eval with two scripts is not one script", "proc f {} {\n  set x 0\n  eval {set y 1} {set x 1}\n  puts $x\n}", "$x", []int{2}},
+	)
+	runDefinitionCases(t, cases)
+}
+
+// A malformed control command with a proc shape must not run the proc's body here,
+// with the guard against it gone from analyzeConservative.
+func TestDefinitionControlCommandWithAProcShape(t *testing.T) {
+	runDefinitionCases(t, []definitionCase{
+		{"catch", "proc f {} {\n  catch proc g {} {set x 1}\n  puts $x\n}", "$x", nil},
+		{"try", "proc f {} {\n  try proc g {} {set x 1}\n  puts $x\n}", "$x", nil},
+	})
+}
+
 // With no other binding, a member's body still answers nothing: it does not run here.
 func TestDefinitionMemberBodiesNeverAnswer(t *testing.T) {
 	runDefinitionCases(t, []definitionCase{

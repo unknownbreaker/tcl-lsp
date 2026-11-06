@@ -282,15 +282,15 @@ func reachEqual(a, b reachSet) bool {
 }
 
 // conservativeHead reports whether command c requires conservative may-reach
-// modeling: its scripts truly run in this frame, and they are alternatives or may
-// abort, so precise exception modeling is deferred.
+// modeling: its scripts run in this frame, and they are alternatives or may abort, so
+// precise exception modeling is deferred. `eval` counts only in its one-script form.
+// With more words it concatenates them, and the resulting head decides what happens.
 func conservativeHead(c Command) bool {
-	for _, head := range []string{"catch", "try", "switch", "eval", "time", "timerate"} {
-		if isCmd(c.Words, head) {
-			return true
-		}
+	w := c.Words
+	if isCmd(w, "eval") {
+		return len(w) == 2
 	}
-	return false
+	return isCmd(w, "catch") || isCmd(w, "try") || isCmd(w, "switch") || isCmd(w, "time") || isCmd(w, "timerate")
 }
 
 // bodiesRunHere reports whether the scripts of command c are known to run in this
@@ -303,11 +303,16 @@ func bodiesRunHere(c Command) bool {
 // where a body runs: a body that starts a new scope reports a different Scope.
 const analyzedScope = -1
 
-// declaresMember reports whether w declares an OO member. Its body runs when the
+// declaresMember reports whether c declares an OO member. Its body runs when the
 // member is called, not here, even though childBodies sees an ordinary trailing
 // script outside an Itcl class body. The keyword may have words before it:
-// `self method m {} {...}`, `oo::define C method m {} {...}`.
-func declaresMember(w []Word) bool {
+// `self method m {} {...}`, `oo::define C method m {} {...}`. In a command whose
+// scripts are known to run here, those words are patterns or variable names.
+func declaresMember(c Command) bool {
+	w := c.Words
+	if bodiesRunHere(c) {
+		return false
+	}
 	if isCmd(w, "method") || isCmd(w, "constructor") || isCmd(w, "destructor") {
 		return true
 	}
@@ -322,7 +327,7 @@ func declaresMember(w []Word) bool {
 // that start one (proc, decorated proc, namespace eval, itcl::class, itcl::body, OO
 // members) do not run here, so their bindings cannot reach.
 func (a *analyzer) sameScopeBodies(c Command, base int) []bodyScope {
-	if declaresMember(c.Words) {
+	if declaresMember(c) {
 		return nil
 	}
 	var bodies []bodyScope
@@ -382,9 +387,6 @@ func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBod
 // back edge. Names in a try handler's variable list are not modeled as bindings.
 func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachSet, bool) {
 	bodyScripts := scriptBodies(c.Words)
-	if len(a.sameScopeBodies(c, base)) == 0 {
-		bodyScripts = nil // `eval proc g {} {...}` defines g; its body does not run here
-	}
 	gens := reachSet{}
 	for _, script := range bodyScripts {
 		gens = joinAll([]reachSet{gens, a.bindingsIn(script, base)})
