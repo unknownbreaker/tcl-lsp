@@ -3,6 +3,7 @@ package lsp
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"math/rand"
 	"strings"
@@ -260,8 +261,42 @@ func TestLineIndexInvalidUTF8AtLineBoundaries(t *testing.T) {
 	}
 }
 
-// Offsets far outside int range of the source must clamp, not overflow or index out
-// of range. math.MaxInt + 1 wraps negative if the clamp comes after the search key.
+// Offsets far outside the source's range must clamp, not overflow or index out of
+// range. math.MaxInt + 1 wraps negative if the clamp comes after the search key.
+// Goto-definition on a local after a large switch must not be quadratic in the arms.
+// Merging each arm's bindings into a rebuilt set took about 10 s at this size.
+func TestLargeSwitchDefinitionStaysFast(t *testing.T) {
+	const (
+		maximumRequestTime = 2 * time.Second
+		armCount           = 4000
+		targetArm          = 2000
+		uri                = "file:///switch.tcl"
+		firstArmLine       = 2 // 0-based: after the proc and switch lines
+	)
+	var text strings.Builder
+	text.WriteString("proc f {k} {\n  switch $k {\n")
+	for arm := 0; arm < armCount; arm++ {
+		fmt.Fprintf(&text, "    k%d { set v%d %d }\n", arm, arm, arm)
+	}
+	fmt.Fprintf(&text, "  }\n  puts $v%d\n}\n", targetArm)
+
+	server := NewServer(nil)
+	server.setDoc(uri, text.String())
+	useLine := firstArmLine + armCount + 1
+	start := time.Now()
+	locations := server.handleDefinition(TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     Position{Line: useLine, Character: len("  puts $v")},
+	})
+	elapsed := time.Since(start)
+	if len(locations) != 1 || locations[0].Range.Start.Line != firstArmLine+targetArm {
+		t.Errorf("locations = %+v, want one on line %d", locations, firstArmLine+targetArm)
+	}
+	if elapsed >= maximumRequestTime {
+		t.Errorf("took %v, want under %v", elapsed, maximumRequestTime)
+	}
+}
+
 func TestLineIndexExtremeOffsets(t *testing.T) {
 	for _, src := range []string{"", "x", "a\nb😀\nc", "\n\n"} {
 		index := newLineIndex(src)

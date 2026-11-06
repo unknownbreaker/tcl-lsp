@@ -393,7 +393,8 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 	bodyScripts := scriptBodies(c.Words)
 	gens := reachSet{}
 	for _, script := range bodyScripts {
-		gens = joinAll([]reachSet{gens, a.bindingsIn(script, base)})
+		inner, innerBase := bracedInner(script, base)
+		a.collectBindings(Parse(inner), innerBase, gens, bodiesRunHere)
 	}
 	var bodies []conservativeBody
 	if isCmd(c.Words, "try") {
