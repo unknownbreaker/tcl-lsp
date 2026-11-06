@@ -80,7 +80,10 @@ already worked (`ClassOf` keys on the class head word) — covered by a guard te
 
 ## Remaining known gaps (documented, not yet fixed)
 
-- **TclOO** (`oo::class`, `oo::define`) — out of scope; Itcl only.
+- **TclOO** (`oo::class`, `oo::define`) — out of scope; Itcl only. Since v0.6.3 plain
+  variables in its bodies are silent, rather than walked as namespace code, which had
+  turned method locals into namespace variables. Calls in those bodies still resolve.
+  See `research/08-flightaware-corpus-probe.md`.
 - **Protection blocks** `public { … }` / `protected { … }` grouping several
   declarations — 0 occurrences in the surveyed corpus, so deferred.
 - **`variable name default { config }`** — the optional third (config-code) block

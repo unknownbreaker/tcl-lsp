@@ -35,6 +35,7 @@ type collectors struct {
 func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, c collectors) {
 	for _, cmd := range cmds {
 		w := cmd.Words
+		bodies := childBodies(cmd, base, ns, frame, scope, class)
 
 		if c.defs != nil {
 			emitDefs(cmd, base, ns, frame, scope, class, c.defs)
@@ -46,6 +47,9 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 			} else if _, args, body, ok := decoratedProcDef(w); ok {
 				_, bodyBase := bracedInner(body, base)
 				emitProcParams(args, base, ns, bodyBase, class, c.defs)
+			} else if args, ok := methodArgs(w, frame); ok && len(bodies) > 0 {
+				// Parameters belong to the main body, which is listed first.
+				emitProcParams(args, base, ns, bodies[0].Base, bodies[0].Class, c.defs)
 			}
 		}
 
@@ -65,7 +69,7 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 			recordInherit(cmd, ns, class, c.classes)
 		}
 
-		for _, b := range childBodies(cmd, base, ns, frame, scope, class) {
+		for _, b := range bodies {
 			walkAll(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, b.Class, c)
 		}
 	}

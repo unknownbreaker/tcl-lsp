@@ -409,15 +409,14 @@ func mergeLocations(decls, refs []index.Location) []index.Location {
 // toLocations converts resolver locations (byte ranges) to LSP locations.
 func (s *Server) toLocations(locs []index.Location) []Location {
 	var out []Location
+	indexes := lineIndexes{}
 	for _, l := range locs {
-		src := s.sourceOf(l.File)
-		sl, sc := LSPPosition(src, l.NameStart)
-		el, ec := LSPPosition(src, l.NameEnd)
+		lines := indexes.forFile(l.File, s.sourceOf)
 		out = append(out, Location{
 			URI: pathToURI(l.File),
 			Range: Range{
-				Start: Position{Line: sl, Character: sc},
-				End:   Position{Line: el, Character: ec},
+				Start: lines.position(l.NameStart),
+				End:   lines.position(l.NameEnd),
 			},
 		})
 	}

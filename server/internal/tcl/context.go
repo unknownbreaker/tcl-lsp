@@ -3,14 +3,16 @@ package tcl
 import "strings"
 
 // FrameKind is the kind of scope a reference appears in. Variable resolution
-// differs by frame: inside a proc body a bare variable is local-only, while at
-// namespace-eval top level it is the namespace's own variable.
+// differs by frame: inside a proc body a bare variable is local-only, at
+// namespace-eval top level it is the namespace's own variable, and in the body of
+// an unknown command nothing can be said about it.
 type FrameKind int
 
 const (
 	FrameNamespace FrameKind = iota // namespace-eval top level (incl. global ::)
 	FrameProc                       // inside a proc body
 	FrameClass                      // an itcl::class body (member-declaration scope)
+	FrameOpaque                     // an unknown command's body: the frame it runs in is not known
 )
 
 // ContextRef is a reference together with the namespace and frame at its site.

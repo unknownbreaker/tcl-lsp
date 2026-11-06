@@ -140,7 +140,8 @@ func Folds(path, content string) []tcl.FoldRange {
 // offset in content, in SOURCE coordinates. For .rvt the offset is mapped into the
 // stitched ::request script and each result range is translated back to the .rvt;
 // ranges that map outside a real region are dropped. ok is false when there is no
-// reaching set (caller falls back).
+// reaching set (caller falls back), including when every binding in it was dropped.
+// ok with no definitions means the analyzer visited the use and nothing reaches it.
 func Reaching(path, content string, offset int) ([]tcl.Definition, bool) {
 	if !IsRVT(path) {
 		return tcl.ReachingAt(content, offset)
@@ -153,6 +154,9 @@ func Reaching(path, content string, offset int) ([]tcl.Definition, bool) {
 	defs, ok := tcl.ReachingAt(doc.Script, vOff)
 	if !ok {
 		return nil, false
+	}
+	if len(defs) == 0 {
+		return nil, true
 	}
 	var out []tcl.Definition
 	for _, d := range defs {

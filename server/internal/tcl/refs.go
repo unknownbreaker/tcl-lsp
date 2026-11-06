@@ -222,10 +222,34 @@ func substRefs(inner string, innerBase int) []Reference {
 		// bodies vs. expr/substituted words), so there is no double-counting. The
 		// neutral namespace frame only locates the body spans; the resulting
 		// context-free References are tagged by the enclosing command at the walkAll
-		// call site, as every other substitution ref already is.
+		// call site, as every other substitution ref already is. That tag is wrong for
+		// the variables of a proc or class body, which belong to a frame of their own,
+		// so those are dropped unless the name is absolute. An unknown command's body
+		// keeps them: inside a proc, the tag is right for `$y` in
+		// `set r [with_lock { puts $y }]`.
 		for _, b := range childBodies(c, innerBase, "::", FrameNamespace, 0, "") {
-			refs = append(refs, substRefs(b.Inner, b.Base)...)
+			bodyRefs := substRefs(b.Inner, b.Base)
+			if b.Frame == FrameProc || b.Frame == FrameClass {
+				bodyRefs = commandsAndAbsoluteVariables(bodyRefs)
+			}
+			refs = append(refs, bodyRefs...)
 		}
 	}
 	return refs
+}
+
+// commandsAndAbsoluteVariables keeps command refs and variables with an absolute
+// name, and drops every other variable: its meaning depends on the frame and
+// namespace the body runs in, and the tag it gets here is not that one. Command refs
+// are kept because they are still useful, though their meaning can depend on the tag
+// too. That is a known limit: in `namespace eval ::k { proc helper {} {}; if [catch
+// {proc ::m::reader {} { helper }}] {} }` the `helper` call answers `::k::helper`.
+func commandsAndAbsoluteVariables(refs []Reference) []Reference {
+	var kept []Reference
+	for _, r := range refs {
+		if r.Kind != RefVariable || strings.HasPrefix(r.Name, "::") {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }

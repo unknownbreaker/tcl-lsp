@@ -7,15 +7,16 @@ import "strings"
 // reaching definitions for a local `set v [ClassName ...]` instantiation.
 //
 // Returns nil when the receiver has no statically-traceable class (e.g. it is a
-// proc parameter, assigned from an opaque expression, or not a variable in a proc
-// or namespace scope).
+// proc parameter, assigned from an opaque expression, or not a variable in a proc,
+// namespace or unknown command's body).
 func ClassOf(src string, receiverUseOff int) []string {
 	defs, ok := ReachingAt(src, receiverUseOff)
 	if !ok || len(defs) == 0 {
 		return nil
 	}
 
-	// Get the enclosing scope (proc or namespace body) so we can walk its commands.
+	// Get the enclosing scope (proc, namespace or unknown command's body) so we can
+	// walk its commands.
 	inner, innerBase, _, _, _, _, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, receiverUseOff)
 	if !found {
 		return nil

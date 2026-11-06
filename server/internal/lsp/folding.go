@@ -10,10 +10,11 @@ import "github.com/unknownbreaker/tcl-lsp/internal/tcl"
 // to collapse. The editor folds startLine+1..endLine, leaving the opening line
 // (e.g. `proc foo {} {`) visible.
 func buildFoldingRanges(folds []tcl.FoldRange, src string) []FoldingRange {
+	lines := newLineIndex(src)
 	out := make([]FoldingRange, 0, len(folds))
 	for _, f := range folds {
-		startLine, _ := LSPPosition(src, f.Open)
-		endLine, _ := LSPPosition(src, f.Close)
+		startLine, _ := lines.lineChar(f.Open)
+		endLine, _ := lines.lineChar(f.Close)
 		if endLine > startLine {
 			out = append(out, FoldingRange{StartLine: startLine, EndLine: endLine})
 		}

@@ -1,0 +1,299 @@
+{
+ "TclProDebug": {
+  "call_counts": {
+   "AMBIGUOUS_SILENT": 27,
+   "CANDIDATE_MISS": 2166,
+   "DATA_CONTEXT_RESOLVED": 6,
+   "EXTERNAL": 1,
+   "OK": 620,
+   "OK_SILENT": 11,
+   "SUSPECT_WRONG": 8
+  },
+  "def_misses": 38,
+  "obj_counts": {},
+  "refs_missing": 0,
+  "refs_suspect_by_why": {
+   "switch-pattern": 5
+  },
+  "sem_mismatch_counts": {
+   "switch-pattern-colored-as-call": 7
+  },
+  "symbols_not_in_oracle": 5,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 1440,
+   "VAR_OK": 6157,
+   "VAR_SUSPECT_WRONG": 20,
+   "VAR_UNBOUND_EMPTY": 537,
+   "VAR_UNBOUND_RESOLVED": 3
+  },
+  "workspace_symbols": 2678,
+  "wrong_answers_by_reason": {
+   "binding-after-use-no-loop": 17,
+   "command-resolved-to-non-callable:qualified-set-in-proc": 1,
+   "name-mismatch": 3,
+   "switch-pattern-resolved-as-call": 7
+  }
+ },
+ "piaware": {
+  "call_counts": {
+   "AMBIGUOUS_SILENT": 14,
+   "CANDIDATE_MISS": 88,
+   "EXTERNAL": 16,
+   "OK": 705
+  },
+  "def_misses": 44,
+  "obj_counts": {
+   "AMBIGUOUS_SILENT": 68,
+   "CANDIDATE_MISS": 52,
+   "OK": 2
+  },
+  "refs_missing": 153,
+  "refs_suspect_by_why": {
+   "data-context": 6
+  },
+  "sem_mismatch_counts": {
+   "resolved-but-uncolored": 118
+  },
+  "symbols_not_in_oracle": 0,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 712,
+   "VAR_OK": 1301,
+   "VAR_SUSPECT_WRONG": 5,
+   "VAR_UNBOUND_EMPTY": 229,
+   "VAR_UNBOUND_RESOLVED": 183
+  },
+  "workspace_symbols": 675,
+  "wrong_answers_by_reason": {
+   "binding-after-use-no-loop": 5
+  }
+ },
+ "piaware-gui": {
+  "call_counts": {
+   "CANDIDATE_MISS": 33,
+   "OK": 203,
+   "SUSPECT_WRONG": 3
+  },
+  "def_misses": 9,
+  "obj_counts": {
+   "CANDIDATE_MISS": 2
+  },
+  "refs_missing": 4,
+  "refs_suspect_by_why": {},
+  "sem_mismatch_counts": {
+   "resolved-but-uncolored": 4,
+   "switch-pattern-colored-as-call": 3
+  },
+  "symbols_not_in_oracle": 0,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 158,
+   "VAR_OK": 523,
+   "VAR_SUSPECT_WRONG": 4,
+   "VAR_UNBOUND_EMPTY": 33,
+   "VAR_UNBOUND_RESOLVED": 28
+  },
+  "workspace_symbols": 295,
+  "wrong_answers_by_reason": {
+   "binding-after-use-no-loop": 4,
+   "switch-pattern-resolved-as-call": 3
+  }
+ },
+ "prometheus-tcl": {
+  "call_counts": {
+   "AMBIGUOUS_SILENT": 3,
+   "CANDIDATE_MISS": 90,
+   "DATA_CONTEXT_RESOLVED": 1,
+   "EXTERNAL": 6,
+   "OK": 85
+  },
+  "def_misses": 71,
+  "obj_counts": {
+   "AMBIGUOUS_SILENT": 13,
+   "CANDIDATE_MISS": 62
+  },
+  "refs_missing": 0,
+  "refs_suspect_by_why": {
+   "data-context": 2
+  },
+  "sem_mismatch_counts": {},
+  "symbols_not_in_oracle": 45,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 194,
+   "VAR_OK": 415,
+   "VAR_SUSPECT_WRONG": 67,
+   "VAR_UNBOUND_EMPTY": 58,
+   "VAR_UNBOUND_RESOLVED": 2
+  },
+  "workspace_symbols": 299,
+  "wrong_answers_by_reason": {
+   "outside-proc-unlinked": 67
+  }
+ },
+ "speedtables": {
+  "call_counts": {
+   "AMBIGUOUS_SILENT": 37,
+   "CANDIDATE_MISS": 339,
+   "DATA_CONTEXT_RESOLVED": 2,
+   "EXTERNAL": 11,
+   "OK": 1135,
+   "OK_SILENT": 1,
+   "SUSPECT_WRONG": 106
+  },
+  "def_misses": 42,
+  "obj_counts": {
+   "AMBIGUOUS_SILENT": 39,
+   "CANDIDATE_MISS": 60,
+   "OK": 25
+  },
+  "refs_missing": 176,
+  "refs_suspect_by_why": {
+   "switch-pattern": 13,
+   "text-mismatch": 6
+  },
+  "sem_mismatch_counts": {
+   "resolved-but-uncolored": 176,
+   "switch-pattern-colored-as-call": 96
+  },
+  "symbols_not_in_oracle": 0,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 846,
+   "VAR_OK": 3012,
+   "VAR_SUSPECT_WRONG": 51,
+   "VAR_UNBOUND_EMPTY": 143,
+   "VAR_UNBOUND_RESOLVED": 171
+  },
+  "workspace_symbols": 2026,
+  "wrong_answers_by_reason": {
+   "binding-after-use-no-loop": 48,
+   "command-resolved-to-non-callable:ns-set": 7,
+   "command-resolved-to-non-callable:ns-variable": 1,
+   "command-resolved-to-non-callable:proc-variable-link": 2,
+   "outside-proc-unlinked": 3,
+   "switch-pattern-resolved-as-call": 96
+  }
+ },
+ "tcl-jira-api": {
+  "call_counts": {
+   "OK": 60
+  },
+  "def_misses": 0,
+  "obj_counts": {},
+  "refs_missing": 0,
+  "refs_suspect_by_why": {},
+  "sem_mismatch_counts": {},
+  "symbols_not_in_oracle": 0,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 9,
+   "VAR_OK": 163,
+   "VAR_UNBOUND_EMPTY": 30
+  },
+  "workspace_symbols": 28,
+  "wrong_answers_by_reason": {}
+ },
+ "tclrmq": {
+  "call_counts": {
+   "CANDIDATE_MISS": 4,
+   "OK": 255,
+   "SUSPECT_WRONG": 44
+  },
+  "def_misses": 157,
+  "obj_counts": {
+   "AMBIGUOUS_SILENT": 39,
+   "CANDIDATE_MISS": 172
+  },
+  "refs_missing": 0,
+  "refs_suspect_by_why": {},
+  "sem_mismatch_counts": {},
+  "symbols_not_in_oracle": 367,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 192,
+   "VAR_OK": 510,
+   "VAR_SUSPECT_WRONG": 445,
+   "VAR_UNBOUND_EMPTY": 145,
+   "VAR_UNBOUND_RESOLVED": 14
+  },
+  "workspace_symbols": 717,
+  "wrong_answers_by_reason": {
+   "binding-after-use-no-loop": 7,
+   "command-resolved-to-non-callable:qualified-set-in-proc": 44,
+   "outside-proc-unlinked": 438
+  }
+ },
+ "tsp": {
+  "call_counts": {
+   "AMBIGUOUS_SILENT": 293,
+   "CANDIDATE_MISS": 102,
+   "DATA_CONTEXT_RESOLVED": 1,
+   "EXTERNAL": 2,
+   "OK": 1281,
+   "SUSPECT_WRONG": 1
+  },
+  "def_misses": 61,
+  "obj_counts": {},
+  "refs_missing": 3,
+  "refs_suspect_by_why": {
+   "data-context": 2,
+   "not-oracle-command-position": 12
+  },
+  "sem_mismatch_counts": {
+   "resolved-but-uncolored": 3
+  },
+  "symbols_not_in_oracle": 470,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 773,
+   "VAR_OK": 2975,
+   "VAR_SUSPECT_WRONG": 203,
+   "VAR_UNBOUND_EMPTY": 23
+  },
+  "workspace_symbols": 1090,
+  "wrong_answers_by_reason": {
+   "binding-after-use-no-loop": 2,
+   "command-resolved-to-non-callable:ns-set": 1,
+   "outside-proc-unlinked": 201
+  }
+ },
+ "turtles": {
+  "call_counts": {
+   "AMBIGUOUS_SILENT": 1,
+   "CANDIDATE_MISS": 88,
+   "DATA_CONTEXT_RESOLVED": 8,
+   "EXTERNAL": 20,
+   "OK": 114,
+   "OK_SILENT": 4
+  },
+  "def_misses": 102,
+  "obj_counts": {},
+  "refs_missing": 0,
+  "refs_suspect_by_why": {
+   "data-context": 3,
+   "not-oracle-command-position": 19
+  },
+  "sem_mismatch_counts": {},
+  "symbols_not_in_oracle": 0,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 179,
+   "VAR_OK": 386,
+   "VAR_UNBOUND_EMPTY": 93
+  },
+  "workspace_symbols": 137,
+  "wrong_answers_by_reason": {}
+ },
+ "yajl-tcl": {
+  "call_counts": {
+   "OK": 6
+  },
+  "def_misses": 0,
+  "obj_counts": {},
+  "refs_missing": 0,
+  "refs_suspect_by_why": {},
+  "sem_mismatch_counts": {},
+  "symbols_not_in_oracle": 0,
+  "var_counts": {
+   "CANDIDATE_VAR_MISS": 7,
+   "TIMEOUT": 2,
+   "VAR_OK": 72,
+   "VAR_UNBOUND_EMPTY": 2
+  },
+  "workspace_symbols": 30046,
+  "wrong_answers_by_reason": {}
+ }
+}

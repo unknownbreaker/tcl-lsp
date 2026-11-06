@@ -74,11 +74,11 @@ func enclosingDef(defs []tcl.Definition, offset int) (tcl.Definition, bool) {
 	return best, found
 }
 
-// callItem builds a CallHierarchyItem for a callable definition. src is the
+// callItem builds a CallHierarchyItem for a callable definition. lines indexes the
 // definition file's source (for offset -> position conversion).
-func callItem(file, name string, kind tcl.DefKind, nameStart, nameEnd int, src string) CallHierarchyItem {
+func callItem(file, name string, kind tcl.DefKind, nameStart, nameEnd int, lines *lineIndex) CallHierarchyItem {
 	sk, _ := symbolKind(kind)
-	r := Range{Start: offsetToPosition(src, nameStart), End: offsetToPosition(src, nameEnd)}
+	r := Range{Start: lines.position(nameStart), End: lines.position(nameEnd)}
 	return CallHierarchyItem{
 		Name:           shortName(name),
 		Detail:         name,
@@ -110,7 +110,7 @@ func (s *Server) prepareCallHierarchy(p CallHierarchyPrepareParams) []CallHierar
 	if !ok {
 		return nil
 	}
-	return []CallHierarchyItem{callItem(a.file, a.name, a.kind, a.nameStart, a.nameEnd, s.sourceOf(a.file))}
+	return []CallHierarchyItem{callItem(a.file, a.name, a.kind, a.nameStart, a.nameEnd, newLineIndex(s.sourceOf(a.file)))}
 }
 
 func (s *Server) incomingCalls(p CallHierarchyIncomingCallsParams) []CallHierarchyIncomingCall {
@@ -135,13 +135,15 @@ func (s *Server) incomingCalls(p CallHierarchyIncomingCallsParams) []CallHierarc
 	}
 	groups := map[string]*group{}
 	var order []string
+	indexes := lineIndexes{}
 
 	for _, l := range sites {
 		csrc := s.sourceOf(l.File)
+		lines := indexes.forFile(l.File, s.sourceOf)
 		var from CallHierarchyItem
 		var key string
 		if d, found := enclosingDef(source.Defs(l.File, csrc), l.NameStart); found {
-			from = callItem(l.File, d.Name, d.Kind, d.NameStart, d.NameEnd, csrc)
+			from = callItem(l.File, d.Name, d.Kind, d.NameStart, d.NameEnd, lines)
 			key = l.File + "#" + strconv.Itoa(d.NameStart)
 		} else {
 			from = fileItem(l.File)
@@ -153,7 +155,7 @@ func (s *Server) incomingCalls(p CallHierarchyIncomingCallsParams) []CallHierarc
 			groups[key] = g
 			order = append(order, key)
 		}
-		g.ranges = append(g.ranges, Range{Start: offsetToPosition(csrc, l.NameStart), End: offsetToPosition(csrc, l.NameEnd)})
+		g.ranges = append(g.ranges, Range{Start: lines.position(l.NameStart), End: lines.position(l.NameEnd)})
 	}
 
 	out := make([]CallHierarchyIncomingCall, 0, len(order))
@@ -258,6 +260,8 @@ func (s *Server) outgoingCalls(p CallHierarchyOutgoingCallsParams) []CallHierarc
 	}
 	groups := map[string]*group{}
 	var order []string
+	indexes := lineIndexes{}
+	anchorLines := indexes.forFile(a.file, s.sourceOf)
 
 	for _, r := range source.Refs(a.file, src) {
 		if r.Ref.Kind != tcl.RefCommand || r.Ref.Start < span.FullStart || r.Ref.Start >= span.FullEnd {
@@ -277,11 +281,11 @@ func (s *Server) outgoingCalls(p CallHierarchyOutgoingCallsParams) []CallHierarc
 			key := l.File + "#" + strconv.Itoa(l.NameStart)
 			g := groups[key]
 			if g == nil {
-				g = &group{to: callItem(l.File, l.Name, l.Kind, l.NameStart, l.NameEnd, s.sourceOf(l.File))}
+				g = &group{to: callItem(l.File, l.Name, l.Kind, l.NameStart, l.NameEnd, indexes.forFile(l.File, s.sourceOf))}
 				groups[key] = g
 				order = append(order, key)
 			}
-			g.ranges = append(g.ranges, Range{Start: offsetToPosition(src, r.Ref.Start), End: offsetToPosition(src, r.Ref.End)})
+			g.ranges = append(g.ranges, Range{Start: anchorLines.position(r.Ref.Start), End: anchorLines.position(r.Ref.End)})
 		}
 	}
 

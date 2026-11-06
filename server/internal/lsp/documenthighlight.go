@@ -8,6 +8,7 @@ func (s *Server) documentHighlight(p DocumentHighlightParams) []DocumentHighligh
 	path := uriToPath(p.TextDocument.URI)
 	src := s.sourceOf(path)
 	off := ByteOffset(src, p.Position.Line, p.Position.Character)
+	lines := newLineIndex(src)
 
 	seen := map[[2]int]bool{}
 	var out []DocumentHighlight
@@ -21,8 +22,8 @@ func (s *Server) documentHighlight(p DocumentHighlightParams) []DocumentHighligh
 		}
 		seen[key] = true
 		out = append(out, DocumentHighlight{Range: Range{
-			Start: offsetToPosition(src, l.NameStart),
-			End:   offsetToPosition(src, l.NameEnd),
+			Start: lines.position(l.NameStart),
+			End:   lines.position(l.NameEnd),
 		}})
 	}
 	return out

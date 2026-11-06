@@ -59,6 +59,20 @@ absolute   ::x::target  -> ::x::target
 global root. The resolver must compute the current namespace at each point and
 prepend it for relative qualified names.
 
+**Correction (2026-11-05).** This finding only tested a target that exists
+(`experiments/02_namespace_resolution.tcl:51-58`), so it missed the fallback. Run
+with `experiments/08_relative_qualified.tcl`:
+```
+relative prom::helper from ::other -> ::prom::helper                ;# 8.6.18 and 9.0.3
+with ::other::prom::helper also defined -> ::other::prom::helper    ;# 8.6.18 and 9.0.3
+relative $cfg::level from proc in ::user -> 3                       ;# 8.6.18
+can't read "cfg::level": no such variable                           ;# 9.0.3
+```
+A relative qualified **command** tries `<current>::a::b` first and then falls back
+to `::a::b`, on both versions. A relative qualified **variable** falls back on 8.6
+and errors on 9.0, so the two versions differ. The server still implements only the
+current-relative lookup; see `08-flightaware-corpus-probe.md` (misses 1 and 10).
+
 ### F-D — `namespace export`/`import` create command aliases; non-exported imports silently no-op
 ```
 imported pub             -> ::provider::pub
@@ -110,7 +124,7 @@ top-to-bottom streaming pass.
 | Command (first word of a command, or after `[`) | current ns → `namespace path` → global `::` |
 | Variable (`$name`, `set name`, etc., inside a proc) | local only; else needs `global`/`variable`/`upvar`/FQN |
 | Variable at `namespace eval` top level (not in a proc) | the namespace's own variable (needs experiment — see OQ5) |
-| Any qualified name | leading `::` = absolute; else relative to current ns |
+| Any qualified name | leading `::` = absolute; else relative to current ns, then falls back to global (commands on 8.6 and 9.0; variables on 8.6 only; see the F-C correction) |
 
 ## Open questions raised
 

@@ -1,6 +1,9 @@
 package tcl
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // This file is the single source of truth for two things every tree walker in
 // this package needs: (1) which braced words of a command are *script bodies*
@@ -68,11 +71,40 @@ func minMemberBodyWords(w []Word) int {
 	}
 }
 
+// methodArgs returns the parameter list of an Itcl method, constructor or itcl::body
+// that has a body. frame is the frame the command sits in: `method` and `constructor`
+// mean this only in a class body. A signature-only declaration has no body, so its
+// names bind nothing until itcl::body supplies one. The shapes match childBodies.
+func methodArgs(w []Word, frame FrameKind) (Word, bool) {
+	if isCmd(w, "itcl::body") || isCmd(w, "::itcl::body") {
+		if len(w) >= 4 && w[len(w)-1].Kind == WordBraced && strings.LastIndex(w[1].Text, "::") > 0 {
+			return w[2], true
+		}
+		return Word{}, false
+	}
+	if frame != FrameClass {
+		return Word{}, false
+	}
+	member := memberWords(w)
+	if len(member) < minMemberBodyWords(member) || member[len(member)-1].Kind != WordBraced {
+		return Word{}, false
+	}
+	switch {
+	case isCmd(member, "method"):
+		return member[2], true
+	case isCmd(member, "constructor"):
+		return member[1], true
+	}
+	return Word{}, false
+}
+
 // childBodies returns the script bodies of c that walkers should recurse into,
 // each tagged with the scope it runs in. `namespace eval` and `proc` introduce a
-// new scope; control-flow and custom-command script bodies run in the enclosing
-// namespace and frame. class is the fully-qualified itcl class name of the
-// enclosing class body, or "" when not inside a class.
+// new scope. Control-flow bodies run in the enclosing namespace and frame. A
+// custom command's body keeps the namespace, but at namespace frame its frame is
+// unknown, so it is FrameOpaque. Inside a proc or class the frame stays. class is
+// the fully-qualified itcl class name of the enclosing class body, or "" when not
+// inside a class.
 func childBodies(c Command, base int, ns string, frame FrameKind, scope int, class string) []bodyScope {
 	w := c.Words
 	// Inside a class body, a member may carry a leading access modifier
@@ -141,12 +173,24 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 			inner, innerBase := bracedInner(body, base)
 			return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(name.Text, ns), Frame: FrameProc, Scope: innerBase, Class: class}}
 		}
-		// Control-flow (if/while/for/foreach/catch/try) and custom-command script
-		// bodies run in the enclosing namespace and frame -- no new scope.
+		// Control-flow bodies (if/while/for/foreach/catch/try/switch/...) run in the
+		// enclosing namespace and frame. A custom command's trailing brace is walked for calls,
+		// but at namespace frame nothing says which frame it runs in: it may be a method
+		// or a proc-like scope, with locals of its own. No new scope either way.
+		//
+		// Known limit: calls there still resolve against the lexical namespace. A TclOO
+		// method runs in the object's namespace, so a bare `helper` in one errors even
+		// when `::n::helper` exists, yet it answers `::n::helper`. A wrapper's body cannot
+		// be told apart from a method's, and real code calling `helper` there usually has
+		// `namespace path` set, so calls stay resolved.
+		bodyFrame := frame
+		if frame == FrameNamespace && !bodiesRunHere(c) {
+			bodyFrame = FrameOpaque
+		}
 		var out []bodyScope
 		for _, body := range scriptBodies(w) {
 			inner, innerBase := bracedInner(body, base)
-			out = append(out, bodyScope{Inner: inner, Base: innerBase, NS: ns, Frame: frame, Scope: scope, Class: class})
+			out = append(out, bodyScope{Inner: inner, Base: innerBase, NS: ns, Frame: bodyFrame, Scope: scope, Class: class})
 		}
 		return out
 	}
@@ -189,18 +233,18 @@ func decoratedProcDef(w []Word) (name, args, body Word, ok bool) {
 }
 
 // listOrDataHeads are builtins whose arguments may literally contain the word
-// `proc` as data (a list element or value), so a trailing `proc name args body`
-// in them is not a decorated proc definition.
+// `proc` as data (a list element, a value or a switch pattern), so a trailing
+// `proc name args body` in them is not a decorated proc definition.
 var listOrDataHeads = map[string]bool{
 	"set": true, "list": true, "lappend": true, "lassign": true, "lset": true,
 	"linsert": true, "lreplace": true, "concat": true, "dict": true,
-	"array": true, "append": true, "return": true, "expr": true,
+	"array": true, "append": true, "return": true, "expr": true, "switch": true,
 }
 
-// scriptBodies returns the braced script-argument words of a control-flow
-// command -- the bodies that execute in the enclosing scope. Expression
-// arguments (a while/if condition, a for test) are deliberately excluded so
-// their contents are not misread as commands.
+// scriptBodies returns the braced script-argument words of a command. Expression
+// arguments (a while/if condition, a for test) are deliberately excluded so their
+// contents are not misread as commands. It says nothing about the frame a script
+// runs in: childBodies decides that.
 func scriptBodies(w []Word) []Word {
 	if len(w) == 0 || w[0].Kind != WordBare {
 		return nil
@@ -236,13 +280,15 @@ func scriptBodies(w []Word) []Word {
 		return ifBodies(w)
 	case "try":
 		return tryBodies(w)
+	case "switch":
+		return switchBodies(w)
 	default:
 		// User-defined or unrecognised commands: by strong Tcl convention a
 		// trailing braced argument is a script body (custom control structures,
-		// test harnesses, oo definitions; switch arms are handled transitively as
-		// each parsed arm is itself such a command). Recurse it so calls inside are
-		// found. Builtins whose braced argument is data or an expression are
-		// excluded so their contents are not misread as command calls.
+		// test harnesses, oo definitions). It is walked for calls, but its frame is
+		// unknown, so childBodies does not treat its bare names as this frame's.
+		// Builtins whose braced argument is data or an expression are excluded so
+		// their contents are not misread as command calls.
 		if !dataBraceCommands[w[0].Text] && braced(last) {
 			return []Word{w[last]}
 		}
@@ -329,27 +375,132 @@ func ifBodies(w []Word) []Word {
 	return bodies
 }
 
-// tryBodies returns the braced body words of a try command: the main body, each
-// on/trap handler body (3 words past the keyword, after code/pattern and the
-// variable list), and the finally body. Patterns and variable lists are skipped.
-func tryBodies(w []Word) []Word {
-	var bodies []Word
+// tryParts splits a try command's braced bodies by role. main is nil for
+// `try $script ...`, so a handler is never mistaken for the main body. The scan
+// steps by clause: `on CODE VARLIST BODY` and `trap PATTERN VARLIST BODY` are four
+// words and `finally BODY` is two, so a variable list spelled `finally` does not
+// start a clause. Patterns and variable lists are skipped.
+func tryParts(w []Word) (main *Word, handlers []Word, finally *Word) {
 	if len(w) >= 2 && w[1].Kind == WordBraced {
-		bodies = append(bodies, w[1]) // try BODY
+		main = &w[1]
 	}
-	for i := 2; i < len(w); i++ {
-		if w[i].Kind != WordBare {
-			continue
+	for i := 2; i < len(w); {
+		clause := ""
+		if w[i].Kind == WordBare {
+			clause = w[i].Text
 		}
-		switch w[i].Text {
+		switch clause {
 		case "on", "trap":
 			if i+3 < len(w) && w[i+3].Kind == WordBraced {
-				bodies = append(bodies, w[i+3])
+				handlers = append(handlers, w[i+3])
 			}
+			i += 4
 		case "finally":
 			if i+1 < len(w) && w[i+1].Kind == WordBraced {
-				bodies = append(bodies, w[i+1])
+				finally = &w[i+1]
 			}
+			i += 2
+		default:
+			i++
+		}
+	}
+	return main, handlers, finally
+}
+
+// tryBodies returns the braced body words of a try command: the main body, then
+// the on/trap handler bodies and the finally body in source order.
+func tryBodies(w []Word) []Word {
+	main, handlers, finally := tryParts(w)
+	var bodies []Word
+	if main != nil {
+		bodies = append(bodies, *main)
+	}
+	bodies = append(bodies, handlers...)
+	if finally != nil {
+		bodies = append(bodies, *finally)
+	}
+	slices.SortFunc(bodies, func(a, b Word) int { return a.Start - b.Start })
+	return bodies
+}
+
+// switchSubjectIndex returns the index in w of a switch command's subject word:
+// the first word after its options. It is len(w) or more when there is no subject.
+func switchSubjectIndex(w []Word) int {
+	for i := 1; i < len(w); i++ {
+		if w[i].Kind != WordBare {
+			return i
+		}
+		switch w[i].Text {
+		case "--":
+			return i + 1
+		case "-exact", "-glob", "-regexp", "-nocase":
+		case "-matchvar", "-indexvar":
+			i++ // the option's variable name, whatever it looks like
+		default:
+			return i
+		}
+	}
+	return len(w)
+}
+
+// switchArgs returns the words of a switch command after its options and subject,
+// or nil if there are none.
+func switchArgs(w []Word) []Word {
+	armsStart := switchSubjectIndex(w) + 1
+	if armsStart >= len(w) {
+		return nil
+	}
+	return w[armsStart:]
+}
+
+// switchArmList returns the braced word holding a switch command's arms, when the
+// arms are written as that single word (`switch $x {a {...} b {...}}`) rather than
+// inline (`switch $x a {...} b {...}`).
+func switchArmList(w []Word) (Word, bool) {
+	if !isCmd(w, "switch") {
+		return Word{}, false
+	}
+	args := switchArgs(w)
+	if len(args) != 1 || args[0].Kind != WordBraced {
+		return Word{}, false
+	}
+	return args[0], true
+}
+
+// switchArmListWords parses an arm list into one flat word list. Each word is
+// shifted into the coordinates of the list's enclosing source, so bracedInner works
+// on it with the same base as on the list itself.
+func switchArmListWords(list Word) []Word {
+	inner, interiorStart := bracedInner(list, 0)
+	var words []Word
+	for _, command := range Parse(inner) {
+		for _, word := range command.Words {
+			word.Start += interiorStart
+			word.End += interiorStart
+			words = append(words, word)
+		}
+	}
+	return words
+}
+
+// switchBodies returns every braced arm body of a switch command, in source order.
+// Arms are (pattern, body) pairs, and a pattern is never a script. A non-braced
+// body (including the fall-through `-`) is skipped. An odd word count with a braced
+// last word has lost its pairing, so no word can be called a body with certainty
+// and the result is nil. An unbraced last word is a pattern still being typed: it
+// is dropped and the complete pairs before it still count.
+func switchBodies(w []Word) []Word {
+	arms := switchArgs(w)
+	if list, ok := switchArmList(w); ok {
+		arms = switchArmListWords(list)
+	}
+	if len(arms)%2 == 1 && arms[len(arms)-1].Kind == WordBraced {
+		return nil
+	}
+	var bodies []Word
+	for i := 1; i < len(arms); i += 2 {
+		if arms[i].Kind == WordBraced {
+			bodies = append(bodies, arms[i])
 		}
 	}
 	return bodies

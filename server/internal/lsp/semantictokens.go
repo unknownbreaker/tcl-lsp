@@ -48,6 +48,7 @@ func defTokenType(k tcl.DefKind) (int, bool) {
 func (s *Server) semanticTokens(p SemanticTokensParams) SemanticTokens {
 	path := uriToPath(p.TextDocument.URI)
 	src := s.sourceOf(path)
+	lines := newLineIndex(src)
 
 	type tok struct{ line, char, length, typ int }
 	var toks []tok
@@ -56,8 +57,8 @@ func (s *Server) semanticTokens(p SemanticTokensParams) SemanticTokens {
 		if start < 0 || end > len(src) || end <= start || seen[start] {
 			return
 		}
-		sp := offsetToPosition(src, start)
-		ep := offsetToPosition(src, end)
+		sp := lines.position(start)
+		ep := lines.position(end)
 		if ep.Line != sp.Line || ep.Character <= sp.Character {
 			return // identifiers are single-line; skip anything else
 		}

@@ -73,25 +73,42 @@ func isArrayVarAt(src string, offset int) bool {
 	return i < len(src) && src[i] == '('
 }
 
-// localDefinition returns the definition site(s) for the proc-local (name,
-// scope). It first tries context-sensitive reaching definitions for the use at
-// offset: each reaching binding is origin-chased when it is a global/upvar link
-// (preserving prior behavior). Falls back to the earliest binding when reaching
-// analysis is unavailable (oversized proc, array element access, or a use with
-// no in-proc reaching def such as a bare global/upvar link before any local
-// assignment).
+// localBindingAt returns the proc-local binding (name, scope) whose name token holds
+// offset, or nil when the cursor is not on one.
+func localBindingAt(file, src, name string, scope, offset int) []index.Location {
+	for _, d := range source.Defs(file, src) {
+		if isLocalBinding(d.Kind) && d.Name == name && d.Scope == scope && offset >= d.NameStart && offset < d.NameEnd {
+			return []index.Location{{File: file, Name: name, Kind: tcl.DefLocal, NameStart: d.NameStart, NameEnd: d.NameEnd}}
+		}
+	}
+	return nil
+}
+
+// localDefinition returns the definition site(s) for the proc-local (name, scope).
+// It first tries context-sensitive reaching definitions for the use at offset: each
+// reaching binding is origin-chased when it is a global/upvar link. An empty
+// reaching answer is an answer: nothing reaches, so the result is nil and the caller
+// may try instance variables. The one exception is a cursor on a binding, such as a
+// first `incr x`, which answers itself. The analyzer does not see every binding: it
+// keeps those in an unknown command's body out of its reach sets, answering with them
+// only when nothing else reaches, and it does not model targets such as `regexp`'s or
+// `gets`'s, so a use bound only by one of those goes silent. A use inside an unknown
+// command's body is answered from what reaches that command, then through the body. When
+// the analyzer has no answer at all (oversized proc, array element access, or a use it
+// did not find), the earliest binding at or before offset answers, so a loop-carried use
+// on those paths stays silent.
 func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []index.Location {
-	// Precise reaching definitions for the use at offset. Each reaching binding
-	// origin-chases when it is a global/upvar link (preserving prior behavior).
-	// Array element accesses (e.g. $arr(key)) are excluded: the reaching engine
-	// tracks the base name without subscripts, so it cannot distinguish arr(a)
-	// from arr(b); first-binding gives more useful results for arrays.
+	// Array element accesses (e.g. $arr(key)) are excluded from reaching: the engine
+	// tracks the base name without subscripts, so it cannot tell arr(a) from arr(b).
 	if !isArrayVarAt(src, offset) {
-		if defs, ok := source.Reaching(file, src, offset); ok && len(defs) > 0 {
+		if defs, ok := source.Reaching(file, src, offset); ok {
+			if len(defs) == 0 {
+				return localBindingAt(file, src, name, scope, offset)
+			}
 			var out []index.Location
 			for _, d := range defs {
 				if d.Origin != "" {
-					if locs := r.lookupScoped(d.Origin, file); len(locs) > 0 {
+					if locs := r.lookupSide(d.Origin, file, sideVariable); len(locs) > 0 {
 						out = append(out, locs...)
 						continue
 					}
@@ -104,12 +121,12 @@ func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []
 		}
 	}
 
-	// Fallback: earliest binding (used when reaching-defs is unavailable —
-	// oversized proc, array element access, or a use with no in-proc reaching
-	// def such as a bare global/upvar link before any local assignment).
+	// Fallback: the earliest binding, when the analyzer gave no answer. A binding
+	// after the cursor cannot answer; strictly after, so a cursor on a binding
+	// still answers itself.
 	firstStart, firstEnd, firstOrigin, have := 0, 0, "", false
 	for _, d := range source.Defs(file, src) {
-		if !isLocalBinding(d.Kind) || d.Name != name || d.Scope != scope {
+		if !isLocalBinding(d.Kind) || d.Name != name || d.Scope != scope || d.NameStart > offset {
 			continue
 		}
 		if !have || d.NameStart < firstStart {
@@ -120,7 +137,7 @@ func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []
 		return nil
 	}
 	if firstOrigin != "" {
-		if locs := r.lookupScoped(firstOrigin, file); len(locs) > 0 {
+		if locs := r.lookupSide(firstOrigin, file, sideVariable); len(locs) > 0 {
 			return locs
 		}
 	}
@@ -262,8 +279,9 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 			return locs
 		}
 	}
+	side := sideOfRef(ref.Ref.Kind)
 	for _, name := range r.candidates(ref) {
-		if locs := r.lookupScoped(name, file); len(locs) > 0 {
+		if locs := r.lookupSide(name, file, side); len(locs) > 0 {
 			return locs
 		}
 	}
@@ -362,8 +380,13 @@ func dedup(in []string) []string {
 // variableCandidates: a qualified variable resolves directly; a bare variable at
 // namespace-eval top level is the current namespace's own variable. A bare
 // variable inside a proc body is local-only and not resolvable via the workspace
-// index (frame-local resolution is a later plan) — returns nil.
+// index (frame-local resolution is a later plan) — returns nil. In an unknown
+// command's body neither the frame nor the namespace it runs in is known, so only an
+// absolute name resolves: even a relative qualified name returns nil.
 func variableCandidates(name, ns string, frame tcl.FrameKind) []string {
+	if frame == tcl.FrameOpaque && !strings.HasPrefix(name, "::") {
+		return nil
+	}
 	if isQualified(name) {
 		return []string{qualify(name, ns)}
 	}
@@ -413,15 +436,16 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	if name, scope, ok := r.localAt(file, src, offset); ok {
 		return r.localReferences(file, src, name, scope)
 	}
-	target := r.targetFQ(file, src, offset)
+	target, side := r.targetFQ(file, src, offset)
 	if target == "" {
 		return nil
 	}
 	// targetKind carries the target's DEFINITION kind for the protocol layer's
-	// use; it is the zero value (DefProc) when the target has no definition in
-	// the index (an undefined symbol). A reference site itself has no def-kind.
+	// use; it is the zero value (DefProc) when the target has no definition on its
+	// side in the index (an undefined symbol). A reference site itself has no
+	// def-kind.
 	var targetKind tcl.DefKind
-	if defs := r.lookupScoped(target, file); len(defs) > 0 {
+	if defs := r.lookupSide(target, file, side); len(defs) > 0 {
 		targetKind = defs[0].Kind
 	}
 
@@ -456,7 +480,7 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	parts := par.Map(work, func(w refScan) []index.Location {
 		var out []index.Location
 		for i := range w.refs {
-			if r.refFQ(&w.refs[i], w.file) == target {
+			if sideOfRef(w.refs[i].Ref.Kind) == side && r.refFQ(&w.refs[i], w.file) == target {
 				out = append(out, index.Location{
 					File: w.file, Name: target, Kind: targetKind,
 					NameStart: w.refs[i].Ref.Start, NameEnd: w.refs[i].Ref.End,
@@ -511,11 +535,11 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 		}
 		return out
 	}
-	target := r.targetFQ(file, src, offset)
+	target, side := r.targetFQ(file, src, offset)
 	if target == "" {
 		return nil
 	}
-	return r.lookupScoped(target, file)
+	return r.lookupSide(target, file, side)
 }
 
 // CommandRefKind returns the definition kind a command reference resolves to (by
@@ -530,7 +554,7 @@ func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind
 		return 0, false
 	}
 	for _, name := range r.commandCandidates(ref.Ref.Name, ref.Namespace) {
-		if locs := r.lookupScoped(name, file); len(locs) > 0 {
+		if locs := r.lookupSide(name, file, sideCommand); len(locs) > 0 {
 			return locs[0].Kind, true
 		}
 	}
@@ -546,12 +570,12 @@ func (r *Resolver) FileHighlights(file, src string, offset int) []index.Location
 	if name, scope, ok := r.localAt(file, src, offset); ok {
 		return r.localReferences(file, src, name, scope) // already in-file only
 	}
-	target := r.targetFQ(file, src, offset)
+	target, side := r.targetFQ(file, src, offset)
 	if target == "" {
 		return nil
 	}
 	var targetKind tcl.DefKind
-	if defs := r.lookupScoped(target, file); len(defs) > 0 {
+	if defs := r.lookupSide(target, file, side); len(defs) > 0 {
 		targetKind = defs[0].Kind
 	}
 
@@ -559,34 +583,75 @@ func (r *Resolver) FileHighlights(file, src string, offset int) []index.Location
 	// In-file reference sites (command / qualified-variable uses).
 	refs := source.Refs(file, src)
 	for i := range refs {
-		if r.refFQ(&refs[i], file) == target {
+		if sideOfRef(refs[i].Ref.Kind) == side && r.refFQ(&refs[i], file) == target {
 			out = append(out, index.Location{File: file, Name: target, Kind: targetKind, NameStart: refs[i].Ref.Start, NameEnd: refs[i].Ref.End})
 		}
 	}
 	// In-file declaration site(s), from live source so an unsaved edit is honored.
 	for _, d := range source.Defs(file, src) {
-		if d.Name == target && !isLocalBinding(d.Kind) {
+		if d.Name == target && !isLocalBinding(d.Kind) && sideOfDef(d.Kind) == side {
 			out = append(out, index.Location{File: file, Name: target, Kind: d.Kind, NameStart: d.NameStart, NameEnd: d.NameEnd})
 		}
 	}
 	return out
 }
 
-// targetFQ returns the fully-qualified name of the symbol at offset: a definition
-// name-range it falls within, else the reference there resolved to its FQ name.
-// file selects the document (so .rvt is extracted) and scopes page-local lookups.
-// Returns "" if there is no resolvable symbol.
-func (r *Resolver) targetFQ(file, src string, offset int) string {
+// targetFQ returns the fully-qualified name of the symbol at offset and the side
+// of the name table it lives on: a definition name-range it falls within, else the
+// reference there resolved to its FQ name. file selects the document (so .rvt is
+// extracted) and scopes page-local lookups. Returns "" if there is no resolvable
+// symbol.
+func (r *Resolver) targetFQ(file, src string, offset int) (string, nameSide) {
 	for _, d := range source.Defs(file, src) {
 		if (d.Kind == tcl.DefProc || d.Kind == tcl.DefNamespaceVar || d.Kind == tcl.DefClass) &&
 			offset >= d.NameStart && offset < d.NameEnd {
-			return d.Name
+			return d.Name, sideOfDef(d.Kind)
 		}
 	}
 	if ref := refAt(file, src, offset); ref != nil {
-		return r.refFQ(ref, file)
+		return r.refFQ(ref, file), sideOfRef(ref.Ref.Kind)
 	}
-	return ""
+	return "", sideCommand
+}
+
+// nameSide says which of TCL's two separate name tables a symbol belongs to. A
+// proc and a variable can share a fully-qualified name without being related, so a
+// call never binds to a variable and a variable use never binds to a proc.
+type nameSide int
+
+const (
+	sideCommand nameSide = iota
+	sideVariable
+)
+
+// sideOfRef returns the name table a reference looks its name up in.
+func sideOfRef(k tcl.RefKind) nameSide {
+	if k == tcl.RefVariable {
+		return sideVariable
+	}
+	return sideCommand
+}
+
+// sideOfDef returns the name table a definition adds its name to. A class is on
+// the command side because its name is invoked as a command.
+func sideOfDef(k tcl.DefKind) nameSide {
+	switch k {
+	case tcl.DefNamespaceVar, tcl.DefIvar, tcl.DefLocal, tcl.DefGlobalLink:
+		return sideVariable
+	}
+	return sideCommand
+}
+
+// lookupSide returns the definition sites of a fully-qualified name on one side of
+// the name table, with lookupScoped's page-local scoping.
+func (r *Resolver) lookupSide(name, file string, side nameSide) []index.Location {
+	var kept []index.Location
+	for _, l := range r.lookupScoped(name, file) {
+		if sideOfDef(l.Kind) == side {
+			kept = append(kept, l)
+		}
+	}
+	return kept
 }
 
 // lookupScoped returns the definition sites of a fully-qualified name. A
@@ -613,12 +678,14 @@ func (r *Resolver) lookupScoped(name, file string) []index.Location {
 
 // refFQ resolves a reference to the fully-qualified name it binds to, using the
 // same first-match precedence as goto-definition. file is the document the ref
-// lives in (used for page-local scoping in lookups). If no candidate is defined,
-// the primary candidate is used so undefined references still group together.
+// lives in (used for page-local scoping in lookups). Only definitions on the ref's
+// own side count. If no candidate is defined, the primary candidate is used so
+// undefined references still group together.
 func (r *Resolver) refFQ(ref *tcl.ContextRef, file string) string {
 	cands := r.candidates(ref)
+	side := sideOfRef(ref.Ref.Kind)
 	for _, name := range cands {
-		if len(r.lookupScoped(name, file)) > 0 {
+		if len(r.lookupSide(name, file, side)) > 0 {
 			return name
 		}
 	}
