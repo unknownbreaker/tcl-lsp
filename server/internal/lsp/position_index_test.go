@@ -261,8 +261,6 @@ func TestLineIndexInvalidUTF8AtLineBoundaries(t *testing.T) {
 	}
 }
 
-// Offsets far outside the source's range must clamp, not overflow or index out of
-// range. math.MaxInt + 1 wraps negative if the clamp comes after the search key.
 // Goto-definition on a local after a large switch must not be quadratic in the arms.
 // Merging each arm's bindings into a rebuilt set took about 10 s at this size.
 func TestLargeSwitchDefinitionStaysFast(t *testing.T) {
@@ -297,6 +295,8 @@ func TestLargeSwitchDefinitionStaysFast(t *testing.T) {
 	}
 }
 
+// Offsets far outside the source's range must clamp, not overflow or index out of
+// range. math.MaxInt + 1 wraps negative if the clamp comes after the search key.
 func TestLineIndexExtremeOffsets(t *testing.T) {
 	for _, src := range []string{"", "x", "a\nb😀\nc", "\n\n"} {
 		index := newLineIndex(src)

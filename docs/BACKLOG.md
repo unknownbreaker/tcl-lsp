@@ -111,3 +111,9 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
 - **Cost.** `workspace/symbol` builds line indexes for every file even on a narrow query.
   `incomingCalls` fetches source twice per site and re-parses once per site. `refFQ` calls
   `lookupSide` only for a length check, allocating per candidate on the workspace scan; unmeasured.
+  A same-variable `switch` in a loop stays quadratic in its arms (about 1 s at 2,000, 3 s at 4,000).
+- **Cost at pathological depth, new in v0.6.3.** Goto-def on a use inside nested unknown bodies re-collects each
+  sub-body per level (1,000 nested wrappers took about 3.4 s), and alternating `foreach` and a wrapper grows about 2.3x per
+  level (16 levels about 12.6 s, 20 levels over 20 s, on a loaded machine). It only runs when the cursor is in that
+  body, and hand-written code does not nest this deep, but one such request blocks the dispatch loop. A cap on the
+  walk's depth would bound it.

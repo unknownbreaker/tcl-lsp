@@ -392,7 +392,8 @@ definitions, plus the `ctable_client.tcl:372` row. The plan's Task 6 explains th
   see them, since they count as `VAR_OK`. A fix needs the analyzer to walk bracketed script bodies, a change of its own.
 - Scripts that run in another frame, at proc level. `set x 1; uplevel 1 { puts $x }` answers the proc's `set`, and tclsh reads
   the caller's. `after 100 { puts $x }` and `uplevel 1 {set x 1}; puts $x` behave the same. The analyzer treats these bodies
-  like any wrapper's.
+  like any wrapper's. One form is new in v0.6.3: `set o [::A #auto]; uplevel 1 { $o m }` now jumps to `A::m`, where
+  `main@26f8ab2` was silent, because a use in such a body now gets a reaching answer.
 - A bare call in an unknown body resolves against the lexical namespace, though TclOO methods run in the object's
   namespace. `helper` in a method errors on 8.6.18 and 9.0.3 even when `::n::helper` exists, yet goto-def answers it. A wrapper
   cannot be told apart from a method, and silencing would lose every call in wrappers.
