@@ -71,6 +71,33 @@ func minMemberBodyWords(w []Word) int {
 	}
 }
 
+// methodArgs returns the parameter list of an Itcl method, constructor or itcl::body
+// that has a body. frame is the frame the command sits in: `method` and `constructor`
+// mean this only in a class body. A signature-only declaration has no body, so its
+// names bind nothing until itcl::body supplies one. The shapes match childBodies.
+func methodArgs(w []Word, frame FrameKind) (Word, bool) {
+	if isCmd(w, "itcl::body") || isCmd(w, "::itcl::body") {
+		if len(w) >= 4 && w[len(w)-1].Kind == WordBraced && strings.LastIndex(w[1].Text, "::") > 0 {
+			return w[2], true
+		}
+		return Word{}, false
+	}
+	if frame != FrameClass {
+		return Word{}, false
+	}
+	member := memberWords(w)
+	if len(member) < minMemberBodyWords(member) || member[len(member)-1].Kind != WordBraced {
+		return Word{}, false
+	}
+	switch {
+	case isCmd(member, "method"):
+		return member[2], true
+	case isCmd(member, "constructor"):
+		return member[1], true
+	}
+	return Word{}, false
+}
+
 // childBodies returns the script bodies of c that walkers should recurse into,
 // each tagged with the scope it runs in. `namespace eval` and `proc` introduce a
 // new scope; control-flow and custom-command script bodies run in the enclosing

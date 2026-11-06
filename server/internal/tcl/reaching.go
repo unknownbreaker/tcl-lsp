@@ -51,7 +51,7 @@ func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, 
 			// a scope-introducing frame (proc or namespace).
 			if b.Frame == FrameProc && b.Scope == b.Base {
 				// Recover the args word from the proc command.
-				aw, ab := procArgsWord(c, base)
+				aw, ab := procArgsWord(c, base, frame)
 				return b.Inner, b.Base, aw, ab, b.NS, FrameProc, true
 			}
 			if b.Frame == FrameNamespace && b.Scope == 0 {
@@ -62,14 +62,18 @@ func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, 
 	return "", 0, Word{}, 0, "::", FrameNamespace, false
 }
 
-// procArgsWord returns the args Word and base for the proc command c (or a
-// decorated proc). Returns a zero Word when the command is not a proc.
-func procArgsWord(c Command, base int) (Word, int) {
+// procArgsWord returns the args Word and base for the proc command c (a decorated
+// proc, or an Itcl method, constructor or itcl::body), where frame is the frame c
+// sits in. Returns a zero Word when the command has no parameters.
+func procArgsWord(c Command, base int, frame FrameKind) (Word, int) {
 	w := c.Words
 	if isCmd(w, "proc") && len(w) >= 4 {
 		return w[2], base
 	}
 	if _, args, _, ok := decoratedProcDef(w); ok {
+		return args, base
+	}
+	if args, ok := methodArgs(w, frame); ok {
 		return args, base
 	}
 	return Word{}, base
