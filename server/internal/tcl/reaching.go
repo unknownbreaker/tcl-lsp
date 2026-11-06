@@ -121,8 +121,9 @@ type analyzer struct {
 	loopStack []*frameAcc
 	ret       reachSet
 	// skipped holds bindings in the bodies of commands the analyzer passes over. Any
-	// command may hold data or deferred code, so they never enter a reach set and
-	// never kill anything. They answer only a use nothing else reaches.
+	// command may hold data or deferred code, so they never enter a reach set outside
+	// their own body and never kill anything. They answer only a use nothing else
+	// reaches.
 	skipped reachSet
 	// Enclosing scope of the whole analyzed body, threaded into localBindings so
 	// `variable NAME` links carry the qualified Origin (proc frames only) --
@@ -432,6 +433,22 @@ func (a *analyzer) collectBindings(cmds []Command, base int, into reachSet, foll
 	}
 }
 
+// visitBodyHoldingUse walks the same-scope body of a passed-over command that holds
+// the use, if any, entering with what reaches the command. Whether that body runs here
+// is unknown, but the use is only meaningful if it does. The walk gets its own set and
+// no enclosing loop, so the body's bindings do not leave it, even by break or continue.
+func (a *analyzer) visitBodyHoldingUse(c Command, base int, in reachSet) {
+	for _, b := range a.sameScopeBodies(c, base) {
+		if a.useOff < b.Base || a.useOff >= b.Base+len(b.Inner) {
+			continue
+		}
+		loops, returned := a.loopStack, a.ret
+		a.loopStack = nil
+		a.seq(Parse(b.Inner), b.Base, in.clone()) //nolint:errcheck — a.found/a.answer carry the answer
+		a.loopStack, a.ret = loops, returned
+	}
+}
+
 // recordSkipped records the bindings in the same-scope bodies of a command the
 // analyzer passes over without descending.
 func (a *analyzer) recordSkipped(c Command, base int) {
@@ -481,6 +498,7 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		}
 		return in, false
 	}
+	a.visitBodyHoldingUse(c, base, in)
 	a.recordSkipped(c, base)
 	binds := localBindings(c, base, a.ns, a.frame)
 	if isRMW(c) {

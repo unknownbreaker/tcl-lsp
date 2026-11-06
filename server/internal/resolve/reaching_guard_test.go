@@ -222,6 +222,29 @@ func TestDefinitionMemberKeywordsInControlCommands(t *testing.T) {
 	})
 }
 
+// A use in an unknown command's body used to take the earliest binding, even one that
+// had been killed. It is answered from what reaches it, and the bindings of bodies it
+// is not in behave as before: the last row group is the table this rule must not move.
+func TestDefinitionUseInsideAnUnknownBody(t *testing.T) {
+	runDefinitionCases(t, []definitionCase{
+		{"a killed binding", "proc f {} {\n  set x 1\n  set x 2\n  with { puts $x }\n}", "$x", []int{3}},
+		{"both branches", "proc f {c} {\n  if {$c} {\n    set x 1\n  } else {\n    set x 2\n  }\n  with { puts $x }\n}", "$x", []int{3, 5}},
+		{"a kill in the same body", "proc f {} {\n  with {\n    set x 1\n    set x 2\n    puts $x\n  }\n}", "$x", []int{4}},
+
+		{"table: only binding is in a body", "proc f {} {\n  with { set x 1 }\n  puts $x\n}", "$x", []int{2}},
+		{"table: a prior binding hides the body's", "proc f {} {\n  set x 0\n  with { set x 1 }\n  puts $x\n}", "$x", []int{2}},
+		{"table: data in puts", "proc f {} {\n  set x 0\n  puts {set x 1}\n  puts $x\n}", "$x", []int{2}},
+		{"table: uplevel", "proc f {} {\n  set x 0\n  uplevel 1 {set x 1}\n  puts $x\n}", "$x", []int{2}},
+		{"table: after", "proc f {} {\n  set x 0\n  after 100 {set x 1}\n  puts $x\n}", "$x", []int{2}},
+		{"table: use in a body", "proc f {} {\n  set x 0\n  with { puts $x }\n}", "$x", []int{2}},
+		{"table: use in a body before a set", "proc f {} {\n  with { puts $x }\n  set x 1\n}", "$x", nil},
+		{"table: proc in a body", "proc f {} {\n  with { proc g {} { set x 1 } }\n  puts $x\n}", "$x", nil},
+		{"table: binding in a body below the use", "proc f {} {\n  puts $x\n  with { set x 1 }\n}", "$x", nil},
+		{"table: eval with a prior binding", "proc f {} {\n  set x 0\n  eval { set x 1 }\n  puts $x\n}", "$x", []int{2, 3}},
+		{"table: eval alone", "proc f {} {\n  eval { set x 1 }\n  puts $x\n}", "$x", []int{2}},
+	})
+}
+
 // Only `eval {script}` runs its brace as a script here. With more words eval
 // concatenates them and the head decides, so the brace is like any unknown command's.
 func TestDefinitionEvalForms(t *testing.T) {

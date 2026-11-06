@@ -92,10 +92,11 @@ func localBindingAt(file, src, name string, scope, offset int) []index.Location 
 // first `incr x`, which answers itself. The analyzer does not see every binding: it
 // keeps those in an unknown command's body out of its reach sets, answering with them
 // only when nothing else reaches, and it does not model targets such as `regexp`'s or
-// `gets`'s, so a use bound only by one of those goes silent. When the analyzer has no
-// answer at all (oversized proc, array element access, or a use it did not find, such
-// as one inside an unknown command's body), the earliest binding at or before offset
-// answers, so a loop-carried use on those paths stays silent.
+// `gets`'s, so a use bound only by one of those goes silent. A use inside an unknown
+// command's body is answered from what reaches that command, then through the body. When
+// the analyzer has no answer at all (oversized proc, array element access, or a use it
+// did not find), the earliest binding at or before offset answers, so a loop-carried use
+// on those paths stays silent.
 func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []index.Location {
 	// Array element accesses (e.g. $arr(key)) are excluded from reaching: the engine
 	// tracks the base name without subscripts, so it cannot tell arr(a) from arr(b).

@@ -739,13 +739,15 @@ func TestReachingSwitchArmEntryViews(t *testing.T) {
 	})
 }
 
-// A use inside an unknown command's body is not visited, so the resolver's fallback
-// answers it. A binding in such a body stays out of the reach sets and answers only a
-// visited use that nothing else reaches.
+// A binding in an unknown command's body stays out of the reach sets and answers only
+// a use that nothing else reaches.
 func TestReachingUnknownCommandBodies(t *testing.T) {
+	// This pin was "the analyzer does not find the use", which left the answer to the
+	// earliest binding: `set x 1; set x 2; with { puts $x }` answered the killed `set`.
+	// The analyzer now visits the use, in the body that holds it.
 	inBody := "proc f {} {\n  set x 0\n  with { puts $x }\n}"
-	if defs, ok := ReachingAt(inBody, strings.LastIndex(inBody, "$x")+1); ok {
-		t.Errorf("use inside an unknown body: ok=true defs=%#v, want the analyzer not to find it", defs)
+	if defs, ok := ReachingAt(inBody, strings.LastIndex(inBody, "$x")+1); !ok || len(defs) != 1 {
+		t.Errorf("use inside an unknown body: ok=%v defs=%#v, want the analyzer to answer with the one reaching binding", ok, defs)
 	}
 	runReachCases(t, []reachCase{
 		{"only binding is in a body above the use", "proc f {} {\n  with { set x 1 }\n  puts $x\n}", "$x", []int{2}},
@@ -753,6 +755,28 @@ func TestReachingUnknownCommandBodies(t *testing.T) {
 		{"a body's binding kills nothing", "proc f {} {\n  set x 0\n  with { set x 1 }\n  with { set x 2 }\n  puts $x\n}", "$x", []int{2}},
 		{"a binding in a body below the use does not answer", "proc f {} {\n  puts $x\n  with { set x 1 }\n}", "$x", nil},
 		{"another name's binding does not answer", "proc f {} {\n  with { set y 1 }\n  puts $x\n}", "$x", nil},
+	})
+}
+
+// A use in an unknown command's body is answered from what reaches the command, then
+// through the body itself, so a killed binding does not answer it. The body's own
+// bindings stop at the end of the body.
+func TestReachingUseInsideAnUnknownBody(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"a killed binding does not reach", "proc f {} {\n  set x 1\n  set x 2\n  with { puts $x }\n}", "$x", []int{3}},
+		{"both branches reach", "proc f {c} {\n  if {$c} {\n    set x 1\n  } else {\n    set x 2\n  }\n  with { puts $x }\n}", "$x", []int{3, 5}},
+		{"a binding in the same body kills", "proc f {} {\n  with {\n    set x 1\n    set x 2\n    puts $x\n  }\n}", "$x", []int{4}},
+		{"a binding below the use in the same body", "proc f {} {\n  with {\n    puts $x\n    set x 1\n  }\n}", "$x", nil},
+		{"control flow inside the body", "proc f {c} {\n  set x 0\n  with {\n    if {$c} { set x 1 }\n    puts $x\n  }\n}", "$x", []int{2, 4}},
+		{"a wrapper nested in a wrapper", "proc f {} {\n  set x 0\n  with {\n    set x 1\n    with { puts $x }\n  }\n}", "$x", []int{4}},
+		{"inside a catch", "proc f {} {\n  set x 0\n  catch { with { puts $x } }\n}", "$x", []int{2}},
+		{"a loop carries a binding to the body", "proc f {} {\n  set x 0\n  while {1} {\n    with { puts $x }\n    set x 1\n  }\n}", "$x", []int{2, 5}},
+		{"another wrapper's binding answers only when nothing reaches", "proc f {} {\n  with { set x 1 }\n  with { puts $x }\n}", "$x", []int{2}},
+		{"another wrapper's binding stays out of the reach set", "proc f {} {\n  set x 0\n  with { set x 1 }\n  with { puts $x }\n}", "$x", []int{2}},
+		// The body's bindings must not leave it by a loop's exits either.
+		{"continue does not carry the body's binding round", "proc f {} {\n  while {1} {\n    with { puts $x; set x 1; continue }\n  }\n}", "$x", nil},
+		{"a later use is not affected by the body's break", "proc f {} {\n  set x 0\n  while {1} {\n    with { set x 1; break }\n  }\n  puts $x\n}", "$x", []int{2}},
+		{"a new scope in a wrapper is analyzed on its own", "proc f {} {\n  set x 0\n  with { proc g {} { set x 1; puts $x } }\n}", "$x", []int{3}},
 	})
 }
 
