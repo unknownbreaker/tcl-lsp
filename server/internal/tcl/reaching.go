@@ -5,8 +5,9 @@ package tcl
 // NameStart/NameEnd on the binding's name token and Origin for links). ok is false
 // when the analyzer has no answer: the scope is oversized or useOff is not on a use
 // it visited. ok with no defs means the analyzer visited the use and nothing reaches
-// it. Intraprocedural and may-reach (over-approximate, never drops a real reaching
-// def). Also supports namespace-level variables (used by RVT templates).
+// it. When nothing else reaches a visited use, a binding above it in an unknown
+// command's body answers, because that body may or may not run here. Intraprocedural
+// and may-reach. Also supports namespace-level variables (used by RVT templates).
 func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	inner, innerBase, argsWord, argsBase, ns, frame, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, useOff)
 	if !found {
@@ -16,7 +17,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	if len(inner) > maxReachingBytes {
 		return nil, false // oversized: caller falls back to first-binding
 	}
-	a := &analyzer{useOff: useOff, ns: ns, frame: frame}
+	a := &analyzer{useOff: useOff, ns: ns, frame: frame, skipped: reachSet{}}
 	entry := reachSet{}
 	// Seed entry set with proc params (namespace-level code has no params).
 	if frame == FrameProc {
@@ -30,7 +31,22 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	if !a.found {
 		return nil, false
 	}
+	if len(a.answer) == 0 {
+		return a.skippedAboveUse(), true
+	}
 	return a.answer, true
+}
+
+// skippedAboveUse returns the skipped bindings of the used name that start before
+// the use.
+func (a *analyzer) skippedAboveUse() []Definition {
+	var above []Definition
+	for _, d := range a.skipped[a.useName] {
+		if d.NameStart < a.useOff {
+			above = append(above, d)
+		}
+	}
+	return above
 }
 
 // enclosingProcOrScope returns the interior text and absolute base of the innermost
@@ -97,10 +113,15 @@ type frameAcc struct{ brk, cont reachSet }
 
 type analyzer struct {
 	useOff    int
+	useName   string // the variable named at useOff, once found
 	answer    []Definition
 	found     bool
 	loopStack []*frameAcc
 	ret       reachSet
+	// skipped holds bindings in the bodies of commands the analyzer passes over. Any
+	// command may hold data or deferred code, so they never enter a reach set and
+	// never kill anything. They answer only a use nothing else reaches.
+	skipped reachSet
 	// Enclosing scope of the whole analyzed body, threaded into localBindings so
 	// `variable NAME` links carry the qualified Origin (proc frames only) --
 	// mirroring emitDefs. See the localBindings doc comment.
@@ -161,11 +182,24 @@ func loopScripts(w []Word) (start, body, next *Word) {
 	return script(1), script(4), script(3)
 }
 
-// recheckedEachPass reports whether a loop evaluates its own words again on every
-// pass: a while or for test holds [substitutions] that run at the loop header. Other
-// loop heads evaluate their words once, on entry.
-func recheckedEachPass(c Command) bool {
-	return isCmd(c.Words, "while") || isCmd(c.Words, "for")
+// loopTest returns the braced test word of a while or for command, or nil. Its
+// [substitutions] run at the loop header on every pass. Tcl substitutes every other
+// word of a command once, before the command runs, including an unbraced test.
+func loopTest(c Command) *Word {
+	if !loopHead(c) {
+		return nil
+	}
+	tests := exprBodies(c.Words)
+	if len(tests) == 0 {
+		return nil
+	}
+	return &tests[0]
+}
+
+// inWord reports whether a reference from a command's own words lies inside word.
+// A nil word holds nothing.
+func inWord(r Reference, word *Word) bool {
+	return word != nil && r.Start >= word.Start && r.End <= word.End
 }
 
 // runScript threads in through an optional braced script. A nil script does
@@ -185,24 +219,25 @@ func (a *analyzer) runScript(script *Word, base int, in reachSet) (reachSet, boo
 // analyzeLoop iterates the loop to a fixpoint so a value assigned in one iteration
 // reaches later iterations' uses, then joins with the entry set (the loop may run
 // zero times). `for` runs its start script once, before the fixpoint; each pass then
-// runs the body, then next, so `continue` still runs next. Loop variables
-// (foreach/lmap/dict-for) are rebound at the top of every pass, so a reassignment
-// below a use does not reach that use on the next iteration. break/continue exits
-// are accumulated in a per-loop frameAcc pushed onto loopStack.
+// evaluates the test, runs the body, then next, so `continue` still runs next. Loop
+// variables (foreach/lmap/dict-for) are rebound at the top of every pass, so a
+// reassignment below a use does not reach that use on the next iteration.
+// break/continue exits are accumulated in a per-loop frameAcc pushed onto loopStack.
 func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool) {
 	acc := &frameAcc{brk: reachSet{}, cont: reachSet{}}
 	a.loopStack = append(a.loopStack, acc)
 	defer func() { a.loopStack = a.loopStack[:len(a.loopStack)-1] }()
 
 	start, body, next := loopScripts(c.Words)
+	test := loopTest(c)
 	loopVars := localBindings(c, base, a.ns, a.frame)
 	cur, live := a.runScript(start, base, in.clone())
 	if !live {
 		return cur, false
 	}
 	for iter := 0; iter < maxLoopIters; iter++ {
-		if recheckedEachPass(c) {
-			a.recordUses(c, base, cur)
+		if test != nil {
+			a.recordUses(c, base, cur, func(r Reference) bool { return inWord(r, test) })
 		}
 		passEntry := cur.clone()
 		for _, d := range loopVars {
@@ -247,10 +282,21 @@ func reachEqual(a, b reachSet) bool {
 }
 
 // conservativeHead reports whether command c requires conservative may-reach
-// modeling: catch, try, and switch are alternatives or may-abort constructs
-// where precise arm/exception modeling is deferred.
+// modeling: its scripts truly run in this frame, and they are alternatives or may
+// abort, so precise exception modeling is deferred.
 func conservativeHead(c Command) bool {
-	return isCmd(c.Words, "catch") || isCmd(c.Words, "try") || isCmd(c.Words, "switch")
+	for _, head := range []string{"catch", "try", "switch", "eval", "time", "timerate"} {
+		if isCmd(c.Words, head) {
+			return true
+		}
+	}
+	return false
+}
+
+// bodiesRunHere reports whether the scripts of command c are known to run in this
+// frame. Any other command's braced word may be data or deferred code.
+func bodiesRunHere(c Command) bool {
+	return isCmd(c.Words, "if") || conservativeHead(c) || loopHead(c)
 }
 
 // analyzedScope marks a body as still in the analyzed scope when asking childBodies
@@ -259,14 +305,22 @@ const analyzedScope = -1
 
 // declaresMember reports whether w declares an OO member. Its body runs when the
 // member is called, not here, even though childBodies sees an ordinary trailing
-// script outside an Itcl class body (a TclOO definition script, for example).
+// script outside an Itcl class body. The keyword may have words before it:
+// `self method m {} {...}`, `oo::define C method m {} {...}`.
 func declaresMember(w []Word) bool {
-	return isCmd(w, "method") || isCmd(w, "constructor") || isCmd(w, "destructor")
+	if isCmd(w, "method") || isCmd(w, "constructor") || isCmd(w, "destructor") {
+		return true
+	}
+	wordBeforeLast := func(count int, keyword string) bool {
+		i := len(w) - count
+		return i >= 0 && w[i].Kind == WordBare && w[i].Text == keyword
+	}
+	return wordBeforeLast(4, "method") || wordBeforeLast(3, "constructor") || wordBeforeLast(2, "destructor")
 }
 
-// sameScopeBodies returns the child bodies of c that run in the analyzed scope.
-// Bodies that start a new scope (proc, decorated proc, namespace eval, itcl::class,
-// itcl::body, OO members) do not run here, so their bindings cannot reach.
+// sameScopeBodies returns the child bodies of c that are not a new scope. Bodies
+// that start one (proc, decorated proc, namespace eval, itcl::class, itcl::body, OO
+// members) do not run here, so their bindings cannot reach.
 func (a *analyzer) sameScopeBodies(c Command, base int) []bodyScope {
 	if declaresMember(c.Words) {
 		return nil
@@ -287,19 +341,21 @@ type conservativeBody struct {
 	entry  reachSet
 }
 
-// bindingsIn unions every binding made anywhere in the braced script.
+// bindingsIn unions every binding made in the braced script by code known to run
+// in this frame.
 func (a *analyzer) bindingsIn(script Word, base int) reachSet {
 	gens := reachSet{}
 	inner, innerBase := bracedInner(script, base)
-	a.collectBindings(Parse(inner), innerBase, gens)
+	a.collectBindings(Parse(inner), innerBase, gens, bodiesRunHere)
 	return gens
 }
 
 // tryEntries gives each part of a try command its entry view: the main body sees
 // what precedes the try; a handler also sees the main body's bindings, because an
 // error can arrive at any point in it, but never a sibling handler's; finally sees
-// every binding of the construct.
-func (a *analyzer) tryEntries(w []Word, base int, in, allBindings reachSet) []conservativeBody {
+// the bindings of the main body and every handler, but not its own, which reach only
+// through a loop's back edge.
+func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBody {
 	main, handlers, finally := tryParts(w)
 	var bodies []conservativeBody
 	handlerEntry := in
@@ -307,31 +363,35 @@ func (a *analyzer) tryEntries(w []Word, base int, in, allBindings reachSet) []co
 		bodies = append(bodies, conservativeBody{*main, in})
 		handlerEntry = joinAll([]reachSet{in, a.bindingsIn(*main, base)})
 	}
+	finallyEntry := handlerEntry
 	for _, handler := range handlers {
 		bodies = append(bodies, conservativeBody{handler, handlerEntry})
+		finallyEntry = joinAll([]reachSet{finallyEntry, a.bindingsIn(handler, base)})
 	}
 	if finally != nil {
-		bodies = append(bodies, conservativeBody{*finally, joinAll([]reachSet{in, allBindings})})
+		bodies = append(bodies, conservativeBody{*finally, finallyEntry})
 	}
 	return bodies
 }
 
 // analyzeConservative over-approximates the exit: the bodies may or may not run and
 // may exit at any point, so the result joins the entry set with every binding
-// generated anywhere in them. Sound for may-reach; never drops a real reaching def.
-// Entry is precise: a catch body, a switch arm and a wrapper's body see only what
-// precedes the command, and a try's parts see what tryEntries gives them. So a
-// binding below a use, or in a sibling arm, reaches it only through a loop's back
-// edge. Names in a try handler's variable list are not modeled as bindings.
+// generated anywhere in them. Entry is precise: a catch body or a switch arm sees
+// only what precedes the command, and a try's parts see what tryEntries gives them.
+// So a binding below a use, or in a sibling arm, reaches it only through a loop's
+// back edge. Names in a try handler's variable list are not modeled as bindings.
 func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachSet, bool) {
 	bodyScripts := scriptBodies(c.Words)
+	if len(a.sameScopeBodies(c, base)) == 0 {
+		bodyScripts = nil // `eval proc g {} {...}` defines g; its body does not run here
+	}
 	gens := reachSet{}
 	for _, script := range bodyScripts {
 		gens = joinAll([]reachSet{gens, a.bindingsIn(script, base)})
 	}
 	var bodies []conservativeBody
 	if isCmd(c.Words, "try") {
-		bodies = a.tryEntries(c.Words, base, in, gens)
+		bodies = a.tryEntries(c.Words, base, in)
 	} else {
 		for _, script := range bodyScripts {
 			bodies = append(bodies, conservativeBody{script, in})
@@ -347,18 +407,30 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 	return out, true
 }
 
-// collectBindings unions every local binding made anywhere in cmds that runs in the
-// analyzed scope into `into`, recursing the child bodies that stay in it. Bindings
-// inherit the analyzer's scope context (a.ns/a.frame): the whole analyzed body is
-// treated as one frame.
-func (a *analyzer) collectBindings(cmds []Command, base int, into reachSet) {
+// collectBindings unions every local binding made in cmds into `into`, recursing the
+// same-scope bodies of each command that follow accepts. Bindings inherit the
+// analyzer's scope context (a.ns/a.frame): the whole analyzed body is treated as one
+// frame.
+func (a *analyzer) collectBindings(cmds []Command, base int, into reachSet, follow func(Command) bool) {
 	for _, c := range cmds {
 		for _, d := range localBindings(c, base, a.ns, a.frame) {
 			into[d.Name] = appendDedup(into[d.Name], d)
 		}
-		for _, b := range a.sameScopeBodies(c, base) {
-			a.collectBindings(Parse(b.Inner), b.Base, into)
+		if !follow(c) {
+			continue
 		}
+		for _, b := range a.sameScopeBodies(c, base) {
+			a.collectBindings(Parse(b.Inner), b.Base, into, follow)
+		}
+	}
+}
+
+// recordSkipped records the bindings in the same-scope bodies of a command the
+// analyzer passes over without descending.
+func (a *analyzer) recordSkipped(c Command, base int) {
+	everyBody := func(Command) bool { return true }
+	for _, b := range a.sameScopeBodies(c, base) {
+		a.collectBindings(Parse(b.Inner), b.Base, a.skipped, everyBody)
 	}
 }
 
@@ -377,9 +449,8 @@ func appendDedup(list []Definition, d Definition) []Definition {
 // incoming set, then apply this command's bindings (kill prior, gen new).
 // Returns (out set, live). live is false for non-local exits (return/break/continue).
 func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
-	if !recheckedEachPass(c) {
-		a.recordUses(c, base, in)
-	}
+	test := loopTest(c)
+	a.recordUses(c, base, in, func(r Reference) bool { return !inWord(r, test) })
 	switch {
 	case isCmd(c.Words, "if"):
 		return a.analyzeIf(c, base, in)
@@ -402,16 +473,13 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 			top.cont = joinAll([]reachSet{nonNil(top.cont), in})
 		}
 		return in, false
-	case len(a.sameScopeBodies(c, base)) > 0:
-		// An unrecognised command's trailing script: `Defs` counts its bindings, so
-		// the analyzer must see them too.
-		return a.analyzeConservative(c, base, in)
 	}
+	a.recordSkipped(c, base)
 	binds := localBindings(c, base, a.ns, a.frame)
 	if isRMW(c) {
 		for _, d := range binds {
 			if a.useOff >= d.NameStart && a.useOff < d.NameEnd {
-				a.recordAnswer(in[d.Name])
+				a.recordAnswer(d.Name, in[d.Name])
 			}
 		}
 	}
@@ -420,7 +488,11 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 	}
 	out := in.clone()
 	for _, d := range binds {
-		out[d.Name] = []Definition{d} // straight-line: reassign kills+gens
+		if isArraySet(c.Words) {
+			out[d.Name] = appendDedup(out[d.Name], d) // merges into the array
+		} else {
+			out[d.Name] = []Definition{d} // straight-line: reassign kills+gens
+		}
 	}
 	return out, true
 }
@@ -490,26 +562,28 @@ func nonNil(s reachSet) reachSet {
 	return s
 }
 
-// recordAnswer unions defs into the answer for the use at useOff. A use is visited
-// once per loop pass, and reaching sets only grow across passes, so the union over
-// every visit is the set at the fixpoint.
-func (a *analyzer) recordAnswer(defs []Definition) {
+// recordAnswer unions defs into the answer for the use of name at useOff. A use is
+// visited once per loop pass, and reaching sets only grow across passes, so the union
+// over every visit is the set at the fixpoint.
+func (a *analyzer) recordAnswer(name string, defs []Definition) {
 	a.found = true
+	a.useName = name
 	for _, d := range defs {
 		a.answer = appendDedup(a.answer, d)
 	}
 }
 
 // recordUses records the reaching set for the variable used at useOff (a
-// $-substituted RefVariable in this command's own words).
-func (a *analyzer) recordUses(c Command, base int, in reachSet) {
+// $-substituted RefVariable in this command's own words), when wanted accepts its
+// reference.
+func (a *analyzer) recordUses(c Command, base int, in reachSet, wanted func(Reference) bool) {
 	for _, r := range CommandRefs(c) {
-		if r.Kind != RefVariable {
+		if r.Kind != RefVariable || !wanted(r) {
 			continue
 		}
 		s, e := r.Start+base, r.End+base
 		if a.useOff >= s && a.useOff < e {
-			a.recordAnswer(in[r.Name])
+			a.recordAnswer(r.Name, in[r.Name])
 			return
 		}
 	}
@@ -543,8 +617,8 @@ func localBindings(c Command, base int, ns string, frame FrameKind) []Definition
 		}
 	}
 
-	// array set NAME data (assigns array NAME exactly like `set`)
-	if isCmd(w, "array") && len(w) >= 3 && w[1].Kind == WordBare && w[1].Text == "set" {
+	// array set NAME data (binds array NAME; `command` merges it, unlike `set`)
+	if isArraySet(w) {
 		if name, s, e, ok := arrayBaseName(w[2]); ok {
 			out = append(out, Definition{
 				Kind: DefLocal, Name: name,
@@ -618,6 +692,11 @@ func localBindings(c Command, base int, ns string, frame FrameKind) []Definition
 	emitLoopVarDefs(w, base, "::", 0, "", &out)
 
 	return out
+}
+
+// isArraySet reports whether w is `array set NAME data`.
+func isArraySet(w []Word) bool {
+	return isCmd(w, "array") && len(w) >= 3 && w[1].Kind == WordBare && w[1].Text == "set"
 }
 
 // isRMW reports whether command c is a read-modify-write command

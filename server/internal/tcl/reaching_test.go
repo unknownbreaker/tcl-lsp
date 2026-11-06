@@ -181,14 +181,19 @@ func TestReachingRMWTargetIsUse(t *testing.T) {
 
 // reachLinesAt returns the sorted 1-based source lines of the bindings that reach
 // the use whose text starts at the last occurrence of mark (cursor one byte in).
-// Duplicates are kept so a repeated answer shows up. nil means nothing reaches.
+// Duplicates are kept so a repeated answer shows up. nil means the analyzer visited
+// the use and nothing reaches it; a use it never found fails the test, because the
+// resolver treats those two results differently.
 func reachLinesAt(t *testing.T, src, mark string) []int {
 	t.Helper()
 	markOffset := strings.LastIndex(src, mark)
 	if markOffset < 0 {
 		t.Fatalf("test bug: mark %q not found in %q", mark, src)
 	}
-	defs, _ := ReachingAt(src, markOffset+1)
+	defs, ok := ReachingAt(src, markOffset+1)
+	if !ok {
+		t.Fatalf("analyzer did not find the use %q (ok=false)\nsource:\n%s", mark, src)
+	}
 	var lines []int
 	for _, def := range defs {
 		lines = append(lines, 1+strings.Count(src[:def.NameStart], "\n"))
@@ -733,6 +738,30 @@ func TestReachingSwitchArmEntryViews(t *testing.T) {
   }
 }`, "$x", []int{5}},
 	})
+}
+
+// A use inside an unknown command's body is not visited, so the resolver's fallback
+// answers it. A binding in such a body stays out of the reach sets and answers only a
+// visited use that nothing else reaches.
+func TestReachingUnknownCommandBodies(t *testing.T) {
+	inBody := "proc f {} {\n  set x 0\n  with { puts $x }\n}"
+	if defs, ok := ReachingAt(inBody, strings.LastIndex(inBody, "$x")+1); ok {
+		t.Errorf("use inside an unknown body: ok=true defs=%#v, want the analyzer not to find it", defs)
+	}
+	runReachCases(t, []reachCase{
+		{"only binding is in a body above the use", "proc f {} {\n  with { set x 1 }\n  puts $x\n}", "$x", []int{2}},
+		{"a binding that reaches hides the one in a body", "proc f {} {\n  set x 0\n  with { set x 1 }\n  puts $x\n}", "$x", []int{2}},
+		{"a body's binding kills nothing", "proc f {} {\n  set x 0\n  with { set x 1 }\n  with { set x 2 }\n  puts $x\n}", "$x", []int{2}},
+		{"a binding in a body below the use does not answer", "proc f {} {\n  puts $x\n  with { set x 1 }\n}", "$x", nil},
+		{"another name's binding does not answer", "proc f {} {\n  with { set y 1 }\n  puts $x\n}", "$x", nil},
+	})
+}
+
+func TestClassOfUsesABindingInAnUnknownBody(t *testing.T) {
+	src := "proc f {} {\n  with { set d [::A #auto] }\n  $d field\n}"
+	if got := ClassOf(src, strings.LastIndex(src, "$d")+1); !slices.Equal(got, []string{"::A"}) {
+		t.Errorf("ClassOf = %v, want [::A]", got)
+	}
 }
 
 // Hunting: ClassOf reads ReachingAt, so a wrong reaching set is a wrong method

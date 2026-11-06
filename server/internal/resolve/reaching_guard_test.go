@@ -149,15 +149,26 @@ func TestDefinitionItclIvarAgainstLocalBindings(t *testing.T) {
 	})
 }
 
-// An empty reaching answer now means silence, so the analyzer has to see every
-// binding Defs sees. A command's trailing script may run here, so its bindings count;
-// a body that starts a new scope does not run here, so its bindings do not.
+// An empty reaching answer means silence, so a binding in an unknown command's body
+// has to answer when nothing else reaches. Any command's brace may be data or deferred
+// code, so it stays out of the reach sets; a body that starts a new scope never answers.
 func TestDefinitionBindingsInsideCommandBodies(t *testing.T) {
 	runDefinitionCases(t, []definitionCase{
 		{"wrapper binding reaches a later use", "proc f {} {\n  with { set x 1 }\n  puts $x\n}", "$x", []int{2}},
 		{"wrapper body sees an earlier binding", "proc f {} {\n  set x 0\n  with { puts $x }\n}", "$x", []int{2}},
+		{"wrapper body before a later set", "proc f {} {\n  with { puts $x }\n  set x 1\n}", "$x", nil},
+		{"wrapper binding below the use", "proc f {} {\n  puts $x\n  with { set x 1 }\n}", "$x", nil},
+		{"wrapper binding below the use, in a loop", "proc f {} {\n  while {1} {\n    puts $x\n    with { set x 1 }\n  }\n}", "$x", nil},
 		{"eval binding reaches a later use", "proc f {} {\n  eval { set x 1 }\n  puts $x\n}", "$x", []int{2}},
-		{"after a wrapper the prior binding may still reach", "proc f {} {\n  set x 0\n  with { set x 1 }\n  puts $x\n}", "$x", []int{2, 3}},
+		{"eval binding joins the prior binding", "proc f {} {\n  set x 0\n  eval { set x 1 }\n  puts $x\n}", "$x", []int{2, 3}},
+		{"time binding joins the prior binding", "proc f {} {\n  set x 0\n  time { set x 1 }\n  puts $x\n}", "$x", []int{2, 3}},
+		{"timerate binding joins the prior binding", "proc f {} {\n  set x 0\n  timerate { set x 1 }\n  puts $x\n}", "$x", []int{2, 3}},
+		{"eval of a proc definition does not run the body", "proc f {} {\n  eval proc g {} { set x 1 }\n  puts $x\n}", "$x", nil},
+		{"after a wrapper only the prior binding reaches", "proc f {} {\n  set x 0\n  with { set x 1 }\n  puts $x\n}", "$x", []int{2}},
+		{"wrapper binding answers an incr", "proc f {} {\n  with { set x 1 }\n  incr x\n}", " x\n}", []int{2}},
+		{"wrapper in a catch answers when nothing else does", "proc f {} {\n  catch { with { set x 1 } }\n  puts $x\n}", "$x", []int{2}},
+		{"wrapper in a catch stays out of the reach set", "proc f {} {\n  set x 0\n  catch { uplevel 1 {set x 1} }\n  puts $x\n}", "$x", []int{2}},
+		{"wrapper in a try body answers its handler", "proc f {} {\n  try {\n    with { set x 1 }\n  } on error {} {\n    puts $x\n  }\n}", "$x", []int{3}},
 		{"wrapper nested in a wrapper", "proc f {} {\n  with { with { set x 1 } }\n  puts $x\n}", "$x", []int{2}},
 		{"proc inside a wrapper does not run here", "proc f {} {\n  with { proc g {} { set x 1 } }\n  puts $x\n}", "$x", nil},
 		{"proc inside a catch does not run here", "proc f {} {\n  catch { proc g {} { set x 1 } }\n  puts $x\n}", "$x", nil},
@@ -170,11 +181,105 @@ func TestDefinitionBindingsInsideCommandBodies(t *testing.T) {
 	})
 }
 
+// Each of these commands' braces holds data, or code for another frame or a later
+// time, so with a prior binding the answer is that binding alone. Tcl 8.6 agrees.
+func TestDefinitionDataAndDeferredBracesDoNotReach(t *testing.T) {
+	commands := []string{
+		"uplevel 1 {set x 1}",
+		"uplevel #0 {set x 1}",
+		"after 100 {set x 1}",
+		"fileevent $c readable {set x 1}",
+		"bind . <Key> {set x 1}",
+		"button .b -command {set x 1}",
+		"namespace code {set x 1}",
+		"namespace inscope ::n {set x 1}",
+		"interp eval sub {set x 1}",
+		"puts {set x 1}",
+		"puts $c {set x 1}",
+		"regsub {a} $s {set x 1}",
+		"oo::define C method m {} {set x 1}",
+		"oo::class create C { self method m {} {set x 1} }",
+	}
+	var cases []definitionCase
+	for _, command := range commands {
+		cases = append(cases, definitionCase{command, "proc f {} {\n  set x 0\n  " + command + "\n  puts $x\n}", "$x", []int{2}})
+	}
+	runDefinitionCases(t, cases)
+}
+
+// With no other binding, a member's body still answers nothing: it does not run here.
+func TestDefinitionMemberBodiesNeverAnswer(t *testing.T) {
+	runDefinitionCases(t, []definitionCase{
+		{"oo::define method", "proc f {} {\n  oo::define C method m {} {set x 1}\n  puts $x\n}", "$x", nil},
+		{"oo::define constructor", "proc f {} {\n  oo::define C constructor {} {set x 1}\n  puts $x\n}", "$x", nil},
+		{"oo::define destructor", "proc f {} {\n  oo::define C destructor {set x 1}\n  puts $x\n}", "$x", nil},
+		{"self method in a definition script", "proc f {} {\n  oo::class create C { self method m {} {set x 1} }\n  puts $x\n}", "$x", nil},
+	})
+}
+
+// Tcl substitutes a command's words once, before it runs, so a use in an unbraced test
+// sees only what precedes the command. Only a braced test re-runs at the header.
+func TestDefinitionUnbracedLoopTests(t *testing.T) {
+	runDefinitionCases(t, []definitionCase{
+		{"while $x", "proc f {} {\n  set x 0\n  while $x {\n    set x 1\n  }\n}", "$x", []int{2}},
+		{"while [more $x]", "proc f {} {\n  set x 0\n  while [more $x] {\n    set x 1\n  }\n}", "$x", []int{2}},
+		{"while quoted [more $x]", "proc f {} {\n  set x 0\n  while \"[more $x]\" {\n    set x 1\n  }\n}", "$x", []int{2}},
+		{"for test $i, bound only by start", "proc f {} {\n  for {set i 0} $i {incr i} {\n  }\n}", "$i", nil},
+		{"for test [more $i] sees what precedes the for", "proc f {} {\n  set i 9\n  for {set i 0} [more $i] {} {\n  }\n}", "$i", []int{2}},
+		{"for test, braced, does not see what start killed", "proc f {} {\n  set i 9\n  for {set i 0} {[more $i]} {} {\n  }\n}", "$i", []int{3}},
+	})
+}
+
+// finally sees the bindings of the main body and the handlers, not its own later ones.
+func TestDefinitionFinallyDoesNotSeeItsOwnLaterBinding(t *testing.T) {
+	runDefinitionCases(t, []definitionCase{
+		{"no prior", "proc f {} {\n  try {\n    puts hi\n  } finally {\n    puts $x\n    set x 1\n  }\n}", "$x", nil},
+		{"prior", "proc f {} {\n  set x 0\n  try {\n    puts hi\n  } finally {\n    puts $x\n    set x 1\n  }\n}", "$x", []int{2}},
+		{"own earlier binding", "proc f {} {\n  try {\n    puts hi\n  } finally {\n    set x 1\n    puts $x\n  }\n}", "$x", []int{5}},
+		{"back edge in a loop", "proc f {} {\n  while {1} {\n    try {\n      puts hi\n    } finally {\n      puts $x\n      set x 1\n    }\n  }\n}", "$x", []int{7}},
+		{"after the try it still reaches", "proc f {} {\n  try {\n    puts hi\n  } finally {\n    set x 1\n  }\n  puts $x\n}", "$x", []int{5}},
+	})
+}
+
+// The same empty reaching answers, in a page: an .rvt must not fall back past them.
+func TestDefinitionEmptyReachingAnswerInRVT(t *testing.T) {
+	cases := []definitionCase{
+		{"earlier sibling switch arm", "proc f {k} {\n  switch $k {\n    a { set x 1 }\n    b { puts $x }\n  }\n}", "$x", nil},
+		{"set x $x", "proc f {} {\n  set x $x\n}", "$x", nil},
+		{"else branch", "proc f {} {\n  if {$c} {\n    set x 1\n  } else {\n    puts $x\n  }\n}", "$x", nil},
+		{"ivar with a sibling branch's set", "itcl::class C {\n  protected variable n 0\n  method m {} {\n    if {$c} {\n      set n 1\n    } else {\n      puts $n\n    }\n  }\n}", "$n", []int{2}},
+		{"a reaching binding still answers", "proc f {} {\n  set x 1\n  puts $x\n}", "$x", []int{2}},
+	}
+	const page = "page.rvt"
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := defLinesAt(t, c.src, c.mark); !slices.Equal(got, c.want) {
+				t.Errorf(".tcl lines = %v, want %v", got, c.want)
+			}
+			content := "<?\n" + c.src + "\n?>"
+			ix := index.New()
+			ix.IndexFile(page, content)
+			var lines, want []int
+			for _, loc := range New(ix).Definition(page, content, strings.LastIndex(content, c.mark)+1) {
+				lines = append(lines, lineOfOffset(content, loc.NameStart))
+			}
+			for _, line := range c.want {
+				want = append(want, line+1) // the page's `<?` line comes first
+			}
+			if !slices.Equal(lines, want) {
+				t.Errorf(".rvt lines = %v, want %v\nsource:\n%s", lines, want, content)
+			}
+		})
+	}
+}
+
 // `array set` is the one proc-frame binding form that Defs had and the analyzer did
-// not, so `array names` below it would otherwise go silent.
+// not, so `array names` below it would otherwise go silent. It merges into the array,
+// so it adds to what reaches instead of replacing it.
 func TestDefinitionArraySetIsABinding(t *testing.T) {
 	runDefinitionCases(t, []definitionCase{
 		{"array names after array set", "proc f {} {\n  array set cfg {a 1}\n  puts [array names cfg]\n}", " cfg]", []int{2}},
+		{"array set merges with an earlier array set", "proc f {} {\n  array set cfg {a 1}\n  array set cfg {b 2}\n  puts [array names cfg]\n}", " cfg]", []int{2, 3}},
 		{"element use after array set", "proc f {} {\n  array set cfg {a 1}\n  puts $cfg(a)\n}", "$cfg", []int{2}},
 		{"array names before array set", "proc f {} {\n  puts [array names cfg]\n  array set cfg {a 1}\n}", " cfg]", nil},
 	})
