@@ -189,12 +189,12 @@ func decoratedProcDef(w []Word) (name, args, body Word, ok bool) {
 }
 
 // listOrDataHeads are builtins whose arguments may literally contain the word
-// `proc` as data (a list element or value), so a trailing `proc name args body`
-// in them is not a decorated proc definition.
+// `proc` as data (a list element, a value or a switch pattern), so a trailing
+// `proc name args body` in them is not a decorated proc definition.
 var listOrDataHeads = map[string]bool{
 	"set": true, "list": true, "lappend": true, "lassign": true, "lset": true,
 	"linsert": true, "lreplace": true, "concat": true, "dict": true,
-	"array": true, "append": true, "return": true, "expr": true,
+	"array": true, "append": true, "return": true, "expr": true, "switch": true,
 }
 
 // scriptBodies returns the braced script-argument words of a control-flow
@@ -236,13 +236,14 @@ func scriptBodies(w []Word) []Word {
 		return ifBodies(w)
 	case "try":
 		return tryBodies(w)
+	case "switch":
+		return switchBodies(w)
 	default:
 		// User-defined or unrecognised commands: by strong Tcl convention a
 		// trailing braced argument is a script body (custom control structures,
-		// test harnesses, oo definitions; switch arms are handled transitively as
-		// each parsed arm is itself such a command). Recurse it so calls inside are
-		// found. Builtins whose braced argument is data or an expression are
-		// excluded so their contents are not misread as command calls.
+		// test harnesses, oo definitions). Recurse it so calls inside are found.
+		// Builtins whose braced argument is data or an expression are excluded so
+		// their contents are not misread as command calls.
 		if !dataBraceCommands[w[0].Text] && braced(last) {
 			return []Word{w[last]}
 		}
@@ -350,6 +351,89 @@ func tryBodies(w []Word) []Word {
 			if i+1 < len(w) && w[i+1].Kind == WordBraced {
 				bodies = append(bodies, w[i+1])
 			}
+		}
+	}
+	return bodies
+}
+
+// switchSubjectIndex returns the index in w of a switch command's subject word:
+// the first word after its options. It is len(w) or more when there is no subject.
+func switchSubjectIndex(w []Word) int {
+	for i := 1; i < len(w); i++ {
+		if w[i].Kind != WordBare {
+			return i
+		}
+		switch w[i].Text {
+		case "--":
+			return i + 1
+		case "-exact", "-glob", "-regexp", "-nocase":
+		case "-matchvar", "-indexvar":
+			i++ // the option's variable name, whatever it looks like
+		default:
+			return i
+		}
+	}
+	return len(w)
+}
+
+// switchArgs returns the words of a switch command after its options and subject,
+// or nil if there are none.
+func switchArgs(w []Word) []Word {
+	armsStart := switchSubjectIndex(w) + 1
+	if armsStart >= len(w) {
+		return nil
+	}
+	return w[armsStart:]
+}
+
+// switchArmList returns the braced word holding a switch command's arms, when the
+// arms are written as that single word (`switch $x {a {...} b {...}}`) rather than
+// inline (`switch $x a {...} b {...}`).
+func switchArmList(w []Word) (Word, bool) {
+	if !isCmd(w, "switch") {
+		return Word{}, false
+	}
+	args := switchArgs(w)
+	if len(args) != 1 || args[0].Kind != WordBraced {
+		return Word{}, false
+	}
+	return args[0], true
+}
+
+// switchArmListWords parses an arm list into one flat word list. Each word is
+// shifted into the coordinates of the list's enclosing source, so bracedInner works
+// on it with the same base as on the list itself.
+func switchArmListWords(list Word) []Word {
+	inner, interiorStart := bracedInner(list, 0)
+	var words []Word
+	for _, command := range Parse(inner) {
+		for _, word := range command.Words {
+			word.Start += interiorStart
+			word.End += interiorStart
+			words = append(words, word)
+		}
+	}
+	return words
+}
+
+// switchBodies returns every braced arm body of a switch command, in source order.
+// Arms are (pattern, body) pairs, and a pattern is never a script. A non-braced
+// body (including the fall-through `-`) is skipped. An odd word count with a braced
+// last word has lost its pairing, so no word can be called a body with certainty
+// and the result is nil. An unbraced last word is a pattern still being typed: it
+// is dropped and the complete pairs before it still count.
+func switchBodies(w []Word) []Word {
+	arms := switchArgs(w)
+	if list, ok := switchArmList(w); ok {
+		arms = switchArmListWords(list)
+	}
+	if len(arms)%2 == 1 && arms[len(arms)-1].Kind == WordBraced {
+		return nil
+	}
+	var bodies []Word
+	for i := 1; i < len(arms); i += 2 {
+		if arms[i].Kind == WordBraced {
+			bodies = append(bodies, arms[i])
 		}
 	}
 	return bodies

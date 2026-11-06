@@ -235,32 +235,11 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 		inner, ibase := bracedInner(b, base)
 		a.collectBindings(Parse(inner), ibase, gens)
 	}
-	// For inline-form switch (`switch ?opts? string pat body pat body ...`),
-	// scriptBodies returns only the last braced word (the default arm, by the
-	// trailing-brace heuristic). Collect bindings and record uses from EVERY
-	// braced word in c.Words[2:] so no arm is silently dropped.
-	if isCmd(c.Words, "switch") {
-		for _, w := range c.Words[2:] {
-			if w.Kind == WordBraced {
-				inner, ibase := bracedInner(w, base)
-				a.collectBindings(Parse(inner), ibase, gens)
-			}
-		}
-	}
 	bodyView := joinAll([]reachSet{in, gens})
 	// Record any use at useOff inside the bodies against the conservative view.
 	for _, b := range scriptBodies(c.Words) {
 		inner, ibase := bracedInner(b, base)
 		a.seq(Parse(inner), ibase, bodyView.clone())
-	}
-	// For inline switch, also record uses inside each arm body.
-	if isCmd(c.Words, "switch") {
-		for _, w := range c.Words[2:] {
-			if w.Kind == WordBraced {
-				inner, ibase := bracedInner(w, base)
-				a.seq(Parse(inner), ibase, bodyView.clone())
-			}
-		}
 	}
 	out := bodyView.clone()
 	for _, d := range localBindings(c, base, a.ns, a.frame) { // catch resultVar / optionsVar

@@ -163,8 +163,8 @@ func TestFileRefsScriptBlockArgument(t *testing.T) {
 }
 
 func TestFileRefsSwitchArms(t *testing.T) {
-	// switch's pattern/body block is handled transitively: the outer block
-	// recurses, then each arm body recurses as a trailing braced argument.
+	// switch's arm list holds (pattern, body) pairs: each body is walked as a
+	// script, and no pattern is read as a command.
 	src := "proc helper {} {}\n" +
 		"switch $x {\n" +
 		"    a { helper }\n" +
