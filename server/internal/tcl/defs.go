@@ -106,9 +106,10 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			Class:     class,
 		})
 	}
-	// In a body of unknown frame, a bare `variable NAME` may be a TclOO declaration
-	// rather than a namespace variable; a qualified name is the same in every frame.
-	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) && (frame != FrameOpaque || strings.Contains(w[1].Text, "::")) {
+	// In a body of unknown frame only an absolute name is certain. A bare `variable
+	// NAME` may be a TclOO declaration, and a relative qualified name resolves from the
+	// namespace the body runs in, which is not known.
+	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) && (frame != FrameOpaque || strings.HasPrefix(w[1].Text, "::")) {
 		*out = append(*out, Definition{
 			Kind:      DefNamespaceVar,
 			Name:      qualifyName(w[1].Text, ns),
@@ -234,9 +235,13 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 // any frame -- it is a namespace-variable definition: `set ::x 1` inside a proc
 // writes the global directly in TCL, so indexing it as a proc-local both hid
 // the workspace definition and blocked cross-file `$::x` resolution. A bare
-// name at proc frame stays a proc-local binding. A bare name in a body of unknown
-// frame defines nothing: it could be either.
+// name at proc frame stays a proc-local binding. In a body of unknown frame only an
+// absolute name defines anything: a bare name could be local or not, and a relative
+// qualified name resolves from the namespace the body runs in, which is not known.
 func emitVarAssign(name string, s, e, base int, ns string, frame FrameKind, scope int, class string, cmdStart, cmdEnd int, out *[]Definition) {
+	if frame == FrameOpaque && !strings.HasPrefix(name, "::") {
+		return
+	}
 	if frame == FrameNamespace || strings.Contains(name, "::") {
 		*out = append(*out, Definition{
 			Kind:      DefNamespaceVar,
@@ -249,9 +254,6 @@ func emitVarAssign(name string, s, e, base int, ns string, frame FrameKind, scop
 			Scope:     scope,
 			Class:     class,
 		})
-		return
-	}
-	if frame == FrameOpaque {
 		return
 	}
 	*out = append(*out, Definition{

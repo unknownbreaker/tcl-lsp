@@ -296,7 +296,9 @@ func conservativeHead(c Command) bool {
 }
 
 // bodiesRunHere reports whether the scripts of command c are known to run in this
-// frame. Any other command's braced word may be data or deferred code.
+// frame. Any other command's braced word may be data or deferred code, and `uplevel`
+// runs its script in another frame. childBodies asks this too, so indexed definitions
+// and reach sets agree on which bodies run here.
 func bodiesRunHere(c Command) bool {
 	return isCmd(c.Words, "if") || conservativeHead(c) || loopHead(c)
 }

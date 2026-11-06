@@ -182,9 +182,11 @@ func TestOpaqueFrameNamesAroundUnknownBodies(t *testing.T) {
 		{"wrapper argument is evaluated outside", "set x 1\nwith $x {\n  puts hi\n}", "$x", []int{1}},
 		{"wrapper option is evaluated outside", "set x 1\nwith -timeout $x {\n  puts hi\n}", "$x", []int{1}},
 		{"class name from a variable", "set x X\noo::class create $x {\n}", "$x", []int{1}},
-		// Qualified names mean the same thing in every frame.
-		{"relative qualified use", "set a::b 1\nwith {\n  puts $a::b\n}", "$a::b", []int{1}},
-		{"relative qualified use in namespace", "namespace eval ::n {\n  set a::b 1\n  with {\n    puts $a::b\n  }\n}", "$a::b", []int{2}},
+		// A relative qualified name resolves from the namespace the body runs in, which
+		// is not known. See TestOpaqueFrameRelativeQualifiedNames.
+		{"relative qualified use", "set a::b 1\nwith {\n  puts $a::b\n}", "$a::b", nil},
+		{"relative qualified use in namespace", "namespace eval ::n {\n  set a::b 1\n  with {\n    puts $a::b\n  }\n}", "$a::b", nil},
+		// Absolute names mean the same thing in every frame.
 		{"qualified array element", "set ::x(k) 1\nwith {\n  puts $::x(k)\n}", "$::x(k)", []int{1}},
 		{"qualified braced name", "set ::x 1\nwith {\n  puts ${::x}\n}", "${::x}", []int{1}},
 		{"qualified info exists", "set ::x 1\nwith {\n  puts [info exists ::x]\n}", " ::x]", []int{1}},
@@ -200,6 +202,93 @@ func TestOpaqueFrameNamesAroundUnknownBodies(t *testing.T) {
 				t.Errorf("definition lines of %s = %v, want %v\nsource:\n%s", c.mark, got, c.want, c.src)
 			}
 		})
+	}
+}
+
+// A TclOO method runs in the object's namespace, so `$a::b` in a method of a class
+// created in ::n does not read ::n::a::b: tclsh says `can't read "a::b": no such
+// variable`. A wrapper's body cannot be told apart from a method's, so every relative
+// qualified use in an unknown body is silent. It keeps its answer at every other
+// frame. Bug hunted: an answer from the lexical namespace, by any path that resolves a
+// variable, and a guard that also silences the frames where the namespace is known.
+func TestOpaqueFrameRelativeQualifiedNames(t *testing.T) {
+	const declared = "namespace eval ::n::a {\n  variable b 5\n}\n"
+	cases := []struct {
+		name, src, mark string
+		want            []int
+	}{
+		{"TclOO method", declared + "namespace eval ::n {\n  oo::class create X {\n    method m {} {\n      puts $a::b\n    }\n  }\n}", "$a::b", nil},
+		{"wrapper", declared + "namespace eval ::n {\n  with {\n    puts $a::b\n  }\n}", "$a::b", nil},
+		{"if in a wrapper", declared + "namespace eval ::n {\n  with {\n    if {1} {\n      puts $a::b\n    }\n  }\n}", "$a::b", nil},
+		{"array element", "namespace eval ::n::a {\n  variable b\n}\nnamespace eval ::n {\n  with {\n    puts $a::b(k)\n  }\n}", "$a::b(k)", nil},
+		{"info exists", declared + "namespace eval ::n {\n  with {\n    puts [info exists a::b]\n  }\n}", " a::b]", nil},
+		// The absolute spelling of the same variable.
+		{"absolute in a TclOO method", declared + "namespace eval ::n {\n  oo::class create X {\n    method m {} {\n      puts $::n::a::b\n    }\n  }\n}", "$::n::a::b", []int{2}},
+		// Every other frame, where the namespace is known.
+		{"namespace frame", declared + "namespace eval ::n {\n  puts $a::b\n}", "$a::b", []int{2}},
+		{"if at namespace frame", declared + "namespace eval ::n {\n  if {1} {\n    puts $a::b\n  }\n}", "$a::b", []int{2}},
+		{"proc frame", declared + "namespace eval ::n {\n  proc f {} {\n    puts $a::b\n  }\n}", "$a::b", []int{2}},
+		{"wrapper in a proc", declared + "namespace eval ::n {\n  proc f {} {\n    with {\n      puts $a::b\n    }\n  }\n}", "$a::b", []int{2}},
+		{"itcl method", declared + "namespace eval ::n {\n  itcl::class C {\n    method m {} {\n      puts $a::b\n    }\n  }\n}", "$a::b", []int{2}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := defLinesAt(t, c.src, c.mark); !slices.Equal(got, c.want) {
+				t.Errorf("definition lines of %s = %v, want %v\nsource:\n%s", c.mark, got, c.want, c.src)
+			}
+		})
+	}
+
+	// References and highlight take other paths to the same lookup.
+	src := declared + "namespace eval ::n {\n  puts $a::b\n  with {\n    puts $a::b\n  }\n}\n"
+	resolver := resolverOverGuardFile(src)
+	opaqueUse := strings.LastIndex(src, "$a::b") + 1
+	namespaceUse := strings.Index(src, "$a::b") + 1
+	for what, locations := range map[string][]index.Location{
+		"references":   resolver.References(guardFile, src, opaqueUse),
+		"highlights":   resolver.FileHighlights(guardFile, src, opaqueUse),
+		"declarations": resolver.Declarations(guardFile, src, opaqueUse),
+	} {
+		if len(locations) != 0 {
+			t.Errorf("%s from the relative use in an unknown body = %#v, want none", what, locations)
+		}
+	}
+	if got := startLinesOf(src, guardFile, resolver.References(guardFile, src, namespaceUse)); !slices.Equal(got, []int{5}) {
+		t.Errorf("references from the namespace-level use = %v, want [5], without the use in the unknown body", got)
+	}
+}
+
+// An absolute name does not use the tag a bracket gives it, so a proc or class body
+// in a bracket keeps it, and tclsh confirms the use reads the global. Relative names
+// keep dropping: `[catch {proc ::m::reader {} { return $a::b }}]` inside ::k reads
+// ::m::a::b, while the tag would say ::k. Bug hunted: the real use on line 2 missing
+// from find-references, and a relative name answered from the tag's namespace.
+func TestOpaqueFrameBracketedBodiesKeepAbsoluteNames(t *testing.T) {
+	cases := []struct {
+		name, src, mark string
+		want            []int
+	}{
+		{"proc", "set ::x 1\nif [catch {proc g {} {puts $::x}}] {}", "$::x", []int{1}},
+		{"proc, braced name", "set ::x 1\nif [catch {proc g {} {puts ${::x}}}] {}", "${::x}", []int{1}},
+		{"proc, array element", "set ::x(k) 1\nif [catch {proc g {} {puts $::x(k)}}] {}", "$::x(k)", []int{1}},
+		{"proc, deep", "set ::x 1\nif [catch {proc g {} {\n  if {1} {\n    puts $::x\n  }\n}}] {}", "$::x", []int{1}},
+		{"class method", "set ::x 1\nif [catch {itcl::class X {method m {} {puts $::x}}}] {}", "$::x", []int{1}},
+		{"proc, relative qualified use", "namespace eval ::k::a {\n  variable b 1\n}\nnamespace eval ::k {\n  if [catch {proc ::m::reader {} { return $a::b }}] {}\n}", "$a::b", nil},
+		{"class, relative qualified use", "namespace eval ::k::a {\n  variable b 1\n}\nnamespace eval ::k {\n  if [catch {itcl::class X {method m {} { return $a::b }}}] {}\n}", "$a::b", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := defLinesAt(t, c.src, c.mark); !slices.Equal(got, c.want) {
+				t.Errorf("definition lines of %s = %v, want %v\nsource:\n%s", c.mark, got, c.want, c.src)
+			}
+		})
+	}
+
+	src := "set ::x 1\nif [catch {proc g {} {puts $::x}}] {}\nputs $::x"
+	resolver := resolverOverGuardFile(src)
+	got := startLinesOf(src, guardFile, resolver.References(guardFile, src, strings.LastIndex(src, "$::x")+1))
+	if !slices.Equal(got, []int{2, 3}) {
+		t.Errorf("references to ::x = %v, want [2 3], including the use in the bracketed proc", got)
 	}
 }
 

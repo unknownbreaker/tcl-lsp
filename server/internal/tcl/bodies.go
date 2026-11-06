@@ -98,24 +98,6 @@ func methodArgs(w []Word, frame FrameKind) (Word, bool) {
 	return Word{}, false
 }
 
-// enclosingFrameHeads are the heads whose scripts run in the enclosing frame.
-// `eval` counts only in its one-script form: see runsInEnclosingFrame. `uplevel` is
-// absent because its script runs in another frame.
-var enclosingFrameHeads = map[string]bool{
-	"if": true, "while": true, "for": true, "foreach": true, "lmap": true, "dict": true,
-	"catch": true, "try": true, "switch": true, "eval": true, "time": true, "timerate": true,
-}
-
-// runsInEnclosingFrame reports whether the scripts of a command with these words run
-// in the frame the command sits in. With more than one argument, `eval` concatenates
-// them and the resulting head decides what happens to the script.
-func runsInEnclosingFrame(w []Word) bool {
-	if isCmd(w, "eval") && len(w) != 2 {
-		return false
-	}
-	return len(w) > 0 && w[0].Kind == WordBare && enclosingFrameHeads[w[0].Text]
-}
-
 // childBodies returns the script bodies of c that walkers should recurse into,
 // each tagged with the scope it runs in. `namespace eval` and `proc` introduce a
 // new scope. Control-flow bodies run in the enclosing namespace and frame. A
@@ -195,8 +177,14 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		// namespace and frame. A custom command's trailing brace is walked for calls,
 		// but at namespace frame nothing says which frame it runs in: it may be a method
 		// or a proc-like scope, with locals of its own. No new scope either way.
+		//
+		// Known limit: calls there still resolve against the lexical namespace. A TclOO
+		// method runs in the object's namespace, so a bare `helper` in one errors even
+		// when `::n::helper` exists, yet it answers `::n::helper`. A wrapper's body cannot
+		// be told apart from a method's, and real code calling `helper` there usually has
+		// `namespace path` set, so calls stay resolved.
 		bodyFrame := frame
-		if frame == FrameNamespace && !runsInEnclosingFrame(w) {
+		if frame == FrameNamespace && !bodiesRunHere(c) {
 			bodyFrame = FrameOpaque
 		}
 		var out []bodyScope

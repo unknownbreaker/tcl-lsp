@@ -9,7 +9,7 @@ import (
 // The body of a command the server does not know has an unknown frame: it may be a
 // proc-like scope (a TclOO method, tsp::proc) or code running right here. A bare
 // name assigned there defines nothing, neither a namespace variable nor a local.
-// A qualified name, a proc, and any scope that sets its own frame still define.
+// An absolute name, a proc, and any scope that sets its own frame still define.
 func TestOpaqueFrameDefs(t *testing.T) {
 	cases := []struct {
 		src, name string
@@ -124,9 +124,12 @@ func TestOpaqueFrameBindersDefineNothing(t *testing.T) {
 	}
 }
 
-// A qualified name is the same variable in every frame, so it still defines in an
-// opaque body, as a namespace variable and never as a local. Bug hunted: a guard
-// that drops every assignment, and one that counts the unqualified twin as well.
+// An absolute name is the same variable in every frame, so it still defines in an
+// opaque body, as a namespace variable and never as a local. A relative qualified
+// name is not: it resolves from the namespace the body runs in, and a TclOO method
+// runs in the object's namespace, not the lexical one. So it defines nothing there.
+// Bug hunted: a guard that drops every assignment, one that counts the unqualified
+// twin as well, and one that tests for "::" anywhere instead of a leading "::".
 func TestOpaqueFrameQualifiedBindersStillDefine(t *testing.T) {
 	cases := []struct {
 		src, name string
@@ -134,15 +137,26 @@ func TestOpaqueFrameQualifiedBindersStillDefine(t *testing.T) {
 	}{
 		{"with { set ::x 1 }", "::x", 1},
 		{"with { set ::x(k) 1 }", "::x", 1},
-		{"with { set a::b 1 }", "::a::b", 1},
-		{"namespace eval ::n { with { set a::b 1 } }", "::n::a::b", 1},
+		{"with { set ::a::b 1 }", "::a::b", 1},
+		{"with { set a::b 1 }", "::a::b", 0},
+		{"with { set a::b(k) 1 }", "::a::b", 0},
+		{"namespace eval ::n { with { set a::b 1 } }", "::n::a::b", 0},
 		{"namespace eval ::n { with { set ::x 1 } }", "::x", 1},
 		{"namespace eval ::n { with { set ::x 1 } }", "::n::x", 0},
 		{"with { array set ::cfg {a 1} }", "::cfg", 1},
-		{"with { array set a::cfg {a 1} }", "::a::cfg", 1},
-		{"with { variable a::b }", "::a::b", 1},
+		{"with { array set a::cfg {a 1} }", "::a::cfg", 0},
+		{"with { variable a::b }", "::a::b", 0},
 		{"with { variable ::y 1 }", "::y", 1},
-		{"namespace eval ::n { with { variable a::b } }", "::n::a::b", 1},
+		{"with { variable ::a::b }", "::a::b", 1},
+		{"namespace eval ::n { with { variable a::b } }", "::n::a::b", 0},
+		// A relative qualified name keeps its meaning at every other frame.
+		{"set a::b 1", "::a::b", 1},
+		{"variable a::b", "::a::b", 1},
+		{"if {1} { set a::b 1 }", "::a::b", 1},
+		{"namespace eval ::n { set a::b 1 }", "::n::a::b", 1},
+		{"namespace eval ::n { variable a::b }", "::n::a::b", 1},
+		{"namespace eval ::n { proc f {} { set a::b 1 } }", "::n::a::b", 1},
+		{"proc f {} { with { set a::b 1 } }", "::a::b", 1},
 		{"oo::class create X { method m {} { set ::g 1 } }", "::g", 1},
 		{"tsp::proc f {} { set ::g 1 }", "::g", 1},
 		// The qualified twin defines once; the bare one defines nothing.
@@ -439,6 +453,43 @@ func TestOpaqueFrameReferencesKeepCommandsAndNamespace(t *testing.T) {
 	}
 	if !qualified {
 		t.Errorf("no reference to $::x in an unknown body")
+	}
+}
+
+// A variable in a proc or class body inside a bracket keeps its reference only when
+// the tag it gets from the enclosing command cannot change its meaning. Bug hunted: a
+// drop that takes absolute names too, in any spelling, one that keeps relative
+// qualified names because they contain "::", and one that takes the calls with it.
+func TestSubstRefsKeepOnlyWhatTheTagCannotChange(t *testing.T) {
+	bodies := []struct{ name, open, close string }{
+		{"proc", "if [catch {proc g {} {", "}}] {}"},
+		{"class method", "if [catch {itcl::class X {method m {} {", "}}}] {}"},
+		{"proc, nested if", "if [catch {proc g {} {if {1} {", "}}}] {}"},
+		{"proc, nested bracket", "if [catch {proc g {} {set r [string length ", "]}}] {}"},
+	}
+	cases := []struct {
+		name, use, refName string
+		want               bool
+	}{
+		{"absolute", "$::x", "::x", true},
+		{"absolute braced", "${::x}", "::x", true},
+		{"absolute nested", "$::a::b", "::a::b", true},
+		{"relative qualified", "$a::b", "a::b", false},
+		{"bare", "$y", "y", false},
+	}
+	for _, body := range bodies {
+		for _, c := range cases {
+			t.Run(body.name+"/"+c.name, func(t *testing.T) {
+				src := body.open + c.use + body.close
+				found := false
+				for _, ref := range FileRefs(src) {
+					found = found || (ref.Ref.Kind == RefVariable && ref.Ref.Name == c.refName)
+				}
+				if found != c.want {
+					t.Errorf("variable ref %q in %q: found = %v, want %v", c.refName, src, found, c.want)
+				}
+			})
+		}
 	}
 }
 
