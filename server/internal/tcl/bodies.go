@@ -173,8 +173,8 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 			inner, innerBase := bracedInner(body, base)
 			return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(name.Text, ns), Frame: FrameProc, Scope: innerBase, Class: class}}
 		}
-		// Control-flow bodies (if/while/for/foreach/catch/try/...) run in the enclosing
-		// namespace and frame. A custom command's trailing brace is walked for calls,
+		// Control-flow bodies (if/while/for/foreach/catch/try/switch/...) run in the
+		// enclosing namespace and frame. A custom command's trailing brace is walked for calls,
 		// but at namespace frame nothing says which frame it runs in: it may be a method
 		// or a proc-like scope, with locals of its own. No new scope either way.
 		//

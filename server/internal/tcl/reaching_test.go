@@ -176,7 +176,7 @@ func TestReachingRMWTargetIsUse(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Task 4 edge cases: bindings that cannot reach, and loop-carried bindings that can.
+// Edge cases: bindings that cannot reach, and loop-carried bindings that can.
 // ---------------------------------------------------------------------------
 
 // reachLinesAt returns the sorted 1-based source lines of the bindings that reach
@@ -406,8 +406,7 @@ func TestReachingReadModifyWriteInLoopUnionsEveryVisit(t *testing.T) {
 // Hunting: `for` runs its start script once, before the first test. Folding start
 // into the iterated block makes it kill itself on every pass, so the body no longer
 // sees the initial binding. Tcl: the body sees the start's `set i 0` (first pass) and
-// the next script's `incr i` (later passes). NOT in the Task 4 brief: this fails
-// today for a reason unrelated to the guards, and needs start hoisted out of the loop.
+// the next script's `incr i` (later passes).
 func TestReachingForLoopStartScriptReachesTheBody(t *testing.T) {
 	src := `proc f {} {
   for {

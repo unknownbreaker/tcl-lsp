@@ -16,7 +16,7 @@ func hasFold(folds []tcl.FoldRange, open, close int) bool {
 	return false
 }
 
-// Review Focus 5. In a template whose switch arms span Rivet tags, the arm list and
+// In a template whose switch arms span Rivet tags, the arm list and
 // the first arm still fold, on real braces in the template's own coordinates.
 func TestFolds_SwitchArmsSpanRVTTags(t *testing.T) {
 	src := "<?\nproc helper {} {}\nswitch $x {\n  a { ?>\n<li>one</li>\n<? helper\n  }\n  b { ?>\n<li>two</li>\n<? puts 2\n  }\n}\n?>\n"

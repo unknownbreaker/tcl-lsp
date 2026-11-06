@@ -606,7 +606,8 @@ func (a *analyzer) recordUses(c Command, base int, in reachSet, wanted func(Refe
 // (see variable_link_reaching_test.go in internal/resolve) -- any rule change
 // in one file must be mirrored in the other, and pinned by a resolve-level test
 // exercising BOTH paths. One difference is on purpose: at FrameOpaque emitDefs binds
-// no bare name, but this still does, because that is how `$o m` is typed there.
+// no bare name and no relative qualified name, but this still binds both, because
+// that is how `$o m` is typed there.
 func localBindings(c Command, base int, ns string, frame FrameKind) []Definition {
 	var out []Definition
 	w := c.Words

@@ -106,10 +106,8 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			Class:     class,
 		})
 	}
-	// In a body of unknown frame only an absolute name is certain. A bare `variable
-	// NAME` may be a TclOO declaration, and a relative qualified name resolves from the
-	// namespace the body runs in, which is not known.
-	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) && (frame != FrameOpaque || strings.HasPrefix(w[1].Text, "::")) {
+	// A bare `variable NAME` in a body of unknown frame may be a TclOO declaration.
+	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) && !isUncertainName(w[1].Text, frame) {
 		*out = append(*out, Definition{
 			Kind:      DefNamespaceVar,
 			Name:      qualifyName(w[1].Text, ns),
@@ -230,16 +228,22 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 	}
 }
 
+// isUncertainName reports whether a variable name defines nothing in frame. In a
+// body of unknown frame only an absolute name is certain: a relative qualified name
+// resolves from the namespace the body runs in, which is not known.
+func isUncertainName(name string, frame FrameKind) bool {
+	return frame == FrameOpaque && !strings.HasPrefix(name, "::")
+}
+
 // emitVarAssign records a variable-assignment target (`set`, `array set`,
 // `incr`/`append`/`lappend`). At namespace frame -- or for a QUALIFIED name in
 // any frame -- it is a namespace-variable definition: `set ::x 1` inside a proc
 // writes the global directly in TCL, so indexing it as a proc-local both hid
 // the workspace definition and blocked cross-file `$::x` resolution. A bare
 // name at proc frame stays a proc-local binding. In a body of unknown frame only an
-// absolute name defines anything: a bare name could be local or not, and a relative
-// qualified name resolves from the namespace the body runs in, which is not known.
+// absolute name defines anything: a bare name could be local or not.
 func emitVarAssign(name string, s, e, base int, ns string, frame FrameKind, scope int, class string, cmdStart, cmdEnd int, out *[]Definition) {
-	if frame == FrameOpaque && !strings.HasPrefix(name, "::") {
+	if isUncertainName(name, frame) {
 		return
 	}
 	if frame == FrameNamespace || strings.Contains(name, "::") {

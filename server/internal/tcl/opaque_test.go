@@ -269,7 +269,7 @@ func TestOpaqueFrameEvalAndUplevelRulings(t *testing.T) {
 		{"if {1} { uplevel {set x 1} }", "::x", 0},
 		{"with { eval {set x 1} }", "::x", 0}, // pass-through inside an unknown body stays unknown
 		{"eval { eval foo {set x 1} }", "::x", 0},
-		// A qualified binding still defines through either.
+		// An absolute binding still defines through either.
 		{"eval foo {set ::x 1}", "::x", 1},
 		{"uplevel {set ::x 1}", "::x", 1},
 	}

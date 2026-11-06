@@ -11,7 +11,7 @@ import (
 )
 
 // A bare variable in an unknown command's body has no answer, because nothing says
-// which frame the body runs in. Qualified names, control flow at namespace level,
+// which frame the body runs in. Absolute names, control flow at namespace level,
 // and scopes that set their own frame keep their answers.
 func TestOpaqueFrameResolution(t *testing.T) {
 	cases := []struct {
@@ -293,7 +293,7 @@ func TestOpaqueFrameBracketedBodiesKeepAbsoluteNames(t *testing.T) {
 }
 
 // Find-references and highlight from a namespace variable must not pick up a bare use
-// in an unknown body, and from inside that body they say nothing. A qualified use in
+// in an unknown body, and from inside that body they say nothing. An absolute use in
 // the same body still counts. Bug hunted: a ContextRef the frame check forgot, such
 // as one reached through References, FileHighlights or Declarations rather than
 // Definition.

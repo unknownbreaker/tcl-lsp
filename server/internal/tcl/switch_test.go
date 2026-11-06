@@ -77,7 +77,7 @@ func TestFileFolds_SwitchOuterAndInner(t *testing.T) {
 	}
 }
 
-// Review Focus 2. A switch is half-typed for most of its life in an editor: no
+// A switch is half-typed for most of its life in an editor: no
 // prefix may panic, read a pattern as a command, or lose the definition before it.
 func TestSwitchHalfTypedAtEveryPrefix(t *testing.T) {
 	const procLine = "proc ok {} {}\n"
@@ -368,7 +368,8 @@ func TestSwitchEscapesInsideArmBodies(t *testing.T) {
 	}
 }
 
-// Without a subject there are no arms. Hunting: option parsing that runs off the
+// A switch without a subject is treated as having no arms, by design: the shape is
+// not one we can read with certainty. Hunting: option parsing that runs off the
 // end, an arm list picked from the first braced word although it is the subject,
 // and `-matchvar` failing to swallow `--` as its variable.
 func TestSwitchWithoutSubjectWalksNothing(t *testing.T) {

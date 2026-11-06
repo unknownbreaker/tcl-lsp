@@ -298,8 +298,8 @@ func TestSwitchArmBindingsResolveFromAUseAfterTheSwitch(t *testing.T) {
 	}
 }
 
-// Review Focus 5. Shape from rvt/testdata/corpus/control_flow_spanning.rvt: the
-// arms of a switch open and close across Rivet tags.
+// Shape from rvt/testdata/corpus/control_flow_spanning.rvt: the arms of a switch
+// open and close across Rivet tags.
 func TestSwitchArmsSpanRVTTags(t *testing.T) {
 	const file = "p.rvt"
 	src := "<?\nproc helper {} {}\nswitch $x {\n  a { ?>\n<li>one</li>\n<? helper\n  }\n  b { ?>\n<li>two</li>\n<? puts 2\n  }\n}\n?>\n"
@@ -318,8 +318,8 @@ func TestSwitchArmsSpanRVTTags(t *testing.T) {
 	}
 }
 
-// Flagged gap: the test above passes without the fix, because there is no `proc a`
-// for the pattern to jump to. Here the patterns are the names of defined procs, in
+// The test above passes without the fix, because there is no `proc a` for the
+// pattern to jump to. Here the patterns are the names of defined procs, in
 // the list form and the inline form, with the arms open and closed across tags and
 // a `<?=` expression inside an arm. Hunting: a pattern that jumps to or is listed as
 // a call, a body that is lost across the tags, and a local that stops resolving.
