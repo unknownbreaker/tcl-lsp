@@ -44,10 +44,15 @@ Recommend leaving it; document the limitation (done, see `editors/README.md`).
 
 **Status:** deferred. **Area:** `server/internal/tcl/reaching.go`, `varref.go`, `resolve.go`.
 
-The reaching-definitions feature (proc-local goto-def) shipped with two known,
-non-blocking limitations, both noted in code comments:
+Known limitations of the reaching-definitions feature (proc-local goto-def). The first is
+a wrong answer on a common idiom, so it comes first.
 
-1. **Array-ness detection is duplicated/low-layer.** `resolve.go` has its own
+1. **A use in a script inside `[...]` gets a stale binding.** `set y 0; if {[catch { set y 1; puts $y } err]} {}`
+   answers `set y 0`, and tclsh prints 1. `set rc [catch {...}]` and `set r [lmap ...]` behave the same.
+   Real case: `speedtables/stapi/server/server.tcl:328-337`. A text scan found at most 24 such rows
+   behind `[catch {`. They count as `VAR_OK`, so the corpus gate cannot see them. It needs the analyzer to
+   walk bracketed script bodies. See `research/08-flightaware-corpus-probe.md`, "Known limits that remain".
+2. **Array-ness detection is duplicated/low-layer.** `resolve.go` has its own
    `isArrayVarAt`/`isNameByte` byte-scan to detect `$arr(key)` uses (so they
    bypass reaching, which doesn't track subscripts). This re-derives info the
    lexer discarded: `parseVarRef` (`varref.go`) drops the `(subscript)` and emits
@@ -56,7 +61,7 @@ non-blocking limitations, both noted in code comments:
    duplicated `isNameByte`. This is layering debt: an element use answers with the
    earliest binding at or before it, so a use whose only binding is below it, even
    one a loop carries around, stays silent.
-2. **`try ... on e {varList} {body}` handler var-list names** aren't emitted as
+3. **`try ... on e {varList} {body}` handler var-list names** aren't emitted as
    local bindings by `localBindings` or `emitDefs`, so `$e` there goes silent unless
    an earlier binding of the name exists, which is then the answer.
 
@@ -88,11 +93,17 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   words are never options. `::switch` is unhandled, so a pattern reads as a call and
   `::switch $k proc - method {...}` makes `::-`. Same on `main@26f8ab2`.
 - **Switch, now silent.** `switch {*}$opts $x {...}` and `switch -exact {...}` find no arms, and a `;`
-  in a bare pattern shifts the pairing. Their arms' calls resolved on `main@26f8ab2`.
+  in a bare pattern shifts the pairing. Their arms' calls resolved on `main@26f8ab2`. Also, `#* { helper }`
+  at line start in an arm list parses as a comment, so its body is silent, where Tcl treats it as a pattern.
+  That one is silent on `main@26f8ab2` too.
 - **Reaching, still a wrong answer.** `for {} {1} {set x 1} {puts $x; break}` runs `next` when the
   body cannot complete. `set x 0; eval {set y 1;} {set x 1}; puts $x` answers `set x 0`.
   `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. The last two are
-  the same on `main@26f8ab2`.
+  the same on `main@26f8ab2`. So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which
+  answers both lines though Tcl says the first arm cannot reach: a `switch` exit joins every arm.
+- **Skipped bindings ignore control flow.** A wrapper's binding answers a use nothing else reaches, wherever
+  the wrapper sits: `if {$c} { with {set x 1} } else { puts $x }` answers the sibling, and so does a wrapper in a
+  branch that returned. Same on `main@26f8ab2`.
 - **Reaching, incomplete.** `set x 0; time {set x 1} 5; puts $x` omits the `time` body, and
   `set a(1) 1; set a(2) 2; array names a` answers only the last `set`. Same on `main@26f8ab2`.
 - **Silent, not wrong.** `foo destructor {set x 1}`: tail matching reads an unknown command's word as

@@ -56,6 +56,9 @@ The tasks below are kept as written. These rulings changed them, so **what shipp
 - **Task 4, unknown bodies:** their bindings stay out of reach sets and count only when nothing else reaches. An earlier ruling made them conservative and was replaced: it answered both lines for `set x 0; puts {set x 1}; puts $x`, and an exclusion list can never be complete.
 - **Task 4, loop tests:** braced `while` and `for` tests are recorded at the loop header, which `binding-after-use-no-loop` cannot see (see the Task 6 result).
 - **Task 4, Itcl parameters:** method parameters are locals, in a separate commit. A parameter-shadowed ivar was a wrong answer.
+- **Task 4, `array set`:** it adds to what reaches rather than killing it. `array set c {a 1}; array set c {b 2}; array names c` used to drop the first line.
+- **Final review, `switch` scaling:** each arm's bindings are collected into one set. Rebuilding the set per arm made goto-def quadratic in arms: 10.1 s at 4,000 arms, against 48 ms on `main@26f8ab2`.
+- **Final review, uses in unknown bodies:** in a proc, the analyzer walks the one unknown body that holds the use, on its own copy of the set. `set x 1; set x 2; with { puts $x }` used to answer the killed `set`. The body's bindings still stay out of the outer reach set, and the corpus gate did not move.
 - **Task 5, `eval`:** keeps the enclosing frame only in its one-word form `eval {script}`, overriding the task's list.
 - **Task 5, `uplevel`:** removed from the task's list. Its brace runs in another frame, so `namespace eval ::n { uplevel #0 { set x 1 } }` would define `::n::x`.
 - **Task 5, relative names:** at `FrameOpaque` only absolute names count as definitions or uses, overriding "keep only a qualified name". A relative name depends on a frame the server cannot know, and tclsh errors on the shape.
@@ -634,7 +637,7 @@ Check against this table. The Prototype column is what a throwaway prototype of 
 | `binding-after-use-no-loop` | 83 | 0, or each row read and justified | 0 | 15, each read: right answers in braced loop tests |
 | `outside-proc-unlinked` | 709 | 0 | 0 | 0 |
 | symbols not in oracle | 887 | each remaining row read | 3 | 3, the same rows |
-| airports.tcl documentSymbol / semanticTokens | 40.6 s / 20.2 s | under 2 s each | 118 ms slowest; nothing else in the repo over 200 ms | 162 ms / 83 ms at worst, on a heavily loaded machine; nothing else in the repo over 2 ms |
+| airports.tcl documentSymbol / semanticTokens | 40.6 s / 20.2 s | under 2 s each | 118 ms slowest; nothing else in the repo over 200 ms | 273 ms / 83 ms at worst, on a heavily loaded machine; nothing else in the repo over 3 ms |
 | test2.tcl goto-def timeouts | 2 | 0 | 0 | 0 |
 
 **Shipped result.** `CANDIDATE_VAR_MISS` 4,510 → 4,709, `def_misses` 524 → 649, call `OK` 4,464 → 4,595, `VAR_OK` 15,514 → 15,936, with `VAR_OK` falling only in prometheus-tcl (415 → 398) and tclrmq (510 → 449). The 15 rows are 11 in TclProDebug and 4 in speedtables. The prototype had 0 because it did not record braced loop tests at the loop header; the harness does not tag those tests as in-loop, so this is not a regression. `research/08` has every row, the symbol diff and the costs.

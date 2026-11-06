@@ -11,8 +11,10 @@ asks the running server real questions across whole repos, then checks the answe
 against something other than the server. It found a server that is robust, wrong in
 four specific ways, and slow on one generated file.
 
-v0.6.3 fixes the wrong answers and the slowdown. Everything up to "Fix design" describes
-`main@26f8ab2`, the code before those fixes. "Fix design" describes what shipped.
+v0.6.3 removes the wrong-answer categories the harness measures, and the slowdown. Known wrong
+answers remain, including one on a common idiom: see "Known limits that remain". Everything up to
+"Fix design" describes `main@26f8ab2`, the code before those fixes. "Fix design" describes what
+shipped.
 
 ## How to read the evidence
 
@@ -200,7 +202,8 @@ requests stack depends on what the client sends. This is one generated data file
    substitutes them itself. **Harness count:** 3,054 rows tagged `in-expr`, of 4,510 variable misses.
 3. **Unrecognised bindings.** **Reproduced:** `gets`, `binary scan`, `try … on`, `regexp`.
    **Harness count,** where it is the only binding form: gets 87, regexp 77, binary scan 40, try-on
-   23. These overlap with item 2, so do not add them up.
+   23. These overlap with item 2, so do not add them up. `catch` result variables too:
+   `if {[catch {foo} msg]} { puts $msg }` is silent (**reproduced**).
 4. **Find-references omits intra-class Itcl calls.** **Reproduced** synthetically. `Definition` has
    `methodInClass` (`resolve.go:260-264`) and `refFQ` does not. **Harness count:** 336 rows (speedtables
    176, piaware 153, piaware-gui 4, tsp 3), sampled at up to 300 defs per repo; "mostly" Itcl, not all
@@ -286,7 +289,10 @@ differs from this section, this section is right, and the plan lists the departu
      list spelled `finally` does not start a clause.
    - **Precise entry views.** In `analyzeConservative`, the main body and each switch arm start from `in`,
      `on`/`trap` also see the main body's bindings, and `finally` also sees the handlers' bindings, because a
-     handler may have run, but not its own later bindings. The exit set stays conservative.
+     handler may have run, but not its own later bindings. The exit set stays conservative. Each arm's bindings
+     are collected into one set: rebuilding the set per arm made goto-def quadratic, about 10 s at 4,000 arms.
+   - **`array set` merges.** It adds to what reaches rather than killing it, so `array set c {a 1}; array set c {b 2};
+     array names c` answers both lines, where `main@26f8ab2` dropped the first.
    - **Braced loop tests** of `while` and `for` are recorded at the loop header on every pass, so a binding in
      the body reaches `[llength $args]` in `while {[llength $args]} {...}`. An unbraced test substitutes once,
      before the command runs, and gets no such treatment.
@@ -297,6 +303,13 @@ differs from this section, this section is right, and the plan lists the departu
      gap in it is a wrong answer. Only scripts known to run here are conservative: `catch`, `try`, `switch`,
      `time`, `timerate`, and `eval` in its one-word form `eval {script}`. With more words `eval` concatenates
      them, and the resulting head decides what runs.
+   - **A use inside an unknown body is answered from what reaches it.** In a proc, the analyzer walks the one body
+     that holds the use, entering with what reaches the command, so `set x 1; set x 2; with { puts $x }` answers the
+     second `set`, where it used to take the earliest. The walk gets its own copy of the set and no enclosing loop, so
+     the body's bindings stop at the end of the body, even by `break` or `continue`. No harness count moved. Asking
+     goto-def on all 34,317 textual `$name` uses in the corpus with and without this change gave 8 different answers and
+     none newly silent, and all 8 read as right: 6 in `perform ... -code {...}` and `m search ... -code {...}` bodies in speedtables, 2 in
+     `TclProDebug/demos/uplevel/uplevel.tcl`.
    - **Itcl method parameters are locals,** so a parameter that shadows an ivar answers the parameter, not the
      ivar. It was a wrong answer, and it also fixes a miss the first design left out.
 5. **Opaque frame for unknown bodies.** A new `FrameOpaque`: at namespace frame, a trailing-brace body of a
@@ -311,7 +324,7 @@ differs from this section, this section is right, and the plan lists the departu
 6. **Gate and release.** Harness before/after, every remaining row read, patch release `v0.6.3`.
 
 **Measured on the shipped code.** All 8 test packages pass, with `-race` and `vet`. These are **harness counts**, so
-the same caveats apply: upper bounds from a lenient oracle. A second full run matched the first on every count.
+the same caveats apply: upper bounds from a lenient oracle. Four full runs matched on every count, the last on the final code.
 
 | Metric | Baseline | Shipped |
 | --- | ---: | ---: |
@@ -324,17 +337,20 @@ the same caveats apply: upper bounds from a lenient oracle. A second full run ma
 | `outside-proc-unlinked` | 709 | 0 |
 | `name-mismatch` | 3 | 3 (the `$ns` rows, see "Not actually bugs") |
 | symbols not in oracle | 887 | 3 |
-| `airports.tcl` documentSymbol | 40.6 s | 145 to 162 ms |
-| `airports.tcl` semanticTokens | 20.2 s | 64 to 83 ms |
+| `airports.tcl` documentSymbol | 40.6 s | 135 to 273 ms |
+| `airports.tcl` semanticTokens | 20.2 s | 51 to 83 ms |
 | `test2.tcl` goto-def timeouts | 2 | 0 |
 | yajl-tcl timeouts / restarts | 4 / 4 | 0 / 0 |
-| yajl-tcl run, wall clock | 106.8 s | 2.8 to 4.0 s |
+| yajl-tcl run, wall clock | 105.5 s | 2.1 to 4.0 s |
 | Call `OK` | 4,464 | 4,595 |
 | `VAR_OK` | 15,514 | 15,936 |
 | `CANDIDATE_VAR_MISS` (expected to rise) | 4,510 | 4,709 |
 | `def_misses` (expected to rise) | 524 | 649 |
 
-The shipped timings are from two runs on a heavily loaded machine.
+The shipped ranges are across those runs. The slow ends are from the three on a heavily loaded machine.
+
+**What the gate cannot see.** These counts say nothing about the first known limit below: a stale answer there counts as
+`VAR_OK`, because the target is above the use and has the right name.
 
 **Every remaining row was read against the source:**
 - `binding-after-use-no-loop`, 15 rows, are right answers that the classifier cannot see. Each use sits in a braced
@@ -350,7 +366,7 @@ The shipped timings are from two runs on a heavily loaded machine.
 49 rows go silent. 33 of them were wrong before: a use's own `set`, a binding in the other branch or past the end of the
 loop, or a branch that returns. The other 16 were right: 9 `tsp::proc` uses (`bench/langbench/`), 5 array elements in
 `TclProDebug/lib/tcldebugger/tabnotebook.tcl` whose only answer was a binding the loop carries around (`docs/BACKLOG.md`,
-reaching-defs item 1), and 2 at the first parser limit below.
+the array-ness item under reaching-defs follow-ups), and 2 at the first parser limit below.
 
 **What moved in the symbol diff** (`symbol_names.py`, per repo, removed / added): tsp 470 / 0, tclrmq 419 / 0, prometheus-tcl
 70 / 0, speedtables 34 / 3, TclProDebug 24 / 1, turtles 4 / 0, piaware 0 / 11, piaware-gui 0 / 1. Removals are TclOO, `tsp::proc`,
@@ -368,6 +384,15 @@ definitions, plus the `ctable_client.tcl:372` row. The plan's Task 6 explains th
   in an arm list, which Tcl reads as pattern `error` and body `"..."`. Only braced bodies are walked.
 
 **Known limits that remain:**
+- **A use in a script inside `[...]` gets a stale binding. This is a remaining W4 wrong answer, on a common idiom,** and
+  the same on `main@26f8ab2`. `set y 0; if {[catch { set y 1; puts $y } err]} {}` answers `set y 0`, and tclsh prints 1.
+  `set rc [catch {...}]` and `set r [lmap ...]` behave the same (**reproduced**). Real case:
+  `speedtables/stapi/server/server.tcl:328-337`, where `$fp` answers lines 257 and 283 (`open $tclfile r` at 283), not the
+  `open $verfile w` just above it. A text scan found at most 24 such rows behind `[catch {`, an upper bound. The gate cannot
+  see them, since they count as `VAR_OK`. A fix needs the analyzer to walk bracketed script bodies, a change of its own.
+- Scripts that run in another frame, at proc level. `set x 1; uplevel 1 { puts $x }` answers the proc's `set`, and tclsh reads
+  the caller's. `after 100 { puts $x }` and `uplevel 1 {set x 1}; puts $x` behave the same. The analyzer treats these bodies
+  like any wrapper's.
 - A bare call in an unknown body resolves against the lexical namespace, though TclOO methods run in the object's
   namespace. `helper` in a method errors on 8.6.18 and 9.0.3 even when `::n::helper` exists, yet goto-def answers it. A wrapper
   cannot be told apart from a method, and silencing would lose every call in wrappers.

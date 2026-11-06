@@ -20,13 +20,10 @@ python3 -I $H/probe.py --binary /tmp/tcl-lsp --corpus /tmp/corpus --results $H/r
 python3 -I $H/probe.py --binary /tmp/tcl-lsp --corpus /tmp/corpus --results $H/results tsp turtles   # a subset
 ```
 
-Full run: about 3 minutes on `main@26f8ab2`, of which yajl-tcl is about 105 s, the
-slowdown described in research/08. After the position fix in v0.6.3, yajl-tcl takes 3 to
-4 s. The other nine repos took about 70 s on `main@26f8ab2`. The only full v0.6.3 runs, about
-155 s, were on a heavily loaded machine (load average above 20). Under that load the two
-binaries were close, with no consistent direction: TclProDebug 41.7 → 51.1 s, tsp
-24.6 → 20.8 s, turtles 1.6 → 1.0 s. So expect about 75 s on an idle machine; that figure is
-an estimate, not a measurement.
+Full run: about 3 minutes on `main@26f8ab2`, of which yajl-tcl is 105.5 s, the
+slowdown described in research/08. After the position fix in v0.6.3, a full run took about
+82 s, of which yajl-tcl is about 2 s. Under heavy load (load average above 20) full runs took
+about 155 s.
 
 ```bash
 python3 -I $H/compare.py $H/baseline/counts.json $H/results      # per-repo deltas; exit 1 on any
