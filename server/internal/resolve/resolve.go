@@ -91,7 +91,7 @@ func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []
 			var out []index.Location
 			for _, d := range defs {
 				if d.Origin != "" {
-					if locs := r.lookupScoped(d.Origin, file); len(locs) > 0 {
+					if locs := r.lookupSide(d.Origin, file, sideVariable); len(locs) > 0 {
 						out = append(out, locs...)
 						continue
 					}
@@ -120,7 +120,7 @@ func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []
 		return nil
 	}
 	if firstOrigin != "" {
-		if locs := r.lookupScoped(firstOrigin, file); len(locs) > 0 {
+		if locs := r.lookupSide(firstOrigin, file, sideVariable); len(locs) > 0 {
 			return locs
 		}
 	}
@@ -262,8 +262,9 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 			return locs
 		}
 	}
+	side := sideOfRef(ref.Ref.Kind)
 	for _, name := range r.candidates(ref) {
-		if locs := r.lookupScoped(name, file); len(locs) > 0 {
+		if locs := r.lookupSide(name, file, side); len(locs) > 0 {
 			return locs
 		}
 	}
@@ -413,15 +414,16 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	if name, scope, ok := r.localAt(file, src, offset); ok {
 		return r.localReferences(file, src, name, scope)
 	}
-	target := r.targetFQ(file, src, offset)
+	target, side := r.targetFQ(file, src, offset)
 	if target == "" {
 		return nil
 	}
 	// targetKind carries the target's DEFINITION kind for the protocol layer's
-	// use; it is the zero value (DefProc) when the target has no definition in
-	// the index (an undefined symbol). A reference site itself has no def-kind.
+	// use; it is the zero value (DefProc) when the target has no definition on its
+	// side in the index (an undefined symbol). A reference site itself has no
+	// def-kind.
 	var targetKind tcl.DefKind
-	if defs := r.lookupScoped(target, file); len(defs) > 0 {
+	if defs := r.lookupSide(target, file, side); len(defs) > 0 {
 		targetKind = defs[0].Kind
 	}
 
@@ -456,7 +458,7 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	parts := par.Map(work, func(w refScan) []index.Location {
 		var out []index.Location
 		for i := range w.refs {
-			if r.refFQ(&w.refs[i], w.file) == target {
+			if sideOfRef(w.refs[i].Ref.Kind) == side && r.refFQ(&w.refs[i], w.file) == target {
 				out = append(out, index.Location{
 					File: w.file, Name: target, Kind: targetKind,
 					NameStart: w.refs[i].Ref.Start, NameEnd: w.refs[i].Ref.End,
@@ -511,11 +513,11 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 		}
 		return out
 	}
-	target := r.targetFQ(file, src, offset)
+	target, side := r.targetFQ(file, src, offset)
 	if target == "" {
 		return nil
 	}
-	return r.lookupScoped(target, file)
+	return r.lookupSide(target, file, side)
 }
 
 // CommandRefKind returns the definition kind a command reference resolves to (by
@@ -530,7 +532,7 @@ func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind
 		return 0, false
 	}
 	for _, name := range r.commandCandidates(ref.Ref.Name, ref.Namespace) {
-		if locs := r.lookupScoped(name, file); len(locs) > 0 {
+		if locs := r.lookupSide(name, file, sideCommand); len(locs) > 0 {
 			return locs[0].Kind, true
 		}
 	}
@@ -546,12 +548,12 @@ func (r *Resolver) FileHighlights(file, src string, offset int) []index.Location
 	if name, scope, ok := r.localAt(file, src, offset); ok {
 		return r.localReferences(file, src, name, scope) // already in-file only
 	}
-	target := r.targetFQ(file, src, offset)
+	target, side := r.targetFQ(file, src, offset)
 	if target == "" {
 		return nil
 	}
 	var targetKind tcl.DefKind
-	if defs := r.lookupScoped(target, file); len(defs) > 0 {
+	if defs := r.lookupSide(target, file, side); len(defs) > 0 {
 		targetKind = defs[0].Kind
 	}
 
@@ -559,34 +561,75 @@ func (r *Resolver) FileHighlights(file, src string, offset int) []index.Location
 	// In-file reference sites (command / qualified-variable uses).
 	refs := source.Refs(file, src)
 	for i := range refs {
-		if r.refFQ(&refs[i], file) == target {
+		if sideOfRef(refs[i].Ref.Kind) == side && r.refFQ(&refs[i], file) == target {
 			out = append(out, index.Location{File: file, Name: target, Kind: targetKind, NameStart: refs[i].Ref.Start, NameEnd: refs[i].Ref.End})
 		}
 	}
 	// In-file declaration site(s), from live source so an unsaved edit is honored.
 	for _, d := range source.Defs(file, src) {
-		if d.Name == target && !isLocalBinding(d.Kind) {
+		if d.Name == target && !isLocalBinding(d.Kind) && sideOfDef(d.Kind) == side {
 			out = append(out, index.Location{File: file, Name: target, Kind: d.Kind, NameStart: d.NameStart, NameEnd: d.NameEnd})
 		}
 	}
 	return out
 }
 
-// targetFQ returns the fully-qualified name of the symbol at offset: a definition
-// name-range it falls within, else the reference there resolved to its FQ name.
-// file selects the document (so .rvt is extracted) and scopes page-local lookups.
-// Returns "" if there is no resolvable symbol.
-func (r *Resolver) targetFQ(file, src string, offset int) string {
+// targetFQ returns the fully-qualified name of the symbol at offset and the side
+// of the name table it lives on: a definition name-range it falls within, else the
+// reference there resolved to its FQ name. file selects the document (so .rvt is
+// extracted) and scopes page-local lookups. Returns "" if there is no resolvable
+// symbol.
+func (r *Resolver) targetFQ(file, src string, offset int) (string, nameSide) {
 	for _, d := range source.Defs(file, src) {
 		if (d.Kind == tcl.DefProc || d.Kind == tcl.DefNamespaceVar || d.Kind == tcl.DefClass) &&
 			offset >= d.NameStart && offset < d.NameEnd {
-			return d.Name
+			return d.Name, sideOfDef(d.Kind)
 		}
 	}
 	if ref := refAt(file, src, offset); ref != nil {
-		return r.refFQ(ref, file)
+		return r.refFQ(ref, file), sideOfRef(ref.Ref.Kind)
 	}
-	return ""
+	return "", sideCommand
+}
+
+// nameSide says which of TCL's two separate name tables a symbol belongs to. A
+// proc and a variable can share a fully-qualified name without being related, so a
+// call never binds to a variable and a variable use never binds to a proc.
+type nameSide int
+
+const (
+	sideCommand nameSide = iota
+	sideVariable
+)
+
+// sideOfRef returns the name table a reference looks its name up in.
+func sideOfRef(k tcl.RefKind) nameSide {
+	if k == tcl.RefVariable {
+		return sideVariable
+	}
+	return sideCommand
+}
+
+// sideOfDef returns the name table a definition adds its name to. A class is on
+// the command side because its name is invoked as a command.
+func sideOfDef(k tcl.DefKind) nameSide {
+	switch k {
+	case tcl.DefNamespaceVar, tcl.DefIvar, tcl.DefLocal, tcl.DefGlobalLink:
+		return sideVariable
+	}
+	return sideCommand
+}
+
+// lookupSide returns the definition sites of a fully-qualified name on one side of
+// the name table, with lookupScoped's page-local scoping.
+func (r *Resolver) lookupSide(name, file string, side nameSide) []index.Location {
+	var kept []index.Location
+	for _, l := range r.lookupScoped(name, file) {
+		if sideOfDef(l.Kind) == side {
+			kept = append(kept, l)
+		}
+	}
+	return kept
 }
 
 // lookupScoped returns the definition sites of a fully-qualified name. A
@@ -613,12 +656,14 @@ func (r *Resolver) lookupScoped(name, file string) []index.Location {
 
 // refFQ resolves a reference to the fully-qualified name it binds to, using the
 // same first-match precedence as goto-definition. file is the document the ref
-// lives in (used for page-local scoping in lookups). If no candidate is defined,
-// the primary candidate is used so undefined references still group together.
+// lives in (used for page-local scoping in lookups). Only definitions on the ref's
+// own side count. If no candidate is defined, the primary candidate is used so
+// undefined references still group together.
 func (r *Resolver) refFQ(ref *tcl.ContextRef, file string) string {
 	cands := r.candidates(ref)
+	side := sideOfRef(ref.Ref.Kind)
 	for _, name := range cands {
-		if len(r.lookupScoped(name, file)) > 0 {
+		if len(r.lookupSide(name, file, side)) > 0 {
 			return name
 		}
 	}
