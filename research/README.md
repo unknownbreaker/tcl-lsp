@@ -32,6 +32,8 @@ a research-first approach.)
 | 04 | [`source` / `package` / multi-file resolution](04-source-multifile.md) | ✅ verified on 8.6 + 9.0 |
 | 05 | [RVT (Rivet template) scope implications](05-rvt-scope.md) | ✅ scope sim-verified + Rivet specifics resolved from docs (only FlightAware-local items pending) |
 | 06 | [Synthesis → resolver model, architecture, v2 scope](06-synthesis.md) | ✅ complete (bridge to planning) |
+| 07 | [Real-world TCL/RVT idiom survey & Itcl gap report](07-realworld-itcl-survey.md) | ✅ gaps fixed; remaining gaps listed |
+| 08 | [FlightAware corpus probe: wrong answers, slowdown, misses](08-flightaware-corpus-probe.md) | ✅ findings + fix design; harness in `experiments/08_corpus_probe/` |
 
 **Research status:** core mapping complete and empirically grounded. Remaining
 unknowns are FlightAware-local (Rivet version, a real `.rvt`, house conventions)

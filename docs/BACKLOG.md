@@ -66,3 +66,13 @@ The OO (`$obj method`) type-tracking this engine was built to enable has since
 **shipped** — Itcl classes, methods, ivars, inheritance, and the `$obj method`
 receiver call all resolve (see the README's "Itcl OO support"). **TclOO
 (`oo::class`)** remains the deferred OO dialect.
+
+## Corpus-probe misses (relative qualified commands, `$var` in expressions, ...)
+
+**Status:** deferred, ranked. **Area:** resolver, reference walker, index.
+
+The FlightAware corpus probe found ten kinds of missing answers, ranked in
+`research/08-flightaware-corpus-probe.md` ("Misses"). None are in the current fix
+plan (`docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`), which
+covers wrong answers and the position slowdown only. Rows there are harness counts
+and upper bounds; confirm a root cause by reproducing it before picking one up.
