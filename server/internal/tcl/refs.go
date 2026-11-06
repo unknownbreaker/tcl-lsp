@@ -222,10 +222,28 @@ func substRefs(inner string, innerBase int) []Reference {
 		// bodies vs. expr/substituted words), so there is no double-counting. The
 		// neutral namespace frame only locates the body spans; the resulting
 		// context-free References are tagged by the enclosing command at the walkAll
-		// call site, as every other substitution ref already is.
+		// call site, as every other substitution ref already is. That tag is wrong for
+		// the variables of a proc or class body, which belong to a frame of their own,
+		// so those are dropped. An unknown command's body keeps them: inside a proc, the
+		// tag is right for `$y` in `set r [with_lock { puts $y }]`.
 		for _, b := range childBodies(c, innerBase, "::", FrameNamespace, 0, "") {
-			refs = append(refs, substRefs(b.Inner, b.Base)...)
+			bodyRefs := substRefs(b.Inner, b.Base)
+			if b.Frame == FrameProc || b.Frame == FrameClass {
+				bodyRefs = commandRefsOnly(bodyRefs)
+			}
+			refs = append(refs, bodyRefs...)
 		}
 	}
 	return refs
+}
+
+// commandRefsOnly returns refs without its variable references.
+func commandRefsOnly(refs []Reference) []Reference {
+	var commands []Reference
+	for _, r := range refs {
+		if r.Kind != RefVariable {
+			commands = append(commands, r)
+		}
+	}
+	return commands
 }

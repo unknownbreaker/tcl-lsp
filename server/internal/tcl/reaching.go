@@ -50,9 +50,10 @@ func (a *analyzer) skippedAboveUse() []Definition {
 }
 
 // enclosingProcOrScope returns the interior text and absolute base of the innermost
-// scope (proc or namespace) containing useOff, plus the proc's args Word and base
-// for interpreting it (empty/zero for namespace scopes). Also returns the scope's
-// namespace and frame kind (FrameProc or FrameNamespace).
+// scope (proc, namespace or unknown command's body) containing useOff, plus the
+// proc's args Word and base for interpreting it (empty/zero for the others). Also
+// returns the scope's namespace and frame kind (FrameProc, FrameNamespace or
+// FrameOpaque).
 func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int) (inner string, innerBase int, argsWord Word, argsBase int, scopeNS string, frameKind FrameKind, found bool) {
 	for _, c := range cmds {
 		for _, b := range childBodies(c, base, ns, frame, scope, "") {
@@ -64,14 +65,15 @@ func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, 
 				return in2, base2, aw2, ab2, ns2, fk2, true
 			}
 			// This body is the innermost one containing useOff. Accept it if it's
-			// a scope-introducing frame (proc or namespace).
+			// a scope-introducing frame (proc or namespace), or a body of unknown frame,
+			// so `$o m` stays typed inside a wrapper.
 			if b.Frame == FrameProc && b.Scope == b.Base {
 				// Recover the args word from the proc command.
 				aw, ab := procArgsWord(c, base, frame)
 				return b.Inner, b.Base, aw, ab, b.NS, FrameProc, true
 			}
-			if b.Frame == FrameNamespace && b.Scope == 0 {
-				return b.Inner, b.Base, Word{}, base, b.NS, FrameNamespace, true
+			if (b.Frame == FrameNamespace || b.Frame == FrameOpaque) && b.Scope == 0 {
+				return b.Inner, b.Base, Word{}, base, b.NS, b.Frame, true
 			}
 		}
 	}
@@ -601,7 +603,8 @@ func (a *analyzer) recordUses(c Command, base int, in reachSet, wanted func(Refe
 // once dropped here while defs.go carried it, producing a wrong goto-def jump
 // (see variable_link_reaching_test.go in internal/resolve) -- any rule change
 // in one file must be mirrored in the other, and pinned by a resolve-level test
-// exercising BOTH paths.
+// exercising BOTH paths. One difference is on purpose: at FrameOpaque emitDefs binds
+// no bare name, but this still does, because that is how `$o m` is typed there.
 func localBindings(c Command, base int, ns string, frame FrameKind) []Definition {
 	var out []Definition
 	w := c.Words

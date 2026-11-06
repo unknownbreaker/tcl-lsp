@@ -98,11 +98,31 @@ func methodArgs(w []Word, frame FrameKind) (Word, bool) {
 	return Word{}, false
 }
 
+// enclosingFrameHeads are the heads whose scripts run in the enclosing frame.
+// `eval` counts only in its one-script form: see runsInEnclosingFrame. `uplevel` is
+// absent because its script runs in another frame.
+var enclosingFrameHeads = map[string]bool{
+	"if": true, "while": true, "for": true, "foreach": true, "lmap": true, "dict": true,
+	"catch": true, "try": true, "switch": true, "eval": true, "time": true, "timerate": true,
+}
+
+// runsInEnclosingFrame reports whether the scripts of a command with these words run
+// in the frame the command sits in. With more than one argument, `eval` concatenates
+// them and the resulting head decides what happens to the script.
+func runsInEnclosingFrame(w []Word) bool {
+	if isCmd(w, "eval") && len(w) != 2 {
+		return false
+	}
+	return len(w) > 0 && w[0].Kind == WordBare && enclosingFrameHeads[w[0].Text]
+}
+
 // childBodies returns the script bodies of c that walkers should recurse into,
 // each tagged with the scope it runs in. `namespace eval` and `proc` introduce a
-// new scope; control-flow and custom-command script bodies run in the enclosing
-// namespace and frame. class is the fully-qualified itcl class name of the
-// enclosing class body, or "" when not inside a class.
+// new scope. Control-flow bodies run in the enclosing namespace and frame. A
+// custom command's body keeps the namespace, but at namespace frame its frame is
+// unknown, so it is FrameOpaque. Inside a proc or class the frame stays. class is
+// the fully-qualified itcl class name of the enclosing class body, or "" when not
+// inside a class.
 func childBodies(c Command, base int, ns string, frame FrameKind, scope int, class string) []bodyScope {
 	w := c.Words
 	// Inside a class body, a member may carry a leading access modifier
@@ -171,12 +191,18 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 			inner, innerBase := bracedInner(body, base)
 			return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(name.Text, ns), Frame: FrameProc, Scope: innerBase, Class: class}}
 		}
-		// Control-flow (if/while/for/foreach/catch/try) and custom-command script
-		// bodies run in the enclosing namespace and frame -- no new scope.
+		// Control-flow bodies (if/while/for/foreach/catch/try/...) run in the enclosing
+		// namespace and frame. A custom command's trailing brace is walked for calls,
+		// but at namespace frame nothing says which frame it runs in: it may be a method
+		// or a proc-like scope, with locals of its own. No new scope either way.
+		bodyFrame := frame
+		if frame == FrameNamespace && !runsInEnclosingFrame(w) {
+			bodyFrame = FrameOpaque
+		}
 		var out []bodyScope
 		for _, body := range scriptBodies(w) {
 			inner, innerBase := bracedInner(body, base)
-			out = append(out, bodyScope{Inner: inner, Base: innerBase, NS: ns, Frame: frame, Scope: scope, Class: class})
+			out = append(out, bodyScope{Inner: inner, Base: innerBase, NS: ns, Frame: bodyFrame, Scope: scope, Class: class})
 		}
 		return out
 	}
@@ -227,10 +253,10 @@ var listOrDataHeads = map[string]bool{
 	"array": true, "append": true, "return": true, "expr": true, "switch": true,
 }
 
-// scriptBodies returns the braced script-argument words of a control-flow
-// command -- the bodies that execute in the enclosing scope. Expression
-// arguments (a while/if condition, a for test) are deliberately excluded so
-// their contents are not misread as commands.
+// scriptBodies returns the braced script-argument words of a command. Expression
+// arguments (a while/if condition, a for test) are deliberately excluded so their
+// contents are not misread as commands. It says nothing about the frame a script
+// runs in: childBodies decides that.
 func scriptBodies(w []Word) []Word {
 	if len(w) == 0 || w[0].Kind != WordBare {
 		return nil
@@ -271,7 +297,8 @@ func scriptBodies(w []Word) []Word {
 	default:
 		// User-defined or unrecognised commands: by strong Tcl convention a
 		// trailing braced argument is a script body (custom control structures,
-		// test harnesses, oo definitions). Recurse it so calls inside are found.
+		// test harnesses, oo definitions). It is walked for calls, but its frame is
+		// unknown, so childBodies does not treat its bare names as this frame's.
 		// Builtins whose braced argument is data or an expression are excluded so
 		// their contents are not misread as command calls.
 		if !dataBraceCommands[w[0].Text] && braced(last) {

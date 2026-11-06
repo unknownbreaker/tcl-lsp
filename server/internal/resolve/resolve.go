@@ -379,7 +379,8 @@ func dedup(in []string) []string {
 // variableCandidates: a qualified variable resolves directly; a bare variable at
 // namespace-eval top level is the current namespace's own variable. A bare
 // variable inside a proc body is local-only and not resolvable via the workspace
-// index (frame-local resolution is a later plan) — returns nil.
+// index (frame-local resolution is a later plan), and one in an unknown command's
+// body has no known frame — returns nil.
 func variableCandidates(name, ns string, frame tcl.FrameKind) []string {
 	if isQualified(name) {
 		return []string{qualify(name, ns)}

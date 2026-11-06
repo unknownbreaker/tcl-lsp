@@ -106,7 +106,9 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			Class:     class,
 		})
 	}
-	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) {
+	// In a body of unknown frame, a bare `variable NAME` may be a TclOO declaration
+	// rather than a namespace variable; a qualified name is the same in every frame.
+	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) && (frame != FrameOpaque || strings.Contains(w[1].Text, "::")) {
 		*out = append(*out, Definition{
 			Kind:      DefNamespaceVar,
 			Name:      qualifyName(w[1].Text, ns),
@@ -232,7 +234,8 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 // any frame -- it is a namespace-variable definition: `set ::x 1` inside a proc
 // writes the global directly in TCL, so indexing it as a proc-local both hid
 // the workspace definition and blocked cross-file `$::x` resolution. A bare
-// name at proc frame stays a proc-local binding.
+// name at proc frame stays a proc-local binding. A bare name in a body of unknown
+// frame defines nothing: it could be either.
 func emitVarAssign(name string, s, e, base int, ns string, frame FrameKind, scope int, class string, cmdStart, cmdEnd int, out *[]Definition) {
 	if frame == FrameNamespace || strings.Contains(name, "::") {
 		*out = append(*out, Definition{
@@ -246,6 +249,9 @@ func emitVarAssign(name string, s, e, base int, ns string, frame FrameKind, scop
 			Scope:     scope,
 			Class:     class,
 		})
+		return
+	}
+	if frame == FrameOpaque {
 		return
 	}
 	*out = append(*out, Definition{
