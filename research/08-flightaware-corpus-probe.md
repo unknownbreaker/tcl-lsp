@@ -384,12 +384,9 @@ definitions, plus the `ctable_client.tcl:372` row. The plan's Task 6 explains th
   in an arm list, which Tcl reads as pattern `error` and body `"..."`. Only braced bodies are walked.
 
 **Known limits that remain:**
-- **A use in a script inside `[...]` gets a stale binding. This is a remaining W4 wrong answer, on a common idiom,** and
-  the same on `main@26f8ab2`. `set y 0; if {[catch { set y 1; puts $y } err]} {}` answers `set y 0`, and tclsh prints 1.
-  `set rc [catch {...}]` and `set r [lmap ...]` behave the same (**reproduced**). Real case:
-  `speedtables/stapi/server/server.tcl:328-337`, where `$fp` answers lines 257 and 283 (`open $tclfile r` at 283), not the
-  `open $verfile w` just above it. A text scan found at most 24 such rows behind `[catch {`, an upper bound. The gate cannot
-  see them, since they count as `VAR_OK`. A fix needs the analyzer to walk bracketed script bodies, a change of its own.
+- ~~A use in a script inside `[...]` gets a stale binding.~~ **Fixed in v0.6.4:** the analyzer runs each `[script]` in
+  this frame, in substitution order, and a bracket after `&&`, `||` or `?` in an expression counts as one that may not
+  run. The real case, `speedtables/stapi/server/server.tcl:328-337`, now answers the `open` just above each `$fp`.
 - Scripts that run in another frame, at proc level. `set x 1; uplevel 1 { puts $x }` answers the proc's `set`, and tclsh reads
   the caller's. `after 100 { puts $x }` and `uplevel 1 {set x 1}; puts $x` behave the same. The analyzer treats these bodies
   like any wrapper's. One form is new in v0.6.3: `set o [::A #auto]; uplevel 1 { $o m }` now jumps to `A::m`, where

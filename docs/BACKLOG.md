@@ -44,15 +44,9 @@ Recommend leaving it; document the limitation (done, see `editors/README.md`).
 
 **Status:** deferred. **Area:** `server/internal/tcl/reaching.go`, `varref.go`, `resolve.go`.
 
-Known limitations of the reaching-definitions feature (proc-local goto-def). The first is
-a wrong answer on a common idiom, so it comes first.
+Known limitations of the reaching-definitions feature (proc-local goto-def).
 
-1. **A use in a script inside `[...]` gets a stale binding.** `set y 0; if {[catch { set y 1; puts $y } err]} {}`
-   answers `set y 0`, and tclsh prints 1. `set rc [catch {...}]` and `set r [lmap ...]` behave the same.
-   Real case: `speedtables/stapi/server/server.tcl:328-337`. A text scan found at most 24 such rows
-   behind `[catch {`. They count as `VAR_OK`, so the corpus gate cannot see them. It needs the analyzer to
-   walk bracketed script bodies. See `research/08-flightaware-corpus-probe.md`, "Known limits that remain".
-2. **Array-ness detection is duplicated/low-layer.** `resolve.go` has its own
+1. **Array-ness detection is duplicated/low-layer.** `resolve.go` has its own
    `isArrayVarAt`/`isNameByte` byte-scan to detect `$arr(key)` uses (so they
    bypass reaching, which doesn't track subscripts). This re-derives info the
    lexer discarded: `parseVarRef` (`varref.go`) drops the `(subscript)` and emits
@@ -61,7 +55,7 @@ a wrong answer on a common idiom, so it comes first.
    duplicated `isNameByte`. This is layering debt: an element use answers with the
    earliest binding at or before it, so a use whose only binding is below it, even
    one a loop carries around, stays silent.
-3. **`try ... on e {varList} {body}` handler var-list names** aren't emitted as
+2. **`try ... on e {varList} {body}` handler var-list names** aren't emitted as
    local bindings by `localBindings` or `emitDefs`, so `$e` there goes silent unless
    an earlier binding of the name exists, which is then the answer.
 

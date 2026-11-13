@@ -25,29 +25,31 @@ type Reference struct {
 // [command substitution] spans are included via substRefs.
 func CommandRefs(c Command) []Reference {
 	var refs []Reference
-	// Braced words this command evaluates as expressions (expr args, if/while/for
-	// conditions). Tcl evaluates [command substitutions] inside them, so they are
-	// scanned for embedded calls -- keyed by start offset, which is unique per word.
-	exprWord := map[int]bool{}
-	for _, e := range exprBodies(c.Words) {
-		exprWord[e.Start] = true
+	if len(c.Words) > 0 && isLiteralName(c.Words[0]) {
+		w := c.Words[0]
+		refs = append(refs, Reference{Kind: RefCommand, Name: w.Text, Start: w.Start, End: w.End})
 	}
-	for idx, w := range c.Words {
-		if idx == 0 && isLiteralName(w) {
-			refs = append(refs, Reference{Kind: RefCommand, Name: w.Text, Start: w.Start, End: w.End})
-			continue
-		}
-		if w.Kind == WordBraced && exprWord[w.Start] {
-			// Scan only the bracket spans so embedded calls are found while bare
-			// operands and $vars stay non-references (braces suppress those).
-			inner, innerBase := bracedInner(w, 0)
-			refs = append(refs, exprBracketRefs(inner, innerBase)...)
-			continue
-		}
-		refs = append(refs, wordRefs(w)...)
+	// Braced expression words (expr args, if/while/for conditions) yield only the
+	// references inside their [command substitutions]; see subst.go.
+	exprWords := exprWordStarts(c)
+	onVar, onScript := refCollector(&refs)
+	for idx := range c.Words {
+		walkWordSubst(c, exprWords, idx, 0, false, onVar, onScript)
 	}
 	refs = append(refs, nameArgRefs(c)...)
 	return refs
+}
+
+// refCollector returns walkSubst callbacks that append a word's references to
+// refs: its $vars, and the references inside each [command substitution].
+func refCollector(refs *[]Reference) (func(VarRef), scriptFunc) {
+	onVar := func(r VarRef) {
+		*refs = append(*refs, Reference{Kind: RefVariable, Name: r.Name, Start: r.Start, End: r.End})
+	}
+	onScript := func(inner string, innerBase int, _ bool) {
+		*refs = append(*refs, substRefs(inner, innerBase)...)
+	}
+	return onVar, onScript
 }
 
 // arrayNameSubcmds are the `array` subcommands whose first argument is defined
@@ -116,31 +118,6 @@ func nameArgRefs(c Command) []Reference {
 	return out
 }
 
-// exprBracketRefs scans an expr's braced argument for [command substitution]
-// spans only, recursing into each via substRefs. Unlike scanRefs it ignores
-// bare $vars and operands, which are not substituted inside an expr brace.
-func exprBracketRefs(text string, base int) []Reference {
-	var refs []Reference
-	i := 0
-	for i < len(text) {
-		switch c := text[i]; {
-		case c == '\\' && i+1 < len(text):
-			i += 2
-		case c == '[':
-			end := skipBracketSpan(text, i) // index just past the matching ']'
-			innerEnd := end
-			if end > i+1 && text[end-1] == ']' {
-				innerEnd = end - 1
-			}
-			refs = append(refs, substRefs(text[i+1:innerEnd], base+i+1)...)
-			i = end
-		default:
-			i++
-		}
-	}
-	return refs
-}
-
 // isLiteralName reports whether a word is a static command name: a bareword with
 // no substitution ($ or [). Dynamic heads ($cmd, [get]) are not command names.
 func isLiteralName(w Word) bool {
@@ -171,32 +148,8 @@ func wordRefs(w Word) []Reference {
 // names found inside those spans.
 func scanRefs(text string, base int) []Reference {
 	var refs []Reference
-	i := 0
-	for i < len(text) {
-		c := text[i]
-		switch {
-		case c == '\\' && i+1 < len(text):
-			i += 2
-		case c == '$':
-			ref, next, ok := parseVarRef(text, i, base)
-			if ok {
-				refs = append(refs, Reference{Kind: RefVariable, Name: ref.Name, Start: ref.Start, End: ref.End})
-			}
-			i = next
-		case c == '[':
-			end := skipBracketSpan(text, i) // index just past the matching ']'
-			innerEnd := end
-			// Strip the closing ']' if present; on unterminated input
-			// skipBracketSpan returns len(text) and there is no ']' to remove.
-			if end > i+1 && text[end-1] == ']' {
-				innerEnd = end - 1
-			}
-			refs = append(refs, substRefs(text[i+1:innerEnd], base+i+1)...)
-			i = end
-		default:
-			i++
-		}
-	}
+	onVar, onScript := refCollector(&refs)
+	walkSubst(text, base, false, false, onVar, onScript)
 	return refs
 }
 

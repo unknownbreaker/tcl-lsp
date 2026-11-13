@@ -38,7 +38,7 @@ func ClassOf(src string, receiverUseOff int) []string {
 	// child-body commands) to find `set NAME VALUE` commands whose name token
 	// matches one of the wanted reaching-def ranges.  This mirrors the recursion
 	// pattern used by collectBindings in reaching.go so that bindings inside
-	// if/foreach/while bodies are discovered at any nesting depth.
+	// if/foreach/while bodies and [scripts] are discovered at any nesting depth.
 	var walkCmds func(seq []Command, base int)
 	walkCmds = func(seq []Command, base int) {
 		for _, c := range seq {
@@ -54,9 +54,16 @@ func ClassOf(src string, receiverUseOff int) []string {
 					}
 				}
 			}
-			// Recurse into child script bodies (if/foreach/while/etc.).
+			// Recurse into child script bodies (if/foreach/while/etc.) and into the
+			// [scripts] in the command's words, where the analyzer finds bindings too.
 			for _, b := range childBodies(c, base, "::", FrameProc, base, "") {
 				walkCmds(Parse(b.Inner), b.Base)
+			}
+			exprWords := exprWordStarts(c)
+			for idx := range c.Words {
+				walkWordSubst(c, exprWords, idx, base, false, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
+					walkCmds(Parse(inner), innerBase)
+				})
 			}
 		}
 	}

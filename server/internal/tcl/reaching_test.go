@@ -808,3 +808,12 @@ func TestClassOfFollowsLoopBackEdgeAndTryHandlers(t *testing.T) {
 		})
 	}
 }
+
+func TestClassOfSeesAnInstantiationInABracket(t *testing.T) {
+	src := "proc f {} {\n  set o [::B #auto]\n  set rc [catch { set o [::A #auto] }]\n  $o m\n}"
+	got := ClassOf(src, strings.LastIndex(src, "$o")+1)
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"::A", "::B"}) {
+		t.Errorf("ClassOf = %v, want [::A ::B]", got)
+	}
+}
