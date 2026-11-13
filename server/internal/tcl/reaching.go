@@ -199,12 +199,6 @@ func loopTest(c Command) *Word {
 	return &tests[0]
 }
 
-// inWord reports whether a reference from a command's own words lies inside word.
-// A nil word holds nothing.
-func inWord(r Reference, word *Word) bool {
-	return word != nil && r.Start >= word.Start && r.End <= word.End
-}
-
 // runScript threads in through an optional braced script. A nil script does
 // nothing and is live. A dead path contributes nothing to a later join.
 func (a *analyzer) runScript(script *Word, base int, in reachSet) (reachSet, bool) {
@@ -238,11 +232,14 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	if !live {
 		return cur, false
 	}
-	for iter := 0; iter < maxLoopIters; iter++ {
-		if test != nil {
-			a.recordUses(c, base, cur, func(r Reference) bool { return inWord(r, test) })
+	afterTest := func(header reachSet) reachSet {
+		if test == nil {
+			return header
 		}
-		passEntry := cur.clone()
+		return a.substituteWord(c, wordIndex(c, *test), base, header)
+	}
+	for iter := 0; iter < maxLoopIters; iter++ {
+		passEntry := afterTest(cur).clone()
 		for _, d := range loopVars {
 			passEntry[d.Name] = []Definition{d}
 		}
@@ -255,9 +252,9 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 		cur = merged
 	}
 	// cur is the fixpoint set at the loop header: it subsumes the entry set and
-	// every back-edge contribution, so it covers every path that may reach
-	// post-loop. acc.brk adds paths that exited via `break`.
-	return joinAll([]reachSet{cur, acc.brk}), true
+	// every back-edge contribution, so after the test it covers every path that
+	// may reach post-loop. acc.brk adds paths that exited via `break`.
+	return joinAll([]reachSet{afterTest(cur), acc.brk}), true
 }
 
 // reachEqual reports whether two reachSets contain the same bindings (by
@@ -421,6 +418,7 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 // frame.
 func (a *analyzer) collectBindings(cmds []Command, base int, into reachSet, follow func(Command) bool) {
 	for _, c := range cmds {
+		a.collectSubstBindings(c, base, into, follow)
 		for _, d := range localBindings(c, base, a.ns, a.frame) {
 			into[d.Name] = appendDedup(into[d.Name], d)
 		}
@@ -469,15 +467,17 @@ func appendDedup(list []Definition, d Definition) []Definition {
 	return append(list, d)
 }
 
-// command applies one command: record any variable use at useOff against the
-// incoming set, then apply this command's bindings (kill prior, gen new).
-// Returns (out set, live). live is false for non-local exits (return/break/continue).
+// command applies one command: thread the set through its substitutions, recording
+// any variable use at useOff, then apply this command's bindings (kill prior, gen
+// new). Returns (out set, live). live is false for non-local exits
+// (return/break/continue).
 func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
-	test := loopTest(c)
-	a.recordUses(c, base, in, func(r Reference) bool { return !inWord(r, test) })
-	switch {
-	case isCmd(c.Words, "if"):
+	if isCmd(c.Words, "if") {
 		return a.analyzeIf(c, base, in)
+	}
+	test := loopTest(c)
+	in = a.substitute(c, base, in, func(w Word) bool { return test != nil && w.Start == test.Start })
+	switch {
 	case conservativeHead(c):
 		return a.analyzeConservative(c, base, in)
 	case loopHead(c):
@@ -523,22 +523,36 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 }
 
 // analyzeIf threads the reaching set through each branch body of an if command
-// and joins only the live-exiting branches. When there is no else clause, the
-// fall-through (no branch taken) path is always live and added to the join.
-// Returns (joined set, anyLive): anyLive is true when at least one path is live.
+// and joins only the live-exiting branches. Every unbraced word is substituted
+// before the if runs. A braced condition is evaluated only when no earlier branch
+// was taken, so a body sees the conditions up to its own, and else sees them all.
+// When there is no else clause, the fall-through (no branch taken) path is always
+// live and added to the join. Returns (joined set, anyLive): anyLive is true when
+// at least one path is live.
 func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) {
+	cur := a.substitute(c, base, in, func(w Word) bool { return isExprWord(c, w) })
 	var liveOuts []reachSet
 	anyLive := false
-	for _, b := range ifBodies(c.Words) {
-		inner, ibase := bracedInner(b, base)
-		out, live := a.seq(Parse(inner), ibase, in.clone())
+	w := c.Words
+	for i := 1; i < len(w); i++ {
+		if prev := w[i-1]; prev.Kind == WordBare && (prev.Text == "if" || prev.Text == "elseif") {
+			if isExprWord(c, w[i]) {
+				cur = a.substituteWord(c, i, base, cur)
+			}
+			continue
+		}
+		if w[i].Kind != WordBraced {
+			continue // then, else, or an unbraced body
+		}
+		inner, ibase := bracedInner(w[i], base)
+		out, live := a.seq(Parse(inner), ibase, cur.clone())
 		if live {
 			liveOuts = append(liveOuts, out)
 			anyLive = true
 		}
 	}
 	if !hasElse(c.Words) {
-		liveOuts = append(liveOuts, in) // no branch taken: fall-through path
+		liveOuts = append(liveOuts, cur) // no branch taken: fall-through path
 		anyLive = true
 	}
 	return joinAll(liveOuts), anyLive
@@ -595,22 +609,6 @@ func (a *analyzer) recordAnswer(name string, defs []Definition) {
 	a.useName = name
 	for _, d := range defs {
 		a.answer = appendDedup(a.answer, d)
-	}
-}
-
-// recordUses records the reaching set for the variable used at useOff (a
-// $-substituted RefVariable in this command's own words), when wanted accepts its
-// reference.
-func (a *analyzer) recordUses(c Command, base int, in reachSet, wanted func(Reference) bool) {
-	for _, r := range CommandRefs(c) {
-		if r.Kind != RefVariable || !wanted(r) {
-			continue
-		}
-		s, e := r.Start+base, r.End+base
-		if a.useOff >= s && a.useOff < e {
-			a.recordAnswer(r.Name, in[r.Name])
-			return
-		}
 	}
 }
 
