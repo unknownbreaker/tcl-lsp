@@ -1,3 +1,9 @@
+---
+paths:
+  - "lua/**"
+  - "tests/lua/**"
+---
+
 # Lua/Neovim Conventions
 
 ## Module Pattern
@@ -16,9 +22,10 @@ return M
 
 ## Plugin Entry
 
-- `init.lua` creates user commands and autocommands
-- `config.lua` handles all configuration with defaults
-- `server.lua` manages LSP server lifecycle
+- `init.lua`: `setup(opts)`, keymaps, folding, LSP start
+- `download.lua`: fetch and SHA-256-verify the prebuilt server
+- `build.lua`: source-build fallback
+- `version.lua`: the pinned release tag, shared with the Vim client
 
 ## Testing with Plenary
 

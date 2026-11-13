@@ -1,109 +1,82 @@
 # CLAUDE.md
 
-Guidance for Claude Code when working in this repository.
+tcl-lsp: a Language Server for TCL/RVT. The Go server (`server/`, stdio JSON-RPC)
+is editor-agnostic. It ships with a Neovim client (`lua/tcl-lsp/`) and a classic-Vim
+client (`autoload/tcl_lsp.vim`). This repo is public, so tracked files, issues and
+PRs must never name internal FlightAware code.
 
-## Project Overview
+`main` holds v2, a deliberate restart. v1 grew too broad and its performance
+regressions became intractable. It lives on the `v1` branch and the `archive-v1`
+tag; pull back any path with `git checkout v1 -- <path>`.
 
-tcl-lsp is a Language Server Protocol implementation for TCL/RVT, integrated
-with Neovim and classic Vim. (The repo was historically named `tcl-lsp.nvim`;
-it now ships clients for both editors — the Go server is editor-agnostic.)
+## The rule: certain or silent
 
-**This is a deliberate restart (v2).** A previous implementation (313 commits) grew
-too broad — many features, accumulating performance regressions that became
-intractable. That work is preserved on the `v1` branch (its tip) and at the
-`archive-v1` tag (an earlier checkpoint in the same history); the `main` branch
-now holds v2. Recover any piece with `git checkout v1 -- <path>`.
-
-## Current Phase: navigation + structure features, parallelized, prebuilt-distributed
-
-The server implements a coherent, deliberately-bounded feature set, all obeying one
-rule: **report only what can be derived with certainty from structure and the
-workspace index, and stay silent otherwise — never assert something that can be
-wrong.** Everything below works for both `.tcl` and `.rvt`, with cross-file
-`.rvt` ⇄ `.tcl` resolution.
+Every feature reports only what can be derived with certainty from structure and
+the workspace index, and stays **silent** otherwise. A missing answer is fine; a
+wrong answer is a bug. Everything works for `.tcl` and `.rvt`, including
+cross-file `.rvt` ⇄ `.tcl` resolution.
 
 Shipped:
-- **Navigation** — goto-definition, find-references, document + workspace symbols
-  (source-ordered), call hierarchy (incoming/outgoing, procs and methods).
-- **Structure** — code folding, document highlight, selection range, semantic
-  tokens. Structural / index-backed; they degrade to silence, never to a wrong
-  answer (e.g. semantic tokens colors only defs, `$`-vars, and calls that resolve
-  to user procs/methods — builtins fall back to syntax highlighting).
-- **Itcl OO** — classes, methods, ivars, inheritance, `$obj method` receiver typing.
-- **Reaching-definitions** for proc-locals (a `$x` jumps to the assignment(s) that
-  actually reach it), run only when needed, off the goto-def hot path.
-- **External packages** — `extra_index_paths` (editor config →
-  initializationOptions.extraIndexPaths) statically indexes external source
-  dirs/files at startup: the Tcl script library (`$tcl_library`), company package
-  checkouts, any TCL repo. Read-only, nothing executed, nothing written, missing
-  paths skipped. This is the ONLY external-reach mechanism — a tclsh-introspection
-  extractor was built (v0.2–v0.4) and deliberately REMOVED (v0.5): its sole
-  unique value was semantic-token coloring for sourceless names (C-extension
-  commands, runtime-generated procs), which didn't justify a manual,
-  code-executing, stale-able ritual. Do not re-add it without a written design.
-  Consequence: color/jumps mean "there is source"; C builtins and runtime-
-  generated procs stay uncolored; dynamic *call sites* (`$cmd`, `eval`) remain
-  fundamentally out of reach (state vs. events).
+- **Navigation:** goto-definition, find-references, document and workspace symbols
+  (source-ordered), call hierarchy (procs and methods).
+- **Structure:** folding, document highlight, selection range, semantic tokens.
+  Semantic tokens color only defs, `$`-vars and calls that resolve to user
+  procs or methods. Builtins fall back to syntax highlighting.
+- **Itcl OO:** classes, methods, ivars, inheritance, `$obj method` receiver typing.
+- **Reaching-definitions** for proc-locals: `$x` jumps to the assignments that
+  reach it. It runs only when needed, off the goto-def hot path.
+- **External packages:** `extra_index_paths` (initializationOptions.extraIndexPaths)
+  statically indexes external source dirs (the `$tcl_library`, package checkouts).
+  It is read-only, executes nothing, and skips missing paths. This is the only
+  way the server reaches outside the workspace, and adding another needs a written
+  design first. A tclsh-introspection extractor shipped in v0.2–v0.4 and was
+  removed in v0.5 because coloring sourceless names wasn't worth a manual,
+  code-executing step whose output goes stale. So color and jumps mean "there is
+  source". C builtins, runtime-generated procs and dynamic call sites (`$cmd`,
+  `eval`) stay out of reach.
 
-**Performance:** one parse per file feeds all four analyses; the initial workspace
-index and the workspace read-scans (find-references, incoming call hierarchy,
-workspace symbols) run in parallel across GOMAXPROCS *while the single-goroutine
-dispatch loop is blocked on the request*, so the index needs no locking. The one
-lazily-mutated cache (`nsCache`) is pre-warmed single-threaded before a parallel
-reference scan. Race-detector-tested (`go test -race`).
+The feature set is closed. Hover, completion, signature help, rename,
+formatting, diagnostics, code actions and inlay hints all need inferred types or
+make assertions that can be wrong, and that is the bet v2 refuses. The one
+candidate addition, opt-in and off by default undefined-proc diagnostics, needs a
+written design first.
 
-**Distribution:** consumers download a prebuilt, SHA-256-verified server binary
-from a GitHub Release — both the Neovim plugin (`lua/tcl-lsp/download.lua`) and the
-classic-Vim client (`autoload/tcl_lsp.vim`), sharing one pinned version
-(`lua/tcl-lsp/version.lua`). Source build is a fallback. Cut releases with
-`make -C server publish VERSION=vX.Y.Z` (see `docs/RELEASING.md`). The Go server
-lives under `server/` (stdio/JSON-RPC).
+## Concurrency invariants
 
-**Still out of scope, by design — do not propose or scaffold:** hover, completion,
-signature help, rename, formatting, diagnostics, code actions, inlay hints. They
-need inferred types (which dynamic, interpreted TCL can't give a static server) or
-make assertions that can be *wrong* — the exact bet v2 refuses, and the reason v1
-grew intractable. The one conceivable future addition is *conservative, opt-in,
-off-by-default* undefined-proc diagnostics, which would need a written design
-first. Research lives in `research/`; designs/plans in `docs/`.
+One parse per file feeds all four analyses. The initial index and the workspace
+read-scans (find-references, incoming calls, workspace symbols) fan out across
+GOMAXPROCS **while the single-goroutine dispatch loop is blocked on the request**,
+so the index takes no locks. Preserve that: anything new that reads the index in
+parallel runs under the same blocked loop. The one lazily-mutated cache,
+`nsCache`, is pre-warmed single-threaded before a parallel scan. Test with
+`go test -race`.
 
-## Working Agreements
+## Verify
 
-- Research output lives in `research/` as Markdown (create it when starting).
-- Plans live in `docs/plans/` once research is mapped.
-- Keep changes small and verified; resist re-expanding scope.
-- **Release on every server change (do not wait to be asked).** Any change that
-  affects the Go server under `server/` is not "done" until a release ships it,
-  so the prebuilt binary consumers download always matches the merged server
-  code. Flow: bump `lua/tcl-lsp/version.lua` to the new tag *in the same change*,
-  and once it merges run `make -C server publish VERSION=vX.Y.Z` from `main`
-  (builds the four targets, cuts the GitHub Release, re-pins version.lua as a
-  no-op). Bump **patch** (`v0.1.1`) for fixes/perf/internal changes, **minor**
-  (`v0.2.0`) for user-visible features. Changes touching only docs, the Lua/Vim
-  clients, or tests need **no** release. See `docs/RELEASING.md`.
+- Server: `make test-go`, plus `go -C server test -race ./...` and `go -C server vet ./...`.
+- Lua client: `make test-lua` (plenary, headless).
+- Tcl semantics: run `tclsh` 8.6 and 9.0. Tcl is the oracle, not a test, a
+  prototype or a research note.
+- Real code: the corpus gate in `research/experiments/08_corpus_probe/` (see its README).
 
-## Recovering v1
+## Releases
 
-```bash
-git log v1 --oneline              # browse the old history (full v1 tip)
-git checkout v1 -- tcl/           # pull a specific path back as reference
-git checkout v1                   # the full old tree lives on this branch
-git checkout archive-v1           # ...or an earlier v1 checkpoint (tag)
-```
+A server change ships only with a release, so the prebuilt binary that clients
+download always matches merged code. In the same change, bump
+`lua/tcl-lsp/version.lua` (patch for fixes, perf and internals; minor for
+user-visible features). After the merge, run
+`make -C server publish VERSION=vX.Y.Z` from `main`. Changes that touch only
+docs, clients or tests skip the release. Steps are in `docs/RELEASING.md`.
 
-## Agent skills
+## Where things live
 
-### Issue tracker
+- `research/`: findings as Markdown, numbered (`08-flightaware-corpus-probe.md` is
+  the latest). Read the relevant one before changing resolution behavior.
+- `docs/plans/`: implementation plans, written once the research is mapped.
+- `docs/BACKLOG.md`: deferred work and known wrong answers.
+- Issue tracker: GitHub Issues on `unknownbreaker/tcl-lsp` via `gh`. See
+  `docs/agents/issue-tracker.md`, and `docs/agents/triage-labels.md` for labels.
+- Domain docs: root `GLOSSARY.md` and `docs/adr/`, created lazily. See
+  `docs/agents/domain.md`.
 
-GitHub Issues on `unknownbreaker/tcl-lsp` via `gh` (public: never name internal
-code). See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default five: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
-`wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: root `GLOSSARY.md` + `docs/adr/` (created lazily). See
-`docs/agents/domain.md`.
+Keep changes small and verified, and keep scope where it is.
