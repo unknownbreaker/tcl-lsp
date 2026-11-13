@@ -1,14 +1,15 @@
+---
+paths:
+  - "**/*.tcl"
+  - "**/*.rvt"
+---
+
 # TCL Coding Conventions
 
-Conventions for TCL code in this repo.
-
-> **Scope note (v2):** Architecture-specific conventions — namespace layout,
-> module boundaries, file structure, test organization — are **deliberately
-> deferred** until the v2 design is settled (see the research → plan phases in
-> CLAUDE.md). Prescribing structure before understanding the problem was a v1
-> mistake. This file currently covers only language-level practices that hold
-> regardless of architecture. Add structural conventions here once they are
-> earned by a written design.
+Conventions for TCL code written in this repo: examples and test fixtures.
+A fixture that probes the parser keeps whatever odd shape it tests (unbraced
+`expr`, quoted bodies), because the shape is the test. These conventions apply
+to the code around it.
 
 ## Language Baseline
 
