@@ -185,18 +185,23 @@ func loopScripts(w []Word) (start, body, next *Word) {
 	return script(1), script(4), script(3)
 }
 
-// loopTest returns the braced test word of a while or for command, or nil. Its
-// [substitutions] run at the loop header on every pass. Tcl substitutes every other
-// word of a command once, before the command runs, including an unbraced test.
-func loopTest(c Command) *Word {
+// loopTest returns the index of the braced test word of a while or for command, or
+// -1. Its [substitutions] run at the loop header on every pass. Tcl substitutes every
+// other word of a command once, before the command runs, including an unbraced test.
+func loopTest(c Command) int {
 	if !loopHead(c) {
-		return nil
+		return -1
 	}
 	tests := exprBodies(c.Words)
 	if len(tests) == 0 {
-		return nil
+		return -1
 	}
-	return &tests[0]
+	for i, w := range c.Words {
+		if w.Start == tests[0].Start {
+			return i
+		}
+	}
+	return -1
 }
 
 // runScript threads in through an optional braced script. A nil script does
@@ -232,11 +237,16 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	if !live {
 		return cur, false
 	}
+	// A test script that ends the path is rare; the loop treats it as live, which
+	// only adds bindings.
+	exprWords := exprWordStarts(c)
 	afterTest := func(header reachSet) reachSet {
-		if test == nil {
+		if test < 0 {
 			return header
 		}
-		return a.substituteWord(c, wordIndex(c, *test), base, header)
+		live := true
+		out, _ := a.substituteWord(c, exprWords, test, base, header, false, &live)
+		return out
 	}
 	for iter := 0; iter < maxLoopIters; iter++ {
 		passEntry := afterTest(cur).clone()
@@ -476,7 +486,10 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		return a.analyzeIf(c, base, in)
 	}
 	test := loopTest(c)
-	in = a.substitute(c, base, in, func(w Word) bool { return test != nil && w.Start == test.Start })
+	in, live := a.substitute(c, base, in, func(idx int) bool { return idx == test })
+	if !live {
+		return in, false
+	}
 	switch {
 	case conservativeHead(c):
 		return a.analyzeConservative(c, base, in)
@@ -530,23 +543,30 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 // live and added to the join. Returns (joined set, anyLive): anyLive is true when
 // at least one path is live.
 func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) {
-	cur := a.substitute(c, base, in, func(w Word) bool { return isExprWord(c, w) })
+	w := c.Words
+	braceCond := func(idx int) bool { return isIfCondition(w, idx) && w[idx].Kind == WordBraced }
+	cur, live := a.substitute(c, base, in, braceCond)
+	if !live {
+		return cur, false
+	}
+	exprWords := exprWordStarts(c)
 	var liveOuts []reachSet
 	anyLive := false
-	w := c.Words
 	for i := 1; i < len(w); i++ {
-		if prev := w[i-1]; prev.Kind == WordBare && (prev.Text == "if" || prev.Text == "elseif") {
-			if isExprWord(c, w[i]) {
-				cur = a.substituteWord(c, i, base, cur)
+		if braceCond(i) {
+			cur, _ = a.substituteWord(c, exprWords, i, base, cur, false, &live)
+			if !live {
+				// No later condition or body runs, and neither does the fall-through.
+				return joinAll(liveOuts), anyLive
 			}
 			continue
 		}
-		if w[i].Kind != WordBraced {
-			continue // then, else, or an unbraced body
+		if w[i].Kind != WordBraced || isIfCondition(w, i) {
+			continue // then, else, an unbraced body, or an unbraced condition
 		}
 		inner, ibase := bracedInner(w[i], base)
-		out, live := a.seq(Parse(inner), ibase, cur.clone())
-		if live {
+		out, bodyLive := a.seq(Parse(inner), ibase, cur.clone())
+		if bodyLive {
 			liveOuts = append(liveOuts, out)
 			anyLive = true
 		}

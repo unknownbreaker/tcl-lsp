@@ -39,3 +39,13 @@ func TestReachingShortCircuitExpressionBrackets(t *testing.T) {
 		{"before && always runs", "proc f {c} {\n  set x 0\n  if {[set x 1] && $c} {}\n  puts $x\n}", "$x", []int{3}},
 	})
 }
+
+// Review findings, each checked against tclsh 8.6 and 9.0.
+func TestReachingExpressionLiteralsAndDeadBrackets(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"a braced literal in an expression is not a script", "proc f {s} {\n  set y 0\n  if {$s eq {[set y 1]}} {}\n  puts $y\n}", "$y", []int{2}},
+		{"a ? in a quoted string is not an operator", "proc f {} {\n  set x 0\n  if {\"?\" eq [set x 1]} {}\n  puts $x\n}", "$x", []int{3}},
+		{"&& between expr words", "proc f {c} {\n  set x 0\n  set r [expr {$c} && {[set x 1]}]\n  puts $x\n}", "$x", []int{2, 3}},
+		{"a bracket that returns ends the path", "proc f {c} {\n  set y 0\n  if {$c} {\n    set z [return [set y 1]]\n  }\n  puts $y\n}", "$y", []int{2}},
+	})
+}

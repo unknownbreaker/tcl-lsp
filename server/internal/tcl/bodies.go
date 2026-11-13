@@ -333,16 +333,23 @@ func exprBodies(w []Word) []Word {
 	return nil
 }
 
+// isIfCondition reports whether word i of the if command w is a condition: the word
+// immediately following `if` or `elseif`.
+func isIfCondition(w []Word, i int) bool {
+	if i < 1 || i >= len(w) {
+		return false
+	}
+	prev := w[i-1]
+	return prev.Kind == WordBare && (prev.Text == "if" || prev.Text == "elseif")
+}
+
 // ifConditions returns the braced condition words of an if command: the words
 // immediately following `if` or `elseif`. It is the exact complement of ifBodies,
 // which returns every other braced word.
 func ifConditions(w []Word) []Word {
 	var conds []Word
 	for i := 1; i < len(w); i++ {
-		if w[i].Kind != WordBraced {
-			continue
-		}
-		if prev := w[i-1]; prev.Kind == WordBare && (prev.Text == "if" || prev.Text == "elseif") {
+		if w[i].Kind == WordBraced && isIfCondition(w, i) {
 			conds = append(conds, w[i])
 		}
 	}
@@ -367,7 +374,7 @@ func ifBodies(w []Word) []Word {
 		if w[i].Kind != WordBraced {
 			continue
 		}
-		if prev := w[i-1]; prev.Kind == WordBare && (prev.Text == "if" || prev.Text == "elseif") {
+		if isIfCondition(w, i) {
 			continue // condition expression, not a body
 		}
 		bodies = append(bodies, w[i])

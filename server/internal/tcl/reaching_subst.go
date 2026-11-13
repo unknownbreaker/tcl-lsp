@@ -1,125 +1,62 @@
 package tcl
 
-// Substitution order for the reaching analyzer. Tcl substitutes a command's words
-// left to right before the command runs, and a [command substitution] is a script
-// that runs in this frame at that point. So a use inside the bracket sees the
-// bindings made before it in the same bracket, and the bracket's bindings reach the
-// rest of the command and the code after it. A braced expression word (an if or loop
-// condition, an expr argument) runs its brackets only when the expression is
-// evaluated, and its bare $vars are not references (see CommandRefs).
+import "strings"
 
-// scriptFunc receives the interior of one [script]. conditional is true when the
-// script may not run although its command does: it follows &&, || or ? in an
-// expression, which evaluate their right side only on some paths.
-type scriptFunc func(inner string, innerBase int, conditional bool)
-
-// walkSubst calls onVar for each $var substituted in text and onScript for each
-// [script] interior, in source order. base is the absolute offset of text's first
-// byte. expr is true for the text of a braced expression: its $vars are not reported,
-// and a script after &&, || or ? is conditional. The scan does not tell a quoted
-// string from an operator, so a "?" in a string makes later scripts conditional too,
-// which only widens an answer.
-func walkSubst(text string, base int, expr bool, onVar func(VarRef), onScript scriptFunc) {
-	conditional := false
-	i := 0
-	for i < len(text) {
-		switch c := text[i]; {
-		case c == '\\' && i+1 < len(text):
-			i += 2
-		case expr && (c == '?' || (c == '&' || c == '|') && i+1 < len(text) && text[i+1] == c):
-			conditional = true
-			i++
-		case c == '$' && !expr:
-			ref, next, ok := parseVarRef(text, i, base)
-			if ok {
-				onVar(ref)
-			}
-			i = next
-		case c == '[':
-			end := skipBracketSpan(text, i) // index just past the matching ']'
-			innerEnd := end
-			if end > i+1 && text[end-1] == ']' {
-				innerEnd = end - 1
-			}
-			onScript(text[i+1:innerEnd], base+i+1, conditional)
-			i = end
-		default:
-			i++
-		}
-	}
-}
-
-// walkWordSubst walks one word of c as Tcl substitutes it: a literal command name
-// and a braced script or data word have nothing to substitute, and a braced
-// expression word runs only its brackets.
-func walkWordSubst(c Command, idx, base int, onVar func(VarRef), onScript scriptFunc) {
-	w := c.Words[idx]
-	if idx == 0 && isLiteralName(w) {
-		return
-	}
-	if w.Kind == WordBraced {
-		if !isExprWord(c, w) {
-			return
-		}
-		inner, innerBase := bracedInner(w, base)
-		walkSubst(inner, innerBase, true, onVar, onScript)
-		return
-	}
-	walkSubst(w.Text, base+w.Start, false, onVar, onScript)
-}
-
-// isExprWord reports whether w is one of c's braced expression words.
-func isExprWord(c Command, w Word) bool {
-	for _, e := range exprBodies(c.Words) {
-		if e.Start == w.Start {
-			return true
-		}
-	}
-	return false
-}
+// The reaching analyzer threads its set through a command's substitutions (see
+// subst.go): a use inside a [script] sees the bindings made before it in the same
+// script, and the script's bindings reach the rest of the command and the code
+// after it. A script that may not run joins with the set before it instead of
+// replacing it. A script that ends its path (return, break, continue) ends the
+// command's path too.
 
 // substitute threads in through the substitutions of c's words, left to right,
 // recording the use at useOff when it is one of them. Words that deferred accepts
 // are evaluated later by the caller (a loop test, an if condition). The
 // variable-name arguments of info exists, unset and array are read last, by the
-// command itself.
-func (a *analyzer) substitute(c Command, base int, in reachSet, deferred func(Word) bool) reachSet {
-	cur := in
+// command itself. live is false when a script ends the path.
+func (a *analyzer) substitute(c Command, base int, in reachSet, deferred func(idx int) bool) (out reachSet, live bool) {
+	exprWords := exprWordStarts(c)
+	// The words of a multi-word expr form one expression, so an operator in one
+	// makes a later word's scripts conditional.
+	carry := isCmd(c.Words, "expr")
+	cur, live, conditional := in, true, false
 	for idx, w := range c.Words {
-		if deferred(w) {
+		if deferred(idx) {
 			continue
 		}
-		cur = a.substituteWord(c, idx, base, cur)
+		cur, conditional = a.substituteWord(c, exprWords, idx, base, cur, conditional, &live)
+		if !carry {
+			conditional = false
+		} else if w.Kind != WordBraced && strings.ContainsAny(w.Text, "&|?") {
+			conditional = true
+		}
 	}
 	for _, r := range nameArgRefs(c) {
 		a.recordUseAt(r.Name, r.Start+base, r.End+base, cur)
 	}
-	return cur
+	return cur, live
 }
 
-// substituteWord threads in through the substitutions of word idx of c.
-func (a *analyzer) substituteWord(c Command, idx, base int, in reachSet) reachSet {
+// substituteWord threads in through the substitutions of word idx of c, setting
+// *live to false when a script ends the path. conditional is as for walkSubst.
+func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base int, in reachSet, conditional bool, live *bool) (reachSet, bool) {
 	cur := in
-	walkWordSubst(c, idx, base,
+	conditional = walkWordSubst(c, exprWords, idx, base, conditional,
 		func(r VarRef) { a.recordUseAt(r.Name, r.Start, r.End, cur) },
-		func(inner string, innerBase int, conditional bool) {
-			out, _ := a.seq(Parse(inner), innerBase, cur)
-			if conditional {
-				out = joinAll([]reachSet{cur, out})
+		func(inner string, innerBase int, mayNotRun bool) {
+			out, scriptLive := a.seq(Parse(inner), innerBase, cur)
+			switch {
+			case mayNotRun && scriptLive:
+				cur = joinAll([]reachSet{cur, out})
+			case mayNotRun:
+				// The path that runs the script ends; the one that skips it goes on.
+			case !scriptLive:
+				*live = false
+			default:
+				cur = out
 			}
-			cur = out
 		})
-	return cur
-}
-
-// wordIndex returns the index of w in c's words, or -1.
-func wordIndex(c Command, w Word) int {
-	for i, x := range c.Words {
-		if x.Start == w.Start {
-			return i
-		}
-	}
-	return -1
+	return cur, conditional
 }
 
 // recordUseAt records the reaching set for name when the use at useOff lies in the
@@ -133,8 +70,9 @@ func (a *analyzer) recordUseAt(name string, start, end int, in reachSet) {
 // collectSubstBindings unions the bindings made in every [script] substituted in
 // c's words, including expression words, which may be evaluated.
 func (a *analyzer) collectSubstBindings(c Command, base int, into reachSet, follow func(Command) bool) {
+	exprWords := exprWordStarts(c)
 	for idx := range c.Words {
-		walkWordSubst(c, idx, base, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
+		walkWordSubst(c, exprWords, idx, base, false, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
 			a.collectBindings(Parse(inner), innerBase, into, follow)
 		})
 	}
