@@ -90,3 +90,20 @@ git checkout v1 -- tcl/           # pull a specific path back as reference
 git checkout v1                   # the full old tree lives on this branch
 git checkout archive-v1           # ...or an earlier v1 checkpoint (tag)
 ```
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `unknownbreaker/tcl-lsp` via `gh` (public: never name internal
+code). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
+`wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md` + `docs/adr/` (created lazily). See
+`docs/agents/domain.md`.
