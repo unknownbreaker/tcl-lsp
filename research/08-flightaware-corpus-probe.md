@@ -200,6 +200,10 @@ requests stack depends on what the client sends. This is one generated data file
 2. **`$var` in braced expressions.** **Reproduced:** `if {$n <= 1}` and `expr {$n * 2}` → nothing.
    `refs.go:41-42` and `:120-122` say braces suppress these, which is wrong for Tcl: `expr`
    substitutes them itself. **Harness count:** 3,054 rows tagged `in-expr`, of 4,510 variable misses.
+   **Fixed in v0.6.7:** a braced expression's `$vars` (including those in `"quoted"` operands) are
+   references, and reaching answers them where the expression reads them. A `{braced}` operand
+   stays a literal, and a `$var` after a `[script]` that follows `&&`, `||` or `?` in the same
+   expression stays silent, because which bindings reach it depends on which operands ran.
 3. **Unrecognised bindings.** **Reproduced:** `gets`, `binary scan`, `try … on`, `regexp`.
    **Harness count,** where it is the only binding form: gets 87, regexp 77, binary scan 40, try-on
    23. These overlap with item 2, so do not add them up. `catch` result variables too:

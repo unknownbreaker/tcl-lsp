@@ -135,24 +135,21 @@ func TestCommandRefsConditionSubst(t *testing.T) {
 	}
 }
 
-func TestCommandRefsExprBracedLimitation(t *testing.T) {
-	// KNOWN LIMITATION: a variable inside a braced expr argument is not found
-	// (braces suppress substitution structurally; we do not model expr's
-	// re-evaluation of its argument). We still find `set` and `expr`.
+func TestCommandRefsExprBracedVars(t *testing.T) {
+	// expr substitutes the $vars of its braced argument itself, so $x is a read.
+	// `set` and `expr` are found too.
 	cmds := Parse("set y [expr {$x + 1}]")
 	got := CommandRefs(cmds[0])
+	foundX, foundExpr := false, false
 	for _, r := range got {
-		if r.Kind == RefVariable && r.Name == "x" {
-			t.Fatalf("did not expect $x inside braced expr arg (known limitation): %#v", got)
+		if r.Kind == RefVariable && r.Name == "x" && r.Start == 13 && r.End == 15 {
+			foundX = true
 		}
-	}
-	foundExpr := false
-	for _, r := range got {
 		if r.Kind == RefCommand && r.Name == "expr" {
 			foundExpr = true
 		}
 	}
-	if !foundExpr {
-		t.Fatalf("expected expr command in: %#v", got)
+	if !foundX || !foundExpr {
+		t.Fatalf("want $x at [13,15) and the expr command in: %#v", got)
 	}
 }

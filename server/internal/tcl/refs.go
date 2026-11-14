@@ -32,12 +32,13 @@ func CommandRefs(c Command) []Reference {
 		w := c.Words[0]
 		refs = append(refs, Reference{Kind: RefCommand, Name: w.Text, Start: w.Start, End: w.End})
 	}
-	// Braced expression words (expr args, if/while/for conditions) yield only the
-	// references inside their [command substitutions]; see subst.go.
+	// Braced expression words (expr args, if/while/for conditions) yield their
+	// $vars and the references inside their [command substitutions]; see subst.go.
 	exprWords := exprWordStarts(c)
 	onVar, onScript := refCollector(&refs)
-	for idx := range c.Words {
-		walkWordSubst(c, exprWords, idx, 0, false, onVar, onScript)
+	flow := flowAlways
+	for idx, w := range c.Words {
+		flow = carryFlow(c, w, walkWordSubst(c, exprWords, idx, 0, flow, onVar, onScript))
 	}
 	refs = append(refs, nameArgRefs(c)...)
 	return refs
@@ -153,7 +154,7 @@ func wordRefs(w Word) []Reference {
 func scanRefs(text string, base int) []Reference {
 	var refs []Reference
 	onVar, onScript := refCollector(&refs)
-	walkSubst(text, base, false, false, onVar, onScript)
+	walkSubst(text, base, false, flowAlways, onVar, onScript)
 	return refs
 }
 

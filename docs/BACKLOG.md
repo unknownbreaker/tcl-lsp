@@ -91,6 +91,14 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. The last two are
   the same on `main@26f8ab2`. So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which
   answers both lines though Tcl says the first arm cannot reach: a `switch` exit joins every arm.
+- **Reaching, after a conditional bracket.** A bracket after `&&`, `||` or `?` joins its bindings
+  with the set before it, which is right after the whole expression but over-includes inside it.
+  `$c || [set x 1] && [puts $x]` and `if {$c && [set x 1]} { puts $x }` both answer `set x 0`
+  too, though Tcl reaches the use only through `set x 1`. A bare `$x` after such a bracket in the
+  same expression is silent (v0.6.7); a use inside a later bracket or the `if` body is not.
+  The scan also over-reads what is conditional: a `?` that a paren already closed
+  (`expr {($c ? 1 : 2) + [set x 1]}`) and an operator or `"` inside an array index (`$a(?)`) both
+  make a later bracket conditional, so `return $x` also answers `set x 0`. Same on v0.6.6.
 - **Skipped bindings ignore control flow.** A wrapper's binding answers a use nothing else reaches, wherever
   the wrapper sits: `if {$c} { with {set x 1} } else { puts $x }` answers the sibling, and so does a wrapper in a
   branch that returned. Same on `main@26f8ab2`.

@@ -89,10 +89,8 @@ func TestFileRefsCombinedAndOffsets(t *testing.T) {
 	src := "namespace eval ::app {\n  variable base 10\n  proc scale {n} {\n    return [expr {$n * $base}]\n  }\n}"
 	got := FileRefs(src)
 
-	// $n is used inside proc scale's body, in namespace ::app, proc frame.
-	// (It appears outside the braced expr arg? No: it is inside {$n * $base},
-	// which is braced, so per the expr-braced limitation it is NOT found.)
-	// Instead, assert the command refs we DO expect, and offset fidelity for one.
+	// $n and $base are used inside proc scale's body (namespace ::app, proc frame),
+	// in the braced expr argument {$n * $base}, which expr substitutes itself.
 
 	// The `expr` command ref is inside proc scale's body (namespace ::app, proc frame).
 	var exprRef *ContextRef
@@ -111,9 +109,17 @@ func TestFileRefsCombinedAndOffsets(t *testing.T) {
 		t.Fatalf("expr offset slice = %q", src[exprRef.Ref.Start:exprRef.Ref.End])
 	}
 
-	// Guard the expr-braced limitation: vars inside the braced expr arg are not found.
-	if findVar(got, "n") != nil || findVar(got, "base") != nil {
-		t.Fatalf("did not expect expr-braced vars n/base to be found: %#v", got)
+	for _, name := range []string{"n", "base"} {
+		v := findVar(got, name)
+		if v == nil {
+			t.Fatalf("did not find $%s in the braced expr arg: %#v", name, got)
+		}
+		if v.Namespace != "::app" || v.Frame != FrameProc {
+			t.Fatalf("$%s context = (%q, %d), want (::app, FrameProc)", name, v.Namespace, v.Frame)
+		}
+		if src[v.Ref.Start:v.Ref.End] != "$"+name {
+			t.Fatalf("$%s offset slice = %q", name, src[v.Ref.Start:v.Ref.End])
+		}
 	}
 }
 

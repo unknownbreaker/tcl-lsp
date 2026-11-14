@@ -245,7 +245,7 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 			return header
 		}
 		live := true
-		out, _ := a.substituteWord(c, exprWords, test, base, header, false, &live)
+		out, _ := a.substituteWord(c, exprWords, test, base, header, flowAlways, &live)
 		return out
 	}
 	for iter := 0; iter < maxLoopIters; iter++ {
@@ -582,7 +582,7 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 	anyLive := false
 	for i := 1; i < len(w); i++ {
 		if braceCond(i) {
-			cur, _ = a.substituteWord(c, exprWords, i, base, cur, false, &live)
+			cur, _ = a.substituteWord(c, exprWords, i, base, cur, flowAlways, &live)
 			if !live {
 				// No later condition or body runs, and neither does the fall-through.
 				return joinAll(liveOuts), anyLive

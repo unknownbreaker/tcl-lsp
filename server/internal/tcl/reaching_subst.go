@@ -1,7 +1,5 @@
 package tcl
 
-import "strings"
-
 // The reaching analyzer threads its set through a command's substitutions (see
 // subst.go): a use inside a [script] sees the bindings made before it in the same
 // script, and the script's bindings reach the rest of the command and the code
@@ -16,20 +14,26 @@ import "strings"
 // command itself. live is false when a script ends the path.
 func (a *analyzer) substitute(c Command, base int, in reachSet, deferred func(idx int) bool) (out reachSet, live bool) {
 	exprWords := exprWordStarts(c)
-	// The words of a multi-word expr form one expression, so an operator in one
-	// makes a later word's scripts conditional.
-	carry := isCmd(c.Words, "expr")
-	cur, live, conditional := in, true, false
+	cur, live := in, true
+	// expr substitutes its other words before it evaluates the joined expression,
+	// so those run first, and the braced words then run as one expression.
+	isExpr := isCmd(c.Words, "expr")
+	if isExpr {
+		for idx, w := range c.Words {
+			if !exprWords[w.Start] && !deferred(idx) {
+				cur, _ = a.substituteWord(c, exprWords, idx, base, cur, flowAlways, &live)
+			}
+		}
+	}
+	flow := flowAlways
 	for idx, w := range c.Words {
 		if deferred(idx) {
 			continue
 		}
-		cur, conditional = a.substituteWord(c, exprWords, idx, base, cur, conditional, &live)
-		if !carry {
-			conditional = false
-		} else if w.Kind != WordBraced && strings.ContainsAny(w.Text, "&|?") {
-			conditional = true
+		if !isExpr || exprWords[w.Start] {
+			cur, flow = a.substituteWord(c, exprWords, idx, base, cur, flow, &live)
 		}
+		flow = carryFlow(c, w, flow)
 	}
 	for _, r := range nameArgRefs(c) {
 		a.recordUseAt(r.Name, r.Start+base, r.End+base, cur)
@@ -38,10 +42,10 @@ func (a *analyzer) substitute(c Command, base int, in reachSet, deferred func(id
 }
 
 // substituteWord threads in through the substitutions of word idx of c, setting
-// *live to false when a script ends the path. conditional is as for walkSubst.
-func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base int, in reachSet, conditional bool, live *bool) (reachSet, bool) {
+// *live to false when a script ends the path. flow is as for walkSubst.
+func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base int, in reachSet, flow exprFlow, live *bool) (reachSet, exprFlow) {
 	cur := in
-	conditional = walkWordSubst(c, exprWords, idx, base, conditional,
+	flow = walkWordSubst(c, exprWords, idx, base, flow,
 		func(r VarRef) { a.recordUseAt(r.Name, r.Start, r.End, cur) },
 		func(inner string, innerBase int, mayNotRun bool) {
 			out, scriptLive := a.seq(Parse(inner), innerBase, cur)
@@ -56,7 +60,7 @@ func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base i
 				cur = out
 			}
 		})
-	return cur, conditional
+	return cur, flow
 }
 
 // recordUseAt records the reaching set for name when the use at useOff lies in the
@@ -72,7 +76,7 @@ func (a *analyzer) recordUseAt(name string, start, end int, in reachSet) {
 func (a *analyzer) collectSubstBindings(c Command, base int, into reachSet, follow func(Command) bool) {
 	exprWords := exprWordStarts(c)
 	for idx := range c.Words {
-		walkWordSubst(c, exprWords, idx, base, false, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
+		walkWordSubst(c, exprWords, idx, base, flowAlways, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
 			a.collectBindings(Parse(inner), innerBase, into, follow)
 		})
 	}
