@@ -151,6 +151,13 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			}
 		}
 	}
+	if frame == FrameProc {
+		for _, vw := range catchVarWords(w) {
+			if name, s, e, ok := arrayBaseName(vw); ok {
+				emitVarAssign(name, s, e, base, ns, frame, scope, class, cmdStart, cmdEnd, out)
+			}
+		}
+	}
 	if isCmd(w, "global") && frame == FrameProc {
 		for _, gw := range w[1:] {
 			if isPlainName(gw) {
@@ -421,11 +428,7 @@ func emitProcParams(argsWord Word, base int, ns string, scope int, class string,
 		start = innerBase + inner.Start + 1
 	}
 	for _, p := range scanParams(text, start) {
-		*out = append(*out, Definition{
-			Kind: DefLocal, Name: p.Name, Namespace: ns,
-			NameStart: p.Start, NameEnd: p.End, Scope: scope,
-			Class: class,
-		})
+		*out = append(*out, localDef(p, ns, scope, class))
 	}
 }
 
@@ -470,8 +473,8 @@ func paramFromWord(w Word, base int) (string, int, int) {
 }
 
 // emitLoopVarDefs emits DefLocal bindings for loop/destructuring target variables
-// that introduce proc-locals: foreach/lmap var lists, lassign targets, and
-// dict for/map key lists. Called only in FrameProc.
+// that introduce proc-locals: foreach/lmap var lists, lassign targets, dict for/map
+// key lists, and try handler variable lists. Called only in FrameProc.
 func emitLoopVarDefs(w []Word, base int, ns string, scope int, class string, out *[]Definition) {
 	if len(w) == 0 || w[0].Kind != WordBare {
 		return
@@ -492,7 +495,115 @@ func emitLoopVarDefs(w []Word, base int, ns string, scope int, class string, out
 		if len(w) >= 5 && w[1].Kind == WordBare && (w[1].Text == "for" || w[1].Text == "map") {
 			emitVarListNames(w[2], base, ns, scope, class, out)
 		}
+	case "try":
+		_, handlers, _ := tryParts(w)
+		for _, h := range handlers {
+			*out = append(*out, tryHandlerDefs(h, base, ns, scope, class)...)
+		}
 	}
+}
+
+// catchVarWords returns the words naming the variables catch assigns: the result,
+// then the options. catch takes at most four words; with more it is an argument
+// error and assigns nothing. With an expanded word the roles are unknown, so nothing
+// is certain. When both words name one variable, compiled catch (in a proc, the only
+// frame these bind in) writes the result last, so only the result word binds. With
+// two words, both must be plain names, so a quoted `{m} m` cannot hide that they are
+// one variable, and two different spellings of one variable, such as `m m(x)`, bind
+// nothing: Tcl writes one and fails on the other.
+func catchVarWords(w []Word) []Word {
+	if !isCmd(w, "catch") || len(w) < 3 || len(w) > 4 || hasExpansion(w) {
+		return nil
+	}
+	if len(w) == 4 {
+		r, _, _, rok := arrayBaseName(w[2])
+		o, _, _, ook := arrayBaseName(w[3])
+		switch {
+		case !rok || !ook:
+			return nil
+		case w[2].Text == w[3].Text:
+			return w[2:3]
+		case r == o:
+			return nil
+		}
+	}
+	return w[2:]
+}
+
+// tryHandlerDefs returns the DefLocal bindings a try handler makes when it starts.
+func tryHandlerDefs(h tryHandler, base int, ns string, scope int, class string) []Definition {
+	var defs []Definition
+	for _, p := range tryVarNames(h, base) {
+		defs = append(defs, localDef(p, ns, scope, class))
+	}
+	return defs
+}
+
+// localDef is the DefLocal binding of one variable-list name.
+func localDef(p paramName, ns string, scope int, class string) Definition {
+	return Definition{
+		Kind: DefLocal, Name: p.Name, Namespace: ns,
+		NameStart: p.Start, NameEnd: p.End, Scope: scope,
+		Class: class,
+	}
+}
+
+// tryVarNames returns the names a try handler's variable list binds: its first two
+// elements, the result and then the options; Tcl ignores the rest. When both
+// elements are the same variable, Tcl writes the options last, so only the second
+// binds; two spellings of one variable, such as `e e(x)`, bind nothing. Only a bare name or a braced list of whitespace-separated names is read.
+// Any other list binds nothing here, because its elements are not certain, and
+// neither does a qualified name. An array element binds its array, as `set` does.
+// The list is split by hand, not with scanParams, which parses an args list as a
+// script and keeps every element: here only two elements count, an element can be
+// an array reference, and a repeated name binds once. Ranges are absolute: base is
+// added.
+func tryVarNames(h tryHandler, base int) []paramName {
+	if h.vars == nil {
+		return nil
+	}
+	vars := *h.vars
+	text, start := vars.Text, base+vars.Start
+	switch {
+	case vars.Kind == WordBraced && len(text) >= 2:
+		text, start = text[1:len(text)-1], start+1
+	case vars.Kind == WordBare:
+	default:
+		return nil
+	}
+	if strings.ContainsAny(text, "{}[]$\\\";") {
+		return nil
+	}
+	isListSpace := func(b byte) bool { return strings.IndexByte(" \t\n\r\v\f", b) >= 0 }
+	var names []paramName
+	var elems []string
+	for i := 0; i < len(text) && len(elems) < 2; {
+		if isListSpace(text[i]) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(text) && !isListSpace(text[j]) {
+			j++
+		}
+		elem := text[i:j]
+		elems = append(elems, elem)
+		name := elem
+		if p := strings.IndexByte(name, '('); p >= 0 {
+			name = name[:p]
+		}
+		if name != "" && !strings.Contains(name, "::") {
+			names = append(names, paramName{Name: name, Start: start + i, End: start + i + len(name)})
+		}
+		i = j
+	}
+	if len(names) == 2 && names[0].Name == names[1].Name {
+		if elems[0] != elems[1] {
+			return nil // one variable spelled two ways: Tcl writes one and fails on the other
+		}
+		names = names[1:]
+	}
+	return names
 }
 
 // emitVarListNames emits a DefLocal for each plain name in a variable-list word: a
@@ -508,11 +619,7 @@ func emitVarListNames(vw Word, base int, ns string, scope int, class string, out
 		return
 	}
 	for _, p := range scanParams(text, start) {
-		*out = append(*out, Definition{
-			Kind: DefLocal, Name: p.Name, Namespace: ns,
-			NameStart: p.Start, NameEnd: p.End, Scope: scope,
-			Class: class,
-		})
+		*out = append(*out, localDef(p, ns, scope, class))
 	}
 }
 

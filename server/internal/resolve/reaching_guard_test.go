@@ -406,7 +406,8 @@ func TestDefinitionSiblingClauseBindingIsNotAnAnswer(t *testing.T) {
 		{"switch arm use, earlier sibling arm binds", "proc f {k} {\n  switch $k {\n    a { set x 1 }\n    b { puts $x }\n  }\n}", "$x", nil},
 		{"else branch use, if branch binds", "proc f {} {\n  if {$c} {\n    set x 1\n  } else {\n    puts $x\n  }\n}", "$x", nil},
 		{"switch inline arm use, sibling arm binds", "proc f {k} {\n  switch $k a { puts $x } b { set x 1 }\n}", "$x", nil},
-		{"handler variable name used before any binding", "proc f {} {\n  try {\n    error boom\n  } on error {msg opts} {\n    puts $msg\n    set msg x\n  }\n}", "$msg", nil},
+		// The handler's variable list binds msg (tclsh prints boom); the body's later set does not reach.
+		{"handler variable list, later set in the handler", "proc f {} {\n  try {\n    error boom\n  } on error {msg opts} {\n    puts $msg\n    set msg x\n  }\n}", "$msg", []int{4}},
 		{"catch body use, binding after the catch", "proc f {} {\n  catch {\n    puts $x\n  }\n  set x 1\n}", "$x", nil},
 	})
 }

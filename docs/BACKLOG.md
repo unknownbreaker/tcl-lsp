@@ -55,9 +55,6 @@ Known limitations of the reaching-definitions feature (proc-local goto-def).
    duplicated `isNameByte`. This is layering debt: an element use answers with the
    earliest binding at or before it, so a use whose only binding is below it, even
    one a loop carries around, stays silent.
-2. **`try ... on e {varList} {body}` handler var-list names** aren't emitted as
-   local bindings by `localBindings` or `emitDefs`, so `$e` there goes silent unless
-   an earlier binding of the name exists, which is then the answer.
 
 The OO (`$obj method`) type-tracking this engine was built to enable has since
 **shipped** — Itcl classes, methods, ivars, inheritance, and the `$obj method`

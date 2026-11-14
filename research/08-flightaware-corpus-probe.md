@@ -203,7 +203,11 @@ requests stack depends on what the client sends. This is one generated data file
 3. **Unrecognised bindings.** **Reproduced:** `gets`, `binary scan`, `try … on`, `regexp`.
    **Harness count,** where it is the only binding form: gets 87, regexp 77, binary scan 40, try-on
    23. These overlap with item 2, so do not add them up. `catch` result variables too:
-   `if {[catch {foo} msg]} { puts $msg }` is silent (**reproduced**).
+   `if {[catch {foo} msg]} { puts $msg }` is silent (**reproduced**). **Fixed in v0.6.5** for
+   `catch` and `try … on`/`trap`: catch's result and options variables are bindings that replace
+   earlier ones, and a handler's first two variable-list names bind when it starts. These are
+   proc-local bindings only: at top level `catch {foo} msg; puts $msg` stays silent, as `foreach`
+   vars do.
 4. **Find-references omits intra-class Itcl calls.** **Reproduced** synthetically. `Definition` has
    `methodInClass` (`resolve.go:260-264`) and `refFQ` does not. **Harness count:** 336 rows (speedtables
    176, piaware 153, piaware-gui 4, tsp 3), sampled at up to 300 defs per repo; "mostly" Itcl, not all
