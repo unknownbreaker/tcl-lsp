@@ -348,8 +348,9 @@ func isPlainName(w Word) bool {
 // byte range relative to the parse base (callers add `base`). For an array
 // element target like `arr(i)` or `arr($i)` it returns the base name `arr` and a
 // range covering just `arr`; for a plain scalar target it returns the whole word.
-// ok is false when the target is not a usable bare name (empty, a leading `(`, or
-// a base containing a substitution). The index after `(` may be anything.
+// ok is false when the target is not a usable bare name (empty, a leading `(`, a
+// `(` without a final `)`, or a base containing a substitution). The index
+// between the parens may be anything.
 func arrayBaseName(w Word) (name string, start, end int, ok bool) {
 	if w.Kind != WordBare || w.Text == "" {
 		return "", 0, 0, false
@@ -362,7 +363,8 @@ func arrayBaseName(w Word) (name string, start, end int, ok bool) {
 		return w.Text, w.Start, w.End, true
 	}
 	baseText := w.Text[:p]
-	if baseText == "" {
+	// `a(k)b` and `a(` are scalars of their own, which bind nothing here.
+	if !isElementName(w.Text) {
 		return "", 0, 0, false
 	}
 	for i := 0; i < len(baseText); i++ {

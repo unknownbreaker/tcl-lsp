@@ -1,11 +1,17 @@
 package tcl
 
+import "strings"
+
 // VarRef is a $-substitution occurrence within a word, with an absolute byte
 // range [Start,End) covering the reference token (e.g. "$x").
 type VarRef struct {
 	Name  string
 	Start int
 	End   int
+	// Element is true when the reference names an array element. For $a(key)
+	// Name and the range cover the base only; for ${a(key)} Name keeps the
+	// subscript and the range covers the whole braced token.
+	Element bool
 }
 
 // WordVarRefs returns the variable references substituted inside a single word.
@@ -81,7 +87,8 @@ func parseVarRef(text string, dollar, base int) (VarRef, int, bool) {
 		if j == i+1 {
 			return VarRef{}, j + 1, false // empty ${} is not a valid reference
 		}
-		return VarRef{Name: text[i+1 : j], Start: base + dollar, End: base + j + 1}, j + 1, true
+		name := text[i+1 : j]
+		return VarRef{Name: name, Start: base + dollar, End: base + j + 1, Element: isElementName(name)}, j + 1, true
 	}
 	// Bareword name: optional leading "::", then ::-joined [A-Za-z0-9_] segments.
 	nameStart := i
@@ -100,12 +107,20 @@ func parseVarRef(text string, dollar, base int) (VarRef, int, bool) {
 		for seg < len(text) && isNameByte(text[seg]) {
 			seg++
 		}
-		if seg == j+2 {
-			break // trailing "::" with no following segment
-		}
+		trailing := seg == j+2
 		j = seg
+		if trailing {
+			break // a trailing "::" still belongs to the name: $a:: reads `a::`
+		}
 	}
-	return VarRef{Name: text[nameStart:j], Start: base + dollar, End: base + j}, j, true
+	element := j < len(text) && text[j] == '('
+	return VarRef{Name: text[nameStart:j], Start: base + dollar, End: base + j, Element: element}, j, true
+}
+
+// isElementName reports whether Tcl reads a variable name as an array element:
+// a non-empty base, a `(`, and a final `)`. `a(k)b` and `a(` are scalars.
+func isElementName(name string) bool {
+	return strings.IndexByte(name, '(') > 0 && strings.HasSuffix(name, ")")
 }
 
 func isNameByte(b byte) bool {

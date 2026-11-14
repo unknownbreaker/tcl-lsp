@@ -59,7 +59,7 @@ func TestWordVarRefsGlobalQualified(t *testing.T) {
 func TestWordVarRefsArrayName(t *testing.T) {
 	w := Word{Kind: WordBare, Text: "$arr(key)", Start: 0, End: 9}
 	got := WordVarRefs(w)
-	want := []VarRef{{Name: "arr", Start: 0, End: 4}}
+	want := []VarRef{{Name: "arr", Start: 0, End: 4, Element: true}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
 	}
@@ -70,7 +70,7 @@ func TestWordVarRefsArrayIndexVarAlsoFound(t *testing.T) {
 	w := Word{Kind: WordBare, Text: "$arr($idx)", Start: 0, End: 10}
 	got := WordVarRefs(w)
 	want := []VarRef{
-		{Name: "arr", Start: 0, End: 4},
+		{Name: "arr", Start: 0, End: 4, Element: true},
 		{Name: "idx", Start: 5, End: 9},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -146,10 +146,11 @@ func TestWordVarRefsTrailingBackslash(t *testing.T) {
 }
 
 func TestWordVarRefsTrailingNamespaceSep(t *testing.T) {
-	// "$ns::" with no trailing segment -> name is "ns" (trailing :: excluded).
+	// "$ns::" with no trailing segment -> name is "ns::": tclsh 8.6 and 9.0 read
+	// the trailing :: as part of the name (`set ns:: 7; puts $ns::-x` prints 7-x).
 	w := Word{Kind: WordBare, Text: "$ns::", Start: 0, End: 5}
 	got := WordVarRefs(w)
-	want := []VarRef{{Name: "ns", Start: 0, End: 3}}
+	want := []VarRef{{Name: "ns::", Start: 0, End: 5}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("\n got: %#v\nwant: %#v", got, want)
 	}

@@ -46,15 +46,14 @@ Recommend leaving it; document the limitation (done, see `editors/README.md`).
 
 Known limitations of the reaching-definitions feature (proc-local goto-def).
 
-1. **Array-ness detection is duplicated/low-layer.** `resolve.go` has its own
-   `isArrayVarAt`/`isNameByte` byte-scan to detect `$arr(key)` uses (so they
-   bypass reaching, which doesn't track subscripts). This re-derives info the
-   lexer discarded: `parseVarRef` (`varref.go`) drops the `(subscript)` and emits
-   only the base name. Cleaner: add a `hasSubscript`/array flag to the use-side
-   `Reference` so the resolver reads it instead of re-scanning, removing the
-   duplicated `isNameByte`. This is layering debt: an element use answers with the
-   earliest binding at or before it, so a use whose only binding is below it, even
-   one a loop carries around, stays silent.
+1. **Array element uses bypass reaching.** A variable `Reference` carries an
+   `Element` flag (`$a(key)`, `${a(key)}`, `info exists a(key)`), and the resolver
+   sends element sites to the first-binding fallback because reaching tracks only
+   the base name and cannot tell `a(x)` from `a(y)`. So an element use answers with
+   the earliest binding at or before it, and a use whose only binding is below it,
+   even one a loop carries around, stays silent. A fix would track subscripts in
+   reaching, at least literal ones. `${a(key)}` is flagged but always silent: its
+   reference name keeps the subscript, so no binding of `a` matches it.
 
 The OO (`$obj method`) type-tracking this engine was built to enable has since
 **shipped** — Itcl classes, methods, ivars, inheritance, and the `$obj method`
