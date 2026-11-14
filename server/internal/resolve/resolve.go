@@ -27,12 +27,14 @@ func isLocalBinding(k tcl.DefKind) bool {
 }
 
 // localAt reports whether offset sits on a proc-local symbol, returning its
-// bare name and scope. Definition name-ranges (local bindings) are checked
-// first, then FrameProc variable references ($x uses).
-func (r *Resolver) localAt(file, src string, offset int) (name string, scope int, ok bool) {
+// bare name and scope, and whether the site is an array element (a(key)).
+// Definition name-ranges (local bindings) are checked first, then FrameProc
+// variable references ($x uses).
+func (r *Resolver) localAt(file, src string, offset int) (name string, scope int, element, ok bool) {
 	for _, d := range source.Defs(file, src) {
 		if isLocalBinding(d.Kind) && offset >= d.NameStart && offset < d.NameEnd {
-			return d.Name, d.Scope, true
+			// An element binding's name range is the base, which `(` follows.
+			return d.Name, d.Scope, d.NameEnd < len(src) && src[d.NameEnd] == '(', true
 		}
 	}
 	for _, ref := range source.Refs(file, src) {
@@ -42,35 +44,10 @@ func (r *Resolver) localAt(file, src string, offset int) (name string, scope int
 		if ref.Ref.Kind == tcl.RefVariable && ref.Frame == tcl.FrameProc &&
 			offset >= ref.Ref.Start && offset < ref.Ref.End &&
 			!strings.Contains(ref.Ref.Name, "::") {
-			return ref.Ref.Name, ref.Scope, true
+			return ref.Ref.Name, ref.Scope, ref.Ref.Element, true
 		}
 	}
-	return "", 0, false
-}
-
-// isNameByte reports whether b is a valid TCL variable name byte ([A-Za-z0-9_]).
-func isNameByte(b byte) bool {
-	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
-}
-
-// isArrayVarAt reports whether the variable reference at offset in src is an
-// array element access (e.g. $arr(key)). The reaching analysis does not track
-// array subscripts, so array accesses fall back to first-binding resolution.
-func isArrayVarAt(src string, offset int) bool {
-	i := offset
-	// Skip over the name characters (the $ was already consumed; offset is on
-	// the first name byte or somewhere within).
-	for i < len(src) && isNameByte(src[i]) {
-		i++
-	}
-	// Handle qualified names (:: segments).
-	for i+1 < len(src) && src[i] == ':' && src[i+1] == ':' {
-		i += 2
-		for i < len(src) && isNameByte(src[i]) {
-			i++
-		}
-	}
-	return i < len(src) && src[i] == '('
+	return "", 0, false, false
 }
 
 // localBindingAt returns the proc-local binding (name, scope) whose name token holds
@@ -97,10 +74,10 @@ func localBindingAt(file, src, name string, scope, offset int) []index.Location 
 // the analyzer has no answer at all (oversized proc, array element access, or a use it
 // did not find), the earliest binding at or before offset answers, so a loop-carried use
 // on those paths stays silent.
-func (r *Resolver) localDefinition(file, src, name string, scope, offset int) []index.Location {
-	// Array element accesses (e.g. $arr(key)) are excluded from reaching: the engine
+func (r *Resolver) localDefinition(file, src, name string, scope int, element bool, offset int) []index.Location {
+	// Array element sites (e.g. $arr(key)) are excluded from reaching: the engine
 	// tracks the base name without subscripts, so it cannot tell arr(a) from arr(b).
-	if !isArrayVarAt(src, offset) {
+	if !element {
 		if defs, ok := source.Reaching(file, src, offset); ok {
 			if len(defs) == 0 {
 				return localBindingAt(file, src, name, scope, offset)
@@ -209,8 +186,8 @@ func (r *Resolver) ivarInClassSeen(classFQ, name string, seen map[string]bool) [
 // order (current namespace, then global); the first candidate that resolves
 // wins (a bare name is NOT unioned across namespaces).
 func (r *Resolver) Definition(file, src string, offset int) []index.Location {
-	if name, scope, ok := r.localAt(file, src, offset); ok {
-		if locs := r.localDefinition(file, src, name, scope, offset); len(locs) > 0 {
+	if name, scope, element, ok := r.localAt(file, src, offset); ok {
+		if locs := r.localDefinition(file, src, name, scope, element, offset); len(locs) > 0 {
 			return locs
 		}
 		// Proc-local resolution found nothing. If the use is inside a class method
@@ -433,7 +410,7 @@ func (r *Resolver) localReferences(file, src, name string, scope int) []index.Lo
 // whole workspace. Only command and namespace/qualified-variable references are
 // matched; bare proc-locals and bareword variable-name arguments are not.
 func (r *Resolver) References(file, src string, offset int) []index.Location {
-	if name, scope, ok := r.localAt(file, src, offset); ok {
+	if name, scope, _, ok := r.localAt(file, src, offset); ok {
 		return r.localReferences(file, src, name, scope)
 	}
 	target, side := r.targetFQ(file, src, offset)
@@ -526,7 +503,7 @@ func (r *Resolver) warmNamespaces(work []refScan) {
 // no-op when already at the definition), so `gr` with the cursor on the proc
 // name still yields the declaration. Returns nil for an undefined symbol.
 func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
-	if name, scope, ok := r.localAt(file, src, offset); ok {
+	if name, scope, _, ok := r.localAt(file, src, offset); ok {
 		var out []index.Location
 		for _, d := range source.Defs(file, src) {
 			if isLocalBinding(d.Kind) && d.Name == name && d.Scope == scope {
@@ -567,7 +544,7 @@ func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind
 // frequency (and needs no namespace pre-warm: a single file resolves
 // single-threaded). Proc-locals return their in-file bindings and uses.
 func (r *Resolver) FileHighlights(file, src string, offset int) []index.Location {
-	if name, scope, ok := r.localAt(file, src, offset); ok {
+	if name, scope, _, ok := r.localAt(file, src, offset); ok {
 		return r.localReferences(file, src, name, scope) // already in-file only
 	}
 	target, side := r.targetFQ(file, src, offset)

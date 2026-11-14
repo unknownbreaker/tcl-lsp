@@ -16,6 +16,9 @@ type Reference struct {
 	Name  string
 	Start int
 	End   int
+	// Element is true for a variable reference that names an array element
+	// ($a(key), ${a(key)}, or a name argument such as `info exists a(key)`).
+	Element bool
 }
 
 // CommandRefs returns the references in a single command: the command-position
@@ -44,7 +47,7 @@ func CommandRefs(c Command) []Reference {
 // refs: its $vars, and the references inside each [command substitution].
 func refCollector(refs *[]Reference) (func(VarRef), scriptFunc) {
 	onVar := func(r VarRef) {
-		*refs = append(*refs, Reference{Kind: RefVariable, Name: r.Name, Start: r.Start, End: r.End})
+		*refs = append(*refs, Reference{Kind: RefVariable, Name: r.Name, Start: r.Start, End: r.End, Element: r.Element})
 	}
 	onScript := func(inner string, innerBase int, _ bool) {
 		*refs = append(*refs, substRefs(inner, innerBase)...)
@@ -112,7 +115,8 @@ func nameArgRefs(c Command) []Reference {
 	var out []Reference
 	for _, nw := range nameWords {
 		if name, s, e, ok := arrayBaseName(nw); ok {
-			out = append(out, Reference{Kind: RefVariable, Name: name, Start: s, End: e})
+			// The base ends before the word does only when a subscript follows.
+			out = append(out, Reference{Kind: RefVariable, Name: name, Start: s, End: e, Element: e < nw.End})
 		}
 	}
 	return out
