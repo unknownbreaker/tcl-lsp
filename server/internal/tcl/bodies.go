@@ -382,15 +382,37 @@ func ifBodies(w []Word) []Word {
 	return bodies
 }
 
-// tryParts splits a try command's braced bodies by role. main is nil for
-// `try $script ...`, so a handler is never mistaken for the main body. The scan
-// steps by clause: `on CODE VARLIST BODY` and `trap PATTERN VARLIST BODY` are four
-// words and `finally BODY` is two, so a variable list spelled `finally` does not
-// start a clause. Patterns and variable lists are skipped.
-func tryParts(w []Word) (main *Word, handlers []Word, finally *Word) {
+// tryHandler is one complete `on`/`trap` clause of a try command. body is nil when
+// the handler script is not braced. fallsThrough marks a `-` body: the clause runs
+// the next clause's body. vars is nil when the command has an expanded word,
+// because the clauses then cannot be told apart with certainty.
+type tryHandler struct {
+	vars         *Word
+	body         *Word
+	fallsThrough bool
+}
+
+// hasExpansion reports whether any word of a command is expanded with `{*}`, so its
+// final word count and the role of each word are not known.
+func hasExpansion(w []Word) bool {
+	for i := 0; i+1 < len(w); i++ {
+		if w[i].Kind == WordBraced && w[i].Text == "{*}" && w[i].End == w[i+1].Start {
+			return true
+		}
+	}
+	return false
+}
+
+// tryParts splits a try command's words by role. main is nil for `try $script ...`,
+// so a handler is never mistaken for the main body. The scan steps by clause:
+// `on CODE VARLIST BODY` and `trap PATTERN VARLIST BODY` are four words and
+// `finally BODY` is two, so a variable list spelled `finally` does not start a
+// clause. A clause cut short by the end of the command is an error and is dropped.
+func tryParts(w []Word) (main *Word, handlers []tryHandler, finally *Word) {
 	if len(w) >= 2 && w[1].Kind == WordBraced {
 		main = &w[1]
 	}
+	expanded := hasExpansion(w)
 	for i := 2; i < len(w); {
 		clause := ""
 		if w[i].Kind == WordBare {
@@ -398,8 +420,18 @@ func tryParts(w []Word) (main *Word, handlers []Word, finally *Word) {
 		}
 		switch clause {
 		case "on", "trap":
-			if i+3 < len(w) && w[i+3].Kind == WordBraced {
-				handlers = append(handlers, w[i+3])
+			if i+3 < len(w) {
+				var h tryHandler
+				if !expanded {
+					h.vars = &w[i+2]
+				}
+				switch {
+				case w[i+3].Kind == WordBraced:
+					h.body = &w[i+3]
+				case w[i+3].Kind == WordBare && w[i+3].Text == "-":
+					h.fallsThrough = true
+				}
+				handlers = append(handlers, h)
 			}
 			i += 4
 		case "finally":
@@ -422,7 +454,11 @@ func tryBodies(w []Word) []Word {
 	if main != nil {
 		bodies = append(bodies, *main)
 	}
-	bodies = append(bodies, handlers...)
+	for _, h := range handlers {
+		if h.body != nil {
+			bodies = append(bodies, *h.body)
+		}
+	}
 	if finally != nil {
 		bodies = append(bodies, *finally)
 	}

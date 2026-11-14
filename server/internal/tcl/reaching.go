@@ -369,9 +369,11 @@ func (a *analyzer) bindingsIn(script Word, base int) reachSet {
 
 // tryEntries gives each part of a try command its entry view: the main body sees
 // what precedes the try; a handler also sees the main body's bindings, because an
-// error can arrive at any point in it, but never a sibling handler's; finally sees
-// the bindings of the main body and every handler, but not its own, which reach only
-// through a loop's back edge.
+// error can arrive at any point in it, but never a sibling handler's. A handler's
+// variable list binds when it starts. A body shared through `-` clauses is entered
+// by any of them, and each binds only its own list, so its entry joins those paths.
+// finally sees the bindings of the main body and every handler, but not its own,
+// which reach only through a loop's back edge.
 func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBody {
 	main, handlers, finally := tryParts(w)
 	var bodies []conservativeBody
@@ -381,9 +383,29 @@ func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBod
 		handlerEntry = joinAll([]reachSet{in, a.bindingsIn(*main, base)})
 	}
 	finallyEntry := handlerEntry
+	var paths []reachSet // entry paths of the clauses that fall through to the next body
 	for _, handler := range handlers {
-		bodies = append(bodies, conservativeBody{handler, handlerEntry})
-		finallyEntry = joinAll([]reachSet{finallyEntry, a.bindingsIn(handler, base)})
+		own := handlerEntry
+		if vars := tryVarNames(handler, base); len(vars) > 0 {
+			own = handlerEntry.clone()
+			for _, p := range vars {
+				own[p.Name] = []Definition{localDef(p, "", 0, "")}
+			}
+		}
+		paths = append(paths, own)
+		if handler.fallsThrough {
+			continue
+		}
+		entry := joinAll(paths)
+		paths = nil
+		finallyEntry = joinAll([]reachSet{finallyEntry, entry})
+		if handler.body != nil {
+			bodies = append(bodies, conservativeBody{*handler.body, entry})
+			finallyEntry = joinAll([]reachSet{finallyEntry, a.bindingsIn(*handler.body, base)})
+		}
+	}
+	if len(paths) > 0 { // a trailing `-` clause has no body to fall to; Tcl rejects it
+		finallyEntry = joinAll(append(paths, finallyEntry))
 	}
 	if finally != nil {
 		bodies = append(bodies, conservativeBody{*finally, finallyEntry})
@@ -396,7 +418,8 @@ func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBod
 // generated anywhere in them. Entry is precise: a catch body or a switch arm sees
 // only what precedes the command, and a try's parts see what tryEntries gives them.
 // So a binding below a use, or in a sibling arm, reaches it only through a loop's
-// back edge. Names in a try handler's variable list are not modeled as bindings.
+// back edge. A try handler's variable list binds when the handler starts; catch's
+// variables are written after its body, whatever it did.
 func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachSet, bool) {
 	bodyScripts := scriptBodies(c.Words)
 	gens := reachSet{}
@@ -416,8 +439,13 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 		a.runScript(&body.script, base, body.entry.clone())
 	}
 	out := joinAll([]reachSet{in, gens})
+	isCatch := isCmd(c.Words, "catch")
 	for _, d := range localBindings(c, base, a.ns, a.frame) {
-		out[d.Name] = appendDedup(out[d.Name], d)
+		if isCatch {
+			out[d.Name] = []Definition{d} // catch always writes its variables
+		} else {
+			out[d.Name] = appendDedup(out[d.Name], d)
+		}
 	}
 	return out, true
 }
@@ -733,7 +761,17 @@ func localBindings(c Command, base int, ns string, frame FrameKind) []Definition
 		}
 	}
 
-	// foreach / lmap / lassign / dict for|map — loop var lists
+	// catch script ?resultVar? ?optionsVar?
+	for _, vw := range catchVarWords(w) {
+		if name, s, e, ok := arrayBaseName(vw); ok {
+			out = append(out, Definition{
+				Kind: DefLocal, Name: name,
+				NameStart: base + s, NameEnd: base + e,
+			})
+		}
+	}
+
+	// foreach / lmap / lassign / dict for|map / try handlers — var lists
 	emitLoopVarDefs(w, base, "::", 0, "", &out)
 
 	return out
