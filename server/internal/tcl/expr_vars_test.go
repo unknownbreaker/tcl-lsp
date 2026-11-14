@@ -102,9 +102,24 @@ func TestReachingMultiWordExprOrder(t *testing.T) {
 	})
 }
 
+// An operator can arrive through a substitution (`$op` may be `?`), so a later
+// bracket may not run and a $var after it stays silent. With op=? and c=0, tclsh
+// 8.6 and 9.0 read the value from before the bracket.
 func TestCommandRefsSilentAfterSubstitutedOperator(t *testing.T) {
 	src := "expr {$c} $op {[set x 1]} : {$x}"
 	if got := exprVarOffsets(src, "x"); len(got) != 0 {
 		t.Fatalf("refs to x at %v, want none in %q", got, src)
 	}
+}
+
+// A for loop runs next only after a body that completes or continues, so a body
+// that always breaks or returns leaves the test with the start script's binding
+// alone. Checked against tclsh 8.6 and 9.0.
+func TestReachingForTestSkipsNextAfterDeadBody(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"body always breaks", "proc f {} {\n  for {set i 0} {$i < 3} {\n    incr i} {\n    set i 5\n    break\n  }\n}", "$i <", []int{2}},
+		{"body always returns", "proc f {} {\n  for {set i 0} {$i < 3} {\n    incr i} {\n    return\n  }\n}", "$i <", []int{2}},
+		{"body continues", "proc f {} {\n  for {set i 0} {$i < 3} {\n    incr i} {\n    continue\n  }\n}", "$i <", []int{2, 3}},
+		{"body may break", "proc f {c} {\n  for {set i 0} {$i < 3} {\n    incr i} {\n    if {$c} break\n  }\n}", "$i <", []int{2, 3}},
+	})
 }

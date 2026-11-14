@@ -111,7 +111,12 @@ func (s reachSet) clone() reachSet {
 	return out
 }
 
-type frameAcc struct{ brk, cont reachSet }
+// frameAcc collects a loop's break and continue exits. contLive records that a
+// continue was reached, which an empty cont set cannot tell.
+type frameAcc struct {
+	brk, cont reachSet
+	contLive  bool
+}
 
 type analyzer struct {
 	useOff    int
@@ -253,8 +258,19 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 		for _, d := range loopVars {
 			passEntry[d.Name] = []Definition{d}
 		}
-		normalEnd, _ := a.runScript(body, base, passEntry)
-		backEdge, _ := a.runScript(next, base, joinAll([]reachSet{normalEnd, acc.cont}))
+		normalEnd, bodyLive := a.runScript(body, base, passEntry)
+		// next runs only after a pass that completes or continues.
+		var nextIn []reachSet
+		if bodyLive {
+			nextIn = append(nextIn, normalEnd)
+		}
+		if acc.contLive {
+			nextIn = append(nextIn, acc.cont)
+		}
+		backEdge := reachSet{}
+		if len(nextIn) > 0 {
+			backEdge, _ = a.runScript(next, base, joinAll(nextIn))
+		}
 		merged := joinAll([]reachSet{cur, backEdge})
 		if reachEqual(merged, cur) {
 			break
@@ -536,6 +552,7 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		if n := len(a.loopStack); n > 0 {
 			top := a.loopStack[n-1]
 			top.cont = joinAll([]reachSet{nonNil(top.cont), in})
+			top.contLive = true
 		}
 		return in, false
 	}

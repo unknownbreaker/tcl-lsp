@@ -60,7 +60,7 @@ The OO (`$obj method`) type-tracking this engine was built to enable has since
 receiver call all resolve (see the README's "Itcl OO support"). **TclOO
 (`oo::class`)** remains the deferred OO dialect.
 
-## Corpus-probe misses (relative qualified commands, `$var` in expressions, ...)
+## Corpus-probe misses (relative qualified commands, callbacks, ...)
 
 **Status:** deferred, ranked. **Area:** resolver, reference walker, index.
 
@@ -68,7 +68,8 @@ The FlightAware corpus probe found ten kinds of missing answers, ranked in
 `research/08-flightaware-corpus-probe.md` ("Misses"). None are in the current fix
 plan (`docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`), which
 covers wrong answers and the position slowdown only. Rows there are harness counts
-and upper bounds; confirm a root cause by reproducing it before picking one up.
+and upper bounds; confirm a root cause by reproducing it before picking one up. Item 2 and part of item 3
+are fixed; the notes there say which version.
 
 ## Corpus-fix residuals (v0.6.3)
 
@@ -86,10 +87,9 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   in a bare pattern shifts the pairing. Their arms' calls resolved on `main@26f8ab2`. Also, `#* { helper }`
   at line start in an arm list parses as a comment, so its body is silent, where Tcl treats it as a pattern.
   That one is silent on `main@26f8ab2` too.
-- **Reaching, still a wrong answer.** `for {} {1} {set x 1} {puts $x; break}` runs `next` when the
-  body cannot complete. `set x 0; eval {set y 1;} {set x 1}; puts $x` answers `set x 0`.
-  `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. The last two are
-  the same on `main@26f8ab2`. So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which
+- **Reaching, still a wrong answer.** `set x 0; eval {set y 1;} {set x 1}; puts $x` answers `set x 0`.
+  `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. Both are
+  the same on `main@26f8ab2`. (A `for` whose body cannot complete no longer runs `next`, since v0.6.7.) So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which
   answers both lines though Tcl says the first arm cannot reach: a `switch` exit joins every arm.
 - **Reaching, after a conditional bracket.** A bracket after `&&`, `||` or `?` joins its bindings
   with the set before it, which is right after the whole expression but over-includes inside it.
