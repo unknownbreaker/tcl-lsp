@@ -111,7 +111,12 @@ func (s reachSet) clone() reachSet {
 	return out
 }
 
-type frameAcc struct{ brk, cont reachSet }
+// frameAcc collects a loop's break and continue exits. contLive records that a
+// continue was reached, which an empty cont set cannot tell.
+type frameAcc struct {
+	brk, cont reachSet
+	contLive  bool
+}
 
 type analyzer struct {
 	useOff    int
@@ -245,7 +250,7 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 			return header
 		}
 		live := true
-		out, _ := a.substituteWord(c, exprWords, test, base, header, false, &live)
+		out, _ := a.substituteWord(c, exprWords, test, base, header, flowAlways, &live)
 		return out
 	}
 	for iter := 0; iter < maxLoopIters; iter++ {
@@ -253,8 +258,19 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 		for _, d := range loopVars {
 			passEntry[d.Name] = []Definition{d}
 		}
-		normalEnd, _ := a.runScript(body, base, passEntry)
-		backEdge, _ := a.runScript(next, base, joinAll([]reachSet{normalEnd, acc.cont}))
+		normalEnd, bodyLive := a.runScript(body, base, passEntry)
+		// next runs only after a pass that completes or continues.
+		var nextIn []reachSet
+		if bodyLive {
+			nextIn = append(nextIn, normalEnd)
+		}
+		if acc.contLive {
+			nextIn = append(nextIn, acc.cont)
+		}
+		backEdge := reachSet{}
+		if len(nextIn) > 0 {
+			backEdge, _ = a.runScript(next, base, joinAll(nextIn))
+		}
 		merged := joinAll([]reachSet{cur, backEdge})
 		if reachEqual(merged, cur) {
 			break
@@ -536,6 +552,7 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		if n := len(a.loopStack); n > 0 {
 			top := a.loopStack[n-1]
 			top.cont = joinAll([]reachSet{nonNil(top.cont), in})
+			top.contLive = true
 		}
 		return in, false
 	}
@@ -582,7 +599,7 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 	anyLive := false
 	for i := 1; i < len(w); i++ {
 		if braceCond(i) {
-			cur, _ = a.substituteWord(c, exprWords, i, base, cur, false, &live)
+			cur, _ = a.substituteWord(c, exprWords, i, base, cur, flowAlways, &live)
 			if !live {
 				// No later condition or body runs, and neither does the fall-through.
 				return joinAll(liveOuts), anyLive

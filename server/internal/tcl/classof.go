@@ -61,7 +61,7 @@ func ClassOf(src string, receiverUseOff int) []string {
 			}
 			exprWords := exprWordStarts(c)
 			for idx := range c.Words {
-				walkWordSubst(c, exprWords, idx, base, false, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
+				walkWordSubst(c, exprWords, idx, base, flowAlways, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
 					walkCmds(Parse(inner), innerBase)
 				})
 			}
