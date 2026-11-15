@@ -542,10 +542,9 @@ func catchVarWords(w []Word) []Word {
 // binary scan write, and whether the write is certain. Behavior follows tclsh 8.6
 // and 9.0. `gets chan var` always writes var when it returns, including "" at end of
 // file, and regsub always writes its variable, so they replace earlier bindings like
-// set. regexp writes its match variables only on a
-// match, and binary scan stops writing at the end of its data, so theirs are possible
-// writes that join earlier bindings, as is a regsub write when a substituted word
-// may be an option. With an expanded word, or a variable word that is not a plain
+// set. regexp writes its match variables only on a match, and binary scan stops
+// writing at the end of its data, so theirs are possible writes that join earlier
+// bindings, as is a regsub write when a substituted word may be an option. With an expanded word, or a variable word that is not a plain
 // name, the roles are unknown and nothing binds. Two words naming one variable
 // (`m m`, `m m(x)`) bind nothing either.
 func resultVarWords(w []Word) (words []Word, certain bool) {

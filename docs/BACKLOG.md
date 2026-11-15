@@ -123,7 +123,9 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
 - **Quoted or braced variable names bind nothing.** `set {v} 1`, `catch {foo} "v"`, `gets $f {v}` and
   `regexp {a} $s "v"` all write `v`, but only a bare name binds, so a later `$v` answers just the
   earlier bindings. Likewise a regexp whose substituted leading word is followed by a substituted
-  operand (`regexp $opt {a} $s v`) and any `{*}` form bind nothing, though Tcl may write `v`.
+  operand (`regexp $opt {a} $s v`, `regsub $opt {a} $s {b} v`), a dynamic variable name
+  (`regexp {(a)} $s v $n`), the same variable named twice (`regexp {(a)(b)} ab v v`), regsub's
+  9.0-only `-command`, and any `{*}` form bind nothing, though Tcl may write `v`. Since v0.6.10.
 - **`::request` declarations from a `.tcl` file.** Since v0.6.8 a template's `::request` takes only
   that page's `namespace path` and imports. A `.tcl` file that writes them into `::request`
   (outside the model, research/05 V2) is ignored from pages, so if a page sources it, a call can

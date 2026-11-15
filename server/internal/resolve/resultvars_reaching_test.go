@@ -7,10 +7,10 @@ import (
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
 )
 
-// catch, try, gets, regexp and binary scan result variables are bindings, so $msg
-// after them answers. Both paths agree: the index (emitDefs) and reaching
+// catch, try, gets, regsub, regexp and binary scan result variables are bindings,
+// so $msg after them answers. Both paths agree: the index (emitDefs) and reaching
 // (localBindings). tclsh 8.6 and 9.0 confirm catch overwrites msg, a handler binds
-// its variable list, and gets, regexp and binary scan write theirs.
+// its variable list, and gets, regsub, regexp and binary scan write theirs.
 func TestGotoDefCatchAndTryResultVars(t *testing.T) {
 	wrap := map[string]func(string) string{
 		"a.tcl": func(body string) string { return "proc f {} {\n" + body + "}\n" },

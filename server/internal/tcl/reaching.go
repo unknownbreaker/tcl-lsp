@@ -574,7 +574,7 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 	mayWrite := len(resultWords) > 0 && !certain
 	for _, d := range binds {
 		if isArraySet(c.Words) || mayWrite {
-			// array set merges into the array; regexp and binary scan may not write
+			// array set merges into the array; a possible write (resultVarWords) joins
 			out[d.Name] = appendDedup(out[d.Name], d)
 		} else {
 			out[d.Name] = []Definition{d} // straight-line: reassign kills+gens
@@ -781,24 +781,17 @@ func localBindings(c Command, base int, ns string, frame FrameKind) []Definition
 		}
 	}
 
-	// catch script ?resultVar? ?optionsVar?
-	for _, vw := range catchVarWords(w) {
-		if name, s, e, ok := arrayBaseName(vw); ok {
-			out = append(out, Definition{
-				Kind: DefLocal, Name: name,
-				NameStart: base + s, NameEnd: base + e,
-			})
-		}
-	}
-
-	// gets chan var; regexp ... exp string ?var ...?; binary scan string fmt ?var ...?
+	// catch script ?resultVar? ?optionsVar?, and the variables gets, regsub, regexp
+	// and binary scan write
 	resultWords, _ := resultVarWords(w)
-	for _, vw := range resultWords {
-		if name, s, e, ok := arrayBaseName(vw); ok {
-			out = append(out, Definition{
-				Kind: DefLocal, Name: name,
-				NameStart: base + s, NameEnd: base + e,
-			})
+	for _, words := range [][]Word{catchVarWords(w), resultWords} {
+		for _, vw := range words {
+			if name, s, e, ok := arrayBaseName(vw); ok {
+				out = append(out, Definition{
+					Kind: DefLocal, Name: name,
+					NameStart: base + s, NameEnd: base + e,
+				})
+			}
 		}
 	}
 
