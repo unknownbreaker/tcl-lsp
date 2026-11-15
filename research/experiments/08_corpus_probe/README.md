@@ -186,7 +186,7 @@ plausible-namespace rules), `phases.py` (A/B/C/D/G), `phases2.py` (E/F/H), `prob
 | 2 | CANDIDATE_MISS (relative-qualified) | TclProDebug/coverage.tcl:484 `gui::getCurrentState` from `::coverage` | real (same root cause; 2057 of 2910 misses) |
 | 3 | VAR_SUSPECT_WRONG outside-proc | prometheus-tcl/counter.tcl:42 `$_value` in a TclOO method → `set _value` in gauge.tcl and histogram.tcl | real: TclOO method bodies are walked at namespace frame, so method locals become `::prom::_value` |
 | 4 | VAR_SUSPECT_WRONG outside-proc | tsp/bench/langbench/cat.tcl:5 `$file` (a `tsp::proc` param) → `set file` in handcoded/cat-ext.tcl | real: the `tsp::proc` body is walked at namespace frame |
-| 5 | VAR_SUSPECT_WRONG binding-after-use | tsp/lib/tclparser-1.4.1/tools/genStubs.tcl:279 `$args` (bound by `regexp` at 269) → `set args` at 291 | real: `regexp` vars are not modeled, so the server falls back to the earliest binding, which comes after the use |
+| 5 | VAR_SUSPECT_WRONG binding-after-use | tsp/lib/tclparser-1.4.1/tools/genStubs.tcl:279 `$args` (bound by `regexp` at 269) → `set args` at 291 | real: `regexp` vars were not modeled, so the server fell back to the earliest binding, which comes after the use. Answered since v0.6.10 |
 | 6 | VAR_SUSPECT_WRONG (first run) | TclProDebug nub.tcl `$DbgNub(...)` after `global DbgNub` | **oracle false positive, fixed** (linked/qualified names exempted). Rate before the fix: ~85% in TclProDebug |
 | 7 | SUSPECT_WRONG switch-pattern | piaware-gui/grid.tcl:476 `button_wired {` (pattern of `switch $button {...}`) → proc in indicators.tcl | real |
 | 8 | SUSPECT_WRONG switch-pattern | TclProDebug/menu.tcl:816 `stop {` → `::stop` in demos/tutorials/pulse.tcl | real, and it crosses files |
