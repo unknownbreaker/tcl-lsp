@@ -220,6 +220,14 @@ requests stack depends on what the client sends. This is one generated data file
    `methodInClass` (`resolve.go:260-264`) and `refFQ` does not. **Harness count:** 336 rows (speedtables
    176, piaware 153, piaware-gui 4, tsp 3), sampled at up to 300 defs per repo; "mostly" Itcl, not all
    checked.
+   **Fixed in v0.6.9:** find-references, document highlight and incoming calls identify a method by
+   the class that declares it, and list each bare call in a method body that goto-definition resolves
+   to it (the calling class, then its bases depth-first; an override wins). Such a call is no longer a
+   reference of a same-named proc, which it was before (a wrong answer). `$obj method` calls are not
+   listed. A call in a custom command's body inside a method (`after 0 {m}`, `uplevel #0 {m}`, a
+   wrapper) answers nothing when the class has a method `m`, for goto-definition too, because it may
+   run in the method or elsewhere. The probe went from 338 rows to 0. Two speedtables calls inside
+   `perform ... -code {...}` went silent that way; no other count changed.
 5. **Test files.** `.test` is never indexed (`index.go:83`): 44 files, plus 10 shebang scripts.
    **Reproduced:** even when opened, tcltest `-setup`/`-body` and old-style bodies do not resolve. A
    braced `-result {x}` as last word is walked as code (**code reading**).

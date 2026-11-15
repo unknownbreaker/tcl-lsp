@@ -22,6 +22,9 @@ type bodyScope struct {
 	Frame FrameKind // frame kind the body runs in
 	Scope int       // enclosing proc body's interior offset; 0 at namespace frame
 	Class string    // fully-qualified itcl class name, or "" when not inside a class
+	// Wrapped marks a custom command's body inside a proc or method: it keeps the
+	// frame, but it may be deferred or run elsewhere (`after`, `uplevel`).
+	Wrapped bool
 }
 
 // memberWords strips a leading Itcl access modifier (`public`/`protected`/
@@ -190,7 +193,8 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		var out []bodyScope
 		for _, body := range scriptBodies(w) {
 			inner, innerBase := bracedInner(body, base)
-			out = append(out, bodyScope{Inner: inner, Base: innerBase, NS: ns, Frame: bodyFrame, Scope: scope, Class: class})
+			out = append(out, bodyScope{Inner: inner, Base: innerBase, NS: ns, Frame: bodyFrame, Scope: scope, Class: class,
+				Wrapped: frame == FrameProc && !bodiesRunHere(c)})
 		}
 		return out
 	}

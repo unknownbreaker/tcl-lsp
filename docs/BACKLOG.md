@@ -68,7 +68,7 @@ The FlightAware corpus probe found ten kinds of missing answers, ranked in
 `research/08-flightaware-corpus-probe.md` ("Misses"). None are in the current fix
 plan (`docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`), which
 covers wrong answers and the position slowdown only. Rows there are harness counts
-and upper bounds; confirm a root cause by reproducing it before picking one up. Items 1 and 2 and part of
+and upper bounds; confirm a root cause by reproducing it before picking one up. Items 1, 2 and 4 and part of
 item 3 are fixed; the notes there say which version.
 
 ## Corpus-fix residuals (v0.6.3)
@@ -105,6 +105,14 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   (tclsh 8.6, Itcl 4.3.7). The server tries `::ns` first, so it answers `::ns::util::f` and
   `::ns::g`. Before v0.6.8 the qualified call was answered the same way. v0.6.8 adds the global
   fallback, but the class-namespace candidate is still never tried.
+- **Itcl class names miss Tcl's global fallback.** `itcl::body G::run` inside `namespace eval other`,
+  or in a template (`::request`), names class `::other::G`, and `inherit Base` in a class inside
+  `namespace eval ns` names `::ns::Base`, where Tcl finds the global `::G` or `::Base` (tclsh 8.6 and
+  9.0, Itcl 4.3.7). Calls in those methods then miss the class's methods and answer a same-named proc.
+  Same on v0.6.8.
+- **Itcl method calls Tcl rejects.** A bare call to a base class's `private` method, to an instance
+  method from a class `proc`, or from a nested `proc` inside a method errors in Tcl, yet resolves to
+  the method and is listed as its reference. Same on v0.6.8 for goto-definition.
 - **`::request` declarations from a `.tcl` file.** Since v0.6.8 a template's `::request` takes only
   that page's `namespace path` and imports. A `.tcl` file that writes them into `::request`
   (outside the model, research/05 V2) is ignored from pages, so if a page sources it, a call can

@@ -290,6 +290,9 @@ The dominant Rivet/speedtables idiom — `itcl::class`, `[::C #auto]`,
 - **Methods and ivars** resolve — inline and external `itcl::body`, with or
   without `public`/`protected`/`private` modifiers (the usual real-world form).
 - **`inherit` chains** resolve through the class hierarchy.
+- **Find-references** on a method lists the bare calls in method bodies that
+  resolve to it, the same way goto-definition does. `$obj method` calls are
+  not listed.
 - **`$obj method` is receiver-typed** — `set d [::STDisplay #auto]; $d field`
   types `$d` and resolves `field` on its class, including inherited members,
   as a statement or bracketed (`[$obj method]`).

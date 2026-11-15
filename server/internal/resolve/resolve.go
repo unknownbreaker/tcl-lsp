@@ -123,31 +123,63 @@ func (r *Resolver) localDefinition(file, src, name string, scope int, element bo
 
 // methodInClass looks up method name in the class identified by classFQ,
 // walking the inheritance chain depth-first (first match wins). Returns the
-// method's definition sites, or nil if not found. A visited set guards against
-// inheritance cycles.
+// method's definition sites, or nil if not found.
 func (r *Resolver) methodInClass(classFQ, name string) []index.Location {
-	return r.methodInClassSeen(classFQ, name, map[string]bool{})
+	return r.classMethods(r.methodOwner(classFQ, name), name)
 }
 
-func (r *Resolver) methodInClassSeen(classFQ, name string, seen map[string]bool) []index.Location {
+// classMethods returns the definition sites of method name declared in classFQ
+// itself (no inheritance walk), or nil.
+func (r *Resolver) classMethods(classFQ, name string) []index.Location {
+	if ci := r.ix.Class(classFQ); ci != nil {
+		return ci.Methods[name]
+	}
+	return nil
+}
+
+// methodOwner returns the class that defines the method name seen from classFQ:
+// classFQ itself or the first base, depth-first, that declares it. It returns ""
+// when no class in the chain does. A visited set guards against inheritance
+// cycles. It only reads the class table, so a parallel scan may call it.
+func (r *Resolver) methodOwner(classFQ, name string) string {
+	return r.methodOwnerSeen(classFQ, name, map[string]bool{})
+}
+
+func (r *Resolver) methodOwnerSeen(classFQ, name string, seen map[string]bool) string {
 	if seen[classFQ] {
-		return nil
+		return ""
 	}
 	seen[classFQ] = true
 	ci := r.ix.Class(classFQ)
 	if ci == nil {
-		return nil
+		return ""
 	}
-	if locs := ci.Methods[name]; len(locs) > 0 {
-		return locs
+	if len(ci.Methods[name]) > 0 {
+		return classFQ
 	}
 	// Walk bases depth-first; first match wins.
 	for _, base := range ci.Inherit {
-		if locs := r.methodInClassSeen(base, name, seen); len(locs) > 0 {
-			return locs
+		if owner := r.methodOwnerSeen(base, name, seen); owner != "" {
+			return owner
 		}
 	}
-	return nil
+	return ""
+}
+
+// intraClassOwner returns the class whose method a bare command call inside a
+// class method body runs, or "" when the call is not one (it then resolves as an
+// ordinary command). ambiguous is true when a method of that name exists but the
+// call is in a custom command's body (`after 0 {m}`, `uplevel #0 {m}`, a wrapper),
+// which may run it in the method or elsewhere: the call answers nothing.
+// Goto-definition and find-references share it so they agree.
+func (r *Resolver) intraClassOwner(ref *tcl.ContextRef) (owner string, ambiguous bool) {
+	if ref.Ref.Kind != tcl.RefCommand || ref.Frame != tcl.FrameProc || ref.Class == "" {
+		return "", false
+	}
+	if owner = r.methodOwner(ref.Class, ref.Ref.Name); owner != "" && ref.Wrapped {
+		return "", true
+	}
+	return owner, false
 }
 
 // ivarInClass looks up instance variable name in the class identified by
@@ -251,10 +283,10 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 	// Intra-class method resolution: a bare command call (or $this method) inside
 	// a class method body resolves to a method on the current class (or its bases).
 	// This takes precedence over the global command path but comes after proc-locals.
-	if ref.Ref.Kind == tcl.RefCommand && ref.Frame == tcl.FrameProc && ref.Class != "" {
-		if locs := r.methodInClass(ref.Class, ref.Ref.Name); len(locs) > 0 {
-			return locs
-		}
+	if owner, ambiguous := r.intraClassOwner(ref); ambiguous {
+		return nil
+	} else if owner != "" {
+		return r.classMethods(owner, ref.Ref.Name)
 	}
 	side := sideOfRef(ref.Ref.Kind)
 	for _, name := range r.candidates(ref, file) {
@@ -447,23 +479,17 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	if name, scope, _, ok := r.localAt(file, src, offset); ok {
 		return r.localReferences(file, src, name, scope)
 	}
-	target, side := r.targetFQ(file, src, offset)
-	if target == "" {
+	target, ok := r.targetAt(file, src, offset)
+	if !ok {
 		return nil
 	}
-	// targetKind carries the target's DEFINITION kind for the protocol layer's
-	// use; it is the zero value (DefProc) when the target has no definition on its
-	// side in the index (an undefined symbol). A reference site itself has no
-	// def-kind.
-	var targetKind tcl.DefKind
-	if defs := r.lookupSide(target, file, side); len(defs) > 0 {
-		targetKind = defs[0].Kind
-	}
+	targetKind := r.targetKind(target, file)
 
 	// A page-local (::request) symbol has references only within its own page, so
 	// scanning other files would risk matching an identically-named page-local
-	// helper elsewhere (their primary candidate name collides).
-	pageLocal := pageLocalName(file, target)
+	// helper elsewhere (their primary candidate name collides). The class table is
+	// workspace-wide, so a method is never page-local.
+	pageLocal := target.class == "" && pageLocalName(file, target.name)
 
 	// Build the per-file work list: the current file from live source, the rest
 	// from precomputed refs. The current file is first so results stay in the same
@@ -491,9 +517,9 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	parts := par.Map(work, func(w refScan) []index.Location {
 		var out []index.Location
 		for i := range w.refs {
-			if sideOfRef(w.refs[i].Ref.Kind) == side && r.refFQ(&w.refs[i], w.file) == target {
+			if r.refNames(&w.refs[i], w.file, target) {
 				out = append(out, index.Location{
-					File: w.file, Name: target, Kind: targetKind,
+					File: w.file, Name: target.name, Kind: targetKind,
 					NameStart: w.refs[i].Ref.Start, NameEnd: w.refs[i].Ref.End,
 				})
 			}
@@ -546,11 +572,11 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 		}
 		return out
 	}
-	target, side := r.targetFQ(file, src, offset)
-	if target == "" {
+	target, ok := r.targetAt(file, src, offset)
+	if !ok {
 		return nil
 	}
-	return r.lookupSide(target, file, side)
+	return r.declarations(target, file)
 }
 
 // CommandRefKind returns the definition kind a command reference resolves to (by
@@ -581,48 +607,117 @@ func (r *Resolver) FileHighlights(file, src string, offset int) []index.Location
 	if name, scope, _, ok := r.localAt(file, src, offset); ok {
 		return r.localReferences(file, src, name, scope) // already in-file only
 	}
-	target, side := r.targetFQ(file, src, offset)
-	if target == "" {
+	target, ok := r.targetAt(file, src, offset)
+	if !ok {
 		return nil
 	}
-	var targetKind tcl.DefKind
-	if defs := r.lookupSide(target, file, side); len(defs) > 0 {
-		targetKind = defs[0].Kind
-	}
+	targetKind := r.targetKind(target, file)
 
 	var out []index.Location
 	// In-file reference sites (command / qualified-variable uses).
 	refs := source.Refs(file, src)
 	for i := range refs {
-		if sideOfRef(refs[i].Ref.Kind) == side && r.refFQ(&refs[i], file) == target {
-			out = append(out, index.Location{File: file, Name: target, Kind: targetKind, NameStart: refs[i].Ref.Start, NameEnd: refs[i].Ref.End})
+		if r.refNames(&refs[i], file, target) {
+			out = append(out, index.Location{File: file, Name: target.name, Kind: targetKind, NameStart: refs[i].Ref.Start, NameEnd: refs[i].Ref.End})
 		}
 	}
 	// In-file declaration site(s), from live source so an unsaved edit is honored.
 	for _, d := range source.Defs(file, src) {
-		if d.Name == target && !isLocalBinding(d.Kind) && sideOfDef(d.Kind) == side {
-			out = append(out, index.Location{File: file, Name: target, Kind: d.Kind, NameStart: d.NameStart, NameEnd: d.NameEnd})
+		if defSymbol(d) == target {
+			out = append(out, index.Location{File: file, Name: target.name, Kind: d.Kind, NameStart: d.NameStart, NameEnd: d.NameEnd})
 		}
 	}
 	return out
 }
 
-// targetFQ returns the fully-qualified name of the symbol at offset and the side
-// of the name table it lives on: a definition name-range it falls within, else the
-// reference there resolved to its FQ name. file selects the document (so .rvt is
-// extracted) and scopes page-local lookups. Returns "" if there is no resolvable
-// symbol.
-func (r *Resolver) targetFQ(file, src string, offset int) (string, nameSide) {
+// symbol is what a definition or reference names: a fully-qualified name on one
+// side of the name table, or, when class is set, the Itcl method name declared in
+// that class. A method has no FQ name of its own, and calls bind to it through the
+// calling class's inheritance chain, so the declaring class identifies it.
+type symbol struct {
+	name  string
+	side  nameSide
+	class string
+}
+
+// defSymbol returns the symbol a definition declares, or the zero symbol for a
+// definition find-references does not target (locals, ivars).
+func defSymbol(d tcl.Definition) symbol {
+	switch d.Kind {
+	case tcl.DefProc, tcl.DefNamespaceVar, tcl.DefClass:
+		return symbol{name: d.Name, side: sideOfDef(d.Kind)}
+	case tcl.DefMethod:
+		if d.Class != "" {
+			return symbol{name: d.Name, side: sideCommand, class: d.Class}
+		}
+	}
+	return symbol{}
+}
+
+// refSymbol resolves a reference to the symbol it binds to, with goto-definition's
+// precedence: an intra-class method first, else the reference's FQ name. A call
+// whose target is ambiguous binds to the zero symbol, which matches no target.
+func (r *Resolver) refSymbol(ref *tcl.ContextRef, file string) symbol {
+	owner, ambiguous := r.intraClassOwner(ref)
+	if ambiguous {
+		return symbol{}
+	}
+	if owner != "" {
+		return symbol{name: ref.Ref.Name, side: sideCommand, class: owner}
+	}
+	return symbol{name: r.refFQ(ref, file), side: sideOfRef(ref.Ref.Kind)}
+}
+
+// refNames reports whether ref binds to target. The side and bare-name checks are
+// cheap filters ahead of resolution on the workspace scan.
+func (r *Resolver) refNames(ref *tcl.ContextRef, file string, target symbol) bool {
+	if sideOfRef(ref.Ref.Kind) != target.side {
+		return false
+	}
+	// A method matches its bare name. An FQ name ends in the ref's name, since
+	// every candidate qualifies it into some namespace.
+	if target.class != "" && ref.Ref.Name != target.name ||
+		target.class == "" && !strings.HasSuffix(target.name, ref.Ref.Name) {
+		return false
+	}
+	return r.refSymbol(ref, file) == target
+}
+
+// targetAt returns the symbol at offset: the one a definition name-range it falls
+// within declares, else the one the reference there binds to. file selects the
+// document (so .rvt is extracted) and scopes page-local lookups. ok is false when
+// there is no resolvable symbol.
+func (r *Resolver) targetAt(file, src string, offset int) (symbol, bool) {
 	for _, d := range source.Defs(file, src) {
-		if (d.Kind == tcl.DefProc || d.Kind == tcl.DefNamespaceVar || d.Kind == tcl.DefClass) &&
-			offset >= d.NameStart && offset < d.NameEnd {
-			return d.Name, sideOfDef(d.Kind)
+		if sym := defSymbol(d); sym.name != "" && offset >= d.NameStart && offset < d.NameEnd {
+			return sym, true
 		}
 	}
 	if ref := refAt(file, src, offset); ref != nil {
-		return r.refFQ(ref, file), sideOfRef(ref.Ref.Kind)
+		sym := r.refSymbol(ref, file)
+		return sym, sym.name != ""
 	}
-	return "", sideCommand
+	return symbol{}, false
+}
+
+// declarations returns the definition sites of a symbol: a method's declarations
+// in its class (a class-body `method` and any `itcl::body`), else the FQ name's
+// definitions on its side.
+func (r *Resolver) declarations(target symbol, file string) []index.Location {
+	if target.class != "" {
+		return r.classMethods(target.class, target.name)
+	}
+	return r.lookupSide(target.name, file, target.side)
+}
+
+// targetKind returns the target's DEFINITION kind for the protocol layer. It is
+// the zero value (DefProc) for an undefined symbol; a reference site itself has no
+// def-kind.
+func (r *Resolver) targetKind(target symbol, file string) tcl.DefKind {
+	if defs := r.declarations(target, file); len(defs) > 0 {
+		return defs[0].Kind
+	}
+	return 0
 }
 
 // nameSide says which of TCL's two separate name tables a symbol belongs to. A
