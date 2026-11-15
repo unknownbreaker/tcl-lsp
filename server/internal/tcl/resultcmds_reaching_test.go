@@ -119,9 +119,11 @@ func TestReachingResultVarCommandsMayWrite(t *testing.T) {
 
 // Outside a proc these commands bind nothing, like catch and foreach.
 func TestReachingResultVarCommandsTopLevelSilent(t *testing.T) {
-	src := "gets $f line\nputs $line"
-	defs, _ := ReachingAt(src, indexOf(t, src, "$line")+1)
-	if len(defs) != 0 {
-		t.Fatalf("top-level gets answered %#v, want nothing", defs)
+	for _, cmd := range []string{"gets $f line", "scan $s %d line"} {
+		src := cmd + "\nputs $line"
+		defs, _ := ReachingAt(src, indexOf(t, src, "$line")+1)
+		if len(defs) != 0 {
+			t.Fatalf("top-level %q answered %#v, want nothing", cmd, defs)
+		}
 	}
 }

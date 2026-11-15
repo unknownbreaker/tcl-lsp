@@ -57,7 +57,7 @@ func TestDefinitionBindingsThatCannotReach(t *testing.T) {
 		{"catch, before set", inCatch, "$y", []int{1}},          // was [1,4]
 		{"control, after catch", afterCatch, "$z", []int{2, 3}}, // must stay
 		{"regexp, then later set", "proc f {} {\n  regexp {a} $s word\n  puts $word\n  set word 2\n}", "$word", []int{2}},
-		{"unmodeled binding, then later set", "proc f {} {\n  gets $f {word}\n  puts $word\n  set word 2\n}", "$word", nil},
+		{"unbindable result-var word, then later set", "proc f {} {\n  gets $f {word}\n  puts $word\n  set word 2\n}", "$word", nil},
 		{"itcl ivar over later set", "itcl::class C {\n  protected variable n 0\n  method m {} {\n    puts $n\n    set n 1\n  }\n}", "$n", []int{2}},
 		{"loop, no prior", "proc f {} {\n  while {1} {\n    puts $x\n    set x 1\n  }\n}", "$x", []int{4}},
 		{"loop, prior", "proc f {} {\n  set x 0\n  while {1} {\n    puts $x\n    set x 1\n  }\n}", "$x", []int{2, 5}},

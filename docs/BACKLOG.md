@@ -68,8 +68,8 @@ The FlightAware corpus probe found ten kinds of missing answers, ranked in
 `research/08-flightaware-corpus-probe.md` ("Misses"). None are in the current fix
 plan (`docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`), which
 covers wrong answers and the position slowdown only. Rows there are harness counts
-and upper bounds; confirm a root cause by reproducing it before picking one up. Items 1, 2, 3 and 4 are fixed;
-the notes there say which version.
+and upper bounds; confirm a root cause by reproducing it before picking one up. Items 1, 2,
+3 and 4 are fixed; the notes there say which version.
 
 ## Corpus-fix residuals (v0.6.3)
 
