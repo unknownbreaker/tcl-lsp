@@ -781,8 +781,8 @@ func localBindings(c Command, base int, ns string, frame FrameKind) []Definition
 		}
 	}
 
-	// catch script ?resultVar? ?optionsVar?, and the variables gets, regsub, regexp
-	// and binary scan write
+	// catch script ?resultVar? ?optionsVar?, and the variables gets, regsub, regexp,
+	// binary scan and scan write
 	resultWords, _ := resultVarWords(w)
 	for _, words := range [][]Word{catchVarWords(w), resultWords} {
 		for _, vw := range words {

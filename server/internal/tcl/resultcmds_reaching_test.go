@@ -5,11 +5,12 @@ import (
 	"testing"
 )
 
-// Variables written by gets, regsub, regexp and binary scan. tclsh 8.6.18 and 9.0.3
+// Variables written by gets, regsub, regexp, binary scan and scan. tclsh 8.6.18 and 9.0.3
 // are the oracle: gets always writes its variable (an empty string at end of file),
 // and regsub always writes its variable (the input when nothing matches); regexp
 // writes its match variables only when it matches, and none with -about or
-// -inline; binary scan stops writing at the end of its data. A leading word starting
+// -inline; binary scan stops writing at the end of its data, and scan writes only
+// the variables of conversions it performs. A leading word starting
 // with `-` is a regexp option even when substituted, and options must be spelled in
 // full.
 
@@ -40,6 +41,10 @@ func TestReachingResultVarCommands(t *testing.T) {
 		{"regsub kills prior", "regsub -all {a} $s {b} s\nwhile {[regexp {(x)} $s _ s]} {}\nputs $s", "$s\n}", []at{{"s\nwhile", 0}, {"s]", 0}}},
 		{"binary scan", "binary scan $d cc a b\nputs $b", "$b", []at{{"b\nputs", 0}}},
 		{"binary scan joins prior", "set b 0\nbinary scan $d cc a b\nputs $b", "$b", []at{{"b 0", 0}, {"b\nputs", 0}}},
+		{"scan", "scan $s {%d %d} a b\nputs $b", "$b", []at{{"b\nputs", 0}}},
+		{"scan joins prior", "set b 0\nscan $s {%d %d} a b\nputs $b", "$b", []at{{"b 0", 0}, {"b\nputs", 0}}},
+		{"scan in if test", "if {[scan $s %d n] == 1} {\n  puts $n\n}", "$n", []at{{"n]", 0}}},
+		{"scan array element", "scan $s %d a(x)\nputs $a(x)", "$a(x)", []at{{"a(x)\nputs", 0}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -75,6 +80,10 @@ func TestReachingResultVarCommandsUncertain(t *testing.T) {
 		{"regsub -command", "regsub -command {a} $s {string toupper} v"},
 		{"binary not scan", "binary format c v"},
 		{"binary scan same var", "binary scan $d cc v v"},
+		{"scan inline", "scan $s %d"},
+		{"scan expanded", "scan {*}$args v"},
+		{"scan same var", "scan $s {%d %d} v v"},
+		{"scan dynamic var name", "scan $s {%d %d} v $n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -97,6 +106,8 @@ func TestReachingResultVarCommandsMayWrite(t *testing.T) {
 		{"binary scan prefix", "binary sc $d c v"},
 		{"binary scan one-letter prefix", "binary s $d c v"},
 		{"binary scan quoted", "binary \"scan\" $d c v"},
+		{"scan substituted format", "scan $s $fmt v"},
+		{"scan positional", "scan $s {%2$d %1$d} x v"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -108,9 +119,11 @@ func TestReachingResultVarCommandsMayWrite(t *testing.T) {
 
 // Outside a proc these commands bind nothing, like catch and foreach.
 func TestReachingResultVarCommandsTopLevelSilent(t *testing.T) {
-	src := "gets $f line\nputs $line"
-	defs, _ := ReachingAt(src, indexOf(t, src, "$line")+1)
-	if len(defs) != 0 {
-		t.Fatalf("top-level gets answered %#v, want nothing", defs)
+	for _, cmd := range []string{"gets $f line", "scan $s %d line"} {
+		src := cmd + "\nputs $line"
+		defs, _ := ReachingAt(src, indexOf(t, src, "$line")+1)
+		if len(defs) != 0 {
+			t.Fatalf("top-level %q answered %#v, want nothing", cmd, defs)
+		}
 	}
 }
