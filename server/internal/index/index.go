@@ -381,6 +381,18 @@ func (ix *Index) Namespace(ns string) (path []string, imports []string) {
 	return path, imports
 }
 
+// NamespaceDeclsIn returns the command-search path and import source patterns declared
+// for ns in file alone, in declaration order. A page's ::request namespace is
+// recreated for each page, so only its own declarations apply there. It reads the
+// index without memoizing, so it is safe under a parallel scan; the returned slices
+// are read-only.
+func (ix *Index) NamespaceDeclsIn(file, ns string) (path []string, imports []string) {
+	if info := ix.fileNS[file][ns]; info != nil {
+		return info.Path, info.Imports
+	}
+	return nil, nil
+}
+
 // SymbolEntry is a flattened workspace symbol suitable for workspace/symbol responses.
 type SymbolEntry struct {
 	Name      string // simple name (last :: segment)

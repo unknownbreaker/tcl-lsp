@@ -197,6 +197,10 @@ requests stack depends on what the client sends. This is one generated data file
    exist. **Harness count:** 2,064 rows, of which TclProDebug is 2,001, prometheus-tcl 61, turtles 2.
    Probes were capped, so this is undercounted, and it is concentrated in one repo. `research/02`
    F-C only tested a target that exists (now corrected there).
+   **Fixed in v0.6.8:** a relative qualified command resolves like a bare one without imports:
+   current namespace, then each `namespace path` entry, then global. Parent namespaces are not
+   searched, and an absolute name has no fallback (tclsh 8.6 and 9.0 agree). In a template, the
+   page's `::request` takes only that page's own `namespace path` and imports, for bare names too.
 2. **`$var` in braced expressions.** **Reproduced:** `if {$n <= 1}` and `expr {$n * 2}` → nothing.
    `refs.go:41-42` and `:120-122` say braces suppress these, which is wrong for Tcl: `expr`
    substitutes them itself. **Harness count:** 3,054 rows tagged `in-expr`, of 4,510 variable misses.
