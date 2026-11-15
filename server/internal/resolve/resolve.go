@@ -487,8 +487,9 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 
 	// A page-local (::request) symbol has references only within its own page, so
 	// scanning other files would risk matching an identically-named page-local
-	// helper elsewhere (their primary candidate name collides). The class table is
-	// workspace-wide, so a method is never page-local.
+	// helper elsewhere (their primary candidate name collides). A method is scanned
+	// workspace-wide because the class table is: ::request classes from different
+	// pages merge there, as they already do for goto-definition.
 	pageLocal := target.class == "" && pageLocalName(file, target.name)
 
 	// Build the per-file work list: the current file from live source, the rest
@@ -517,7 +518,7 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	parts := par.Map(work, func(w refScan) []index.Location {
 		var out []index.Location
 		for i := range w.refs {
-			if r.refNames(&w.refs[i], w.file, target) {
+			if r.refBindsTo(&w.refs[i], w.file, target) {
 				out = append(out, index.Location{
 					File: w.file, Name: target.name, Kind: targetKind,
 					NameStart: w.refs[i].Ref.Start, NameEnd: w.refs[i].Ref.End,
@@ -617,7 +618,7 @@ func (r *Resolver) FileHighlights(file, src string, offset int) []index.Location
 	// In-file reference sites (command / qualified-variable uses).
 	refs := source.Refs(file, src)
 	for i := range refs {
-		if r.refNames(&refs[i], file, target) {
+		if r.refBindsTo(&refs[i], file, target) {
 			out = append(out, index.Location{File: file, Name: target.name, Kind: targetKind, NameStart: refs[i].Ref.Start, NameEnd: refs[i].Ref.End})
 		}
 	}
@@ -668,16 +669,16 @@ func (r *Resolver) refSymbol(ref *tcl.ContextRef, file string) symbol {
 	return symbol{name: r.refFQ(ref, file), side: sideOfRef(ref.Ref.Kind)}
 }
 
-// refNames reports whether ref binds to target. The side and bare-name checks are
+// refBindsTo reports whether ref binds to target. The side and bare-name checks are
 // cheap filters ahead of resolution on the workspace scan.
-func (r *Resolver) refNames(ref *tcl.ContextRef, file string, target symbol) bool {
+func (r *Resolver) refBindsTo(ref *tcl.ContextRef, file string, target symbol) bool {
 	if sideOfRef(ref.Ref.Kind) != target.side {
 		return false
 	}
 	// A method matches its bare name. An FQ name ends in the ref's name, since
 	// every candidate qualifies it into some namespace.
-	if target.class != "" && ref.Ref.Name != target.name ||
-		target.class == "" && !strings.HasSuffix(target.name, ref.Ref.Name) {
+	if (target.class != "" && ref.Ref.Name != target.name) ||
+		(target.class == "" && !strings.HasSuffix(target.name, ref.Ref.Name)) {
 		return false
 	}
 	return r.refSymbol(ref, file) == target

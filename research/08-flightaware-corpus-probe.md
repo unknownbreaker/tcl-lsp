@@ -219,7 +219,7 @@ requests stack depends on what the client sends. This is one generated data file
 4. **Find-references omits intra-class Itcl calls.** **Reproduced** synthetically. `Definition` has
    `methodInClass` (`resolve.go:260-264`) and `refFQ` does not. **Harness count:** 336 rows (speedtables
    176, piaware 153, piaware-gui 4, tsp 3), sampled at up to 300 defs per repo; "mostly" Itcl, not all
-   checked.
+   checked. A re-run against the v0.6.8 `main` binary counted 338.
    **Fixed in v0.6.9:** find-references, document highlight and incoming calls identify a method by
    the class that declares it, and list each bare call in a method body that goto-definition resolves
    to it (the calling class, then its bases depth-first; an override wins). Such a call is no longer a

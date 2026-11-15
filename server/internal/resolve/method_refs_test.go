@@ -51,24 +51,23 @@ func methodSitesOf(locs []index.Location) []msite {
 	for _, l := range locs {
 		out = append(out, msite{l.File, l.NameStart})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].file != out[j].file {
-			return out[i].file < out[j].file
-		}
-		return out[i].start < out[j].start
-	})
+	sortSites(out)
 	return out
+}
+
+func sortSites(s []msite) {
+	sort.Slice(s, func(i, j int) bool {
+		if s[i].file != s[j].file {
+			return s[i].file < s[j].file
+		}
+		return s[i].start < s[j].start
+	})
 }
 
 func wantMethodSites(t *testing.T, what string, got []index.Location, want ...msite) {
 	t.Helper()
 	g := methodSitesOf(got)
-	sort.Slice(want, func(i, j int) bool {
-		if want[i].file != want[j].file {
-			return want[i].file < want[j].file
-		}
-		return want[i].start < want[j].start
-	})
+	sortSites(want)
 	if len(g) != len(want) {
 		t.Fatalf("%s = %v, want %v", what, g, want)
 	}
@@ -79,7 +78,7 @@ func wantMethodSites(t *testing.T, what string, got []index.Location, want ...ms
 	}
 }
 
-// nth returns the offset of the n-th (0-based) occurrence of sub in s.
+// nthIndex returns the offset of the n-th (0-based) occurrence of sub in s.
 func nthIndex(s, sub string, n int) int {
 	off := -1
 	for i := 0; i <= n; i++ {
@@ -146,8 +145,8 @@ itcl::class K {
     method logger {m} {}
     method viaAfter {} { after 0 { logger after } }
     method viaUplevel {} { uplevel #0 { logger uplevel0 } }
-    method viaWrap {} { with_lock { foreach x {1} { if 1 { logger nested } } } }
-    method viaIf {} { if 1 { foreach x {1} { logger inif } } }
+    method viaWrap {} { with_lock { foreach x {1} { if {1} { logger nested } } } }
+    method viaIf {} { if {1} { foreach x {1} { logger inif } } }
     method viaNs {} { namespace eval :: { logger nseval } }
     method direct {} { logger direct }
 }
@@ -173,4 +172,19 @@ func TestWrappedIntraClassCallsAreSilent(t *testing.T) {
 			t.Errorf("References(%q) = %v, want silence", call, refs)
 		}
 	}
+}
+
+// An .rvt page's class lists its intra-class calls the same way: References from
+// the method's definition finds the call in the page, and the call finds the def.
+func TestMethodReferencesInRVT(t *testing.T) {
+	const page = "<h1>x</h1>\n<?\nproc logger {args} {}\nitcl::class P {\n    method logger {m} {}\n    method run {} { logger hi }\n}\nlogger top\n?>\n"
+	ix := index.New()
+	ix.IndexFile("p.rvt", page)
+	r := New(ix)
+	def := msite{"p.rvt", strings.Index(page, "logger {m}")}
+	call := msite{"p.rvt", strings.Index(page, "logger hi")}
+	wantMethodSites(t, "References(method def)", r.References("p.rvt", page, def.start), call)
+	wantMethodSites(t, "References(call)", r.References("p.rvt", page, call.start), call)
+	wantMethodSites(t, "References(global proc)", r.References("p.rvt", page, strings.Index(page, "logger {args}")),
+		msite{"p.rvt", strings.Index(page, "logger top")})
 }

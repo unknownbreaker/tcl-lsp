@@ -113,6 +113,10 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
 - **Itcl method calls Tcl rejects.** A bare call to a base class's `private` method, to an instance
   method from a class `proc`, or from a nested `proc` inside a method errors in Tcl, yet resolves to
   the method and is listed as its reference. Same on v0.6.8 for goto-definition.
+- **`dict with`/`dict update` bodies in a method are silent for method-named calls.** Since v0.6.9 a
+  call in a custom command's body inside a method answers nothing when the class has a method of
+  that name. `dict with` and `dict update` run their body in place but are not in `bodiesRunHere`, so
+  a bare `m` there answers nothing for goto-definition and find-references. Adding them would fix it.
 - **`::request` declarations from a `.tcl` file.** Since v0.6.8 a template's `::request` takes only
   that page's `namespace path` and imports. A `.tcl` file that writes them into `::request`
   (outside the model, research/05 V2) is ignored from pages, so if a page sources it, a call can
