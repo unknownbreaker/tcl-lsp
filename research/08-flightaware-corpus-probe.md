@@ -223,8 +223,12 @@ requests stack depends on what the client sends. This is one generated data file
    possible writes too. Abbreviated options, `-about`, `-inline`, regsub's 9.0-only `-command`,
    `{*}`, and two words naming one variable bind nothing. A goto-def diff over all 35,702 corpus
    `$var` uses: 236 silent→answered, 240 changed (180 gained a possible or linked-global write, 60
-   lost a binding that a `gets` or `regsub` overwrites), 0 answered→silent. `scan` result
-   variables are still unmodeled.
+   lost a binding that a `gets` or `regsub` overwrites), 0 answered→silent. **`scan` fixed in
+   v0.6.11**, proc-local only: `scan string format var…` writes only the variables of the
+   conversions it performs (tclsh 8.6 and 9.0), so its writes join earlier bindings, whatever the
+   format. Inline `scan` (no variables), `{*}` and a repeated variable bind nothing. Goto-def diff
+   over the 35,702 `$var` uses: 12 silent→answered, 18 changed (each gained a `scan` write after a
+   `foreach` default), 0 answered→silent.
 4. **Find-references omits intra-class Itcl calls.** **Reproduced** synthetically. `Definition` has
    `methodInClass` (`resolve.go:260-264`) and `refFQ` does not. **Harness count:** 336 rows (speedtables
    176, piaware 153, piaware-gui 4, tsp 3), sampled at up to 300 defs per repo; "mostly" Itcl, not all

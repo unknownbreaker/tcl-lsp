@@ -68,8 +68,8 @@ The FlightAware corpus probe found ten kinds of missing answers, ranked in
 `research/08-flightaware-corpus-probe.md` ("Misses"). None are in the current fix
 plan (`docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`), which
 covers wrong answers and the position slowdown only. Rows there are harness counts
-and upper bounds; confirm a root cause by reproducing it before picking one up. Items 1, 2, 3 and 4 are fixed
-(item 3 except `scan`); the notes there say which version.
+and upper bounds; confirm a root cause by reproducing it before picking one up. Items 1, 2, 3 and 4 are fixed;
+the notes there say which version.
 
 ## Corpus-fix residuals (v0.6.3)
 
@@ -126,6 +126,14 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   operand (`regexp $opt {a} $s v`, `regsub $opt {a} $s {b} v`), a dynamic variable name
   (`regexp {(a)} $s v $n`), the same variable named twice (`regexp {(a)(b)} ab v v`), regsub's
   9.0-only `-command`, and any `{*}` form bind nothing, though Tcl may write `v`. Since v0.6.10.
+  Since v0.6.11 the same holds for `scan`, including distinct elements of one array
+  (`scan $s {%d %d} a(1) a(2)`).
+- **Backslash-escaped variable names bind their raw text.** `set a\x62 new` and `scan $s %d a\x62`
+  write `ab` (tclsh 8.6 and 9.0), but the binding is named `a\x62`, so a later `$ab` answers only
+  the earlier `set ab old`, which `set` overwrote. This is a wrong answer, but only for an unusual spelling.
+- **Goto-def repeats a result-var location after `global`.** With `global a` and then
+  `scan $s %d a` (also `regexp`, `binary scan`) in a proc, `$a` lists the scan's location twice.
+  The set of locations is right; only the dedupe is missing.
 - **`::request` declarations from a `.tcl` file.** Since v0.6.8 a template's `::request` takes only
   that page's `namespace path` and imports. A `.tcl` file that writes them into `::request`
   (outside the model, research/05 V2) is ignored from pages, so if a page sources it, a call can
