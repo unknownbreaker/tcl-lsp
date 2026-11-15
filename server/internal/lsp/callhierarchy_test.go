@@ -213,3 +213,21 @@ func TestServerAdvertisesCallHierarchy(t *testing.T) {
 		t.Fatalf("callHierarchyProvider not advertised: %#v", res.Capabilities)
 	}
 }
+
+// A call in an `after` script inside a method is not an incoming call of the
+// method: Tcl runs it at global level.
+func TestIncomingCallsSkipDeferredMethodCall(t *testing.T) {
+	src := "proc logger {args} {}\nitcl::class K {\n    method logger {m} {}\n    method later {} { after 0 { logger x } }\n    method now {} { logger y }\n}\n"
+	s := newCHServer(map[string]string{"file:///k.tcl": src})
+	items := s.prepareCallHierarchy(CallHierarchyPrepareParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///k.tcl"},
+		Position:     posOf(src, "logger {m}"),
+	})
+	if len(items) != 1 {
+		t.Fatalf("prepare = %v", items)
+	}
+	in := s.incomingCalls(CallHierarchyIncomingCallsParams{Item: items[0]})
+	if len(in) != 1 || in[0].From.Name != "now" {
+		t.Fatalf("incoming = %+v, want only `now`", in)
+	}
+}

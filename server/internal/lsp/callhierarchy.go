@@ -4,8 +4,6 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/unknownbreaker/tcl-lsp/internal/index"
-	"github.com/unknownbreaker/tcl-lsp/internal/par"
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
@@ -118,16 +116,10 @@ func (s *Server) incomingCalls(p CallHierarchyIncomingCallsParams) []CallHierarc
 	if !ok {
 		return nil
 	}
-	// Call sites reaching the anchor. Procs resolve by fully-qualified name, which
-	// References matches directly. Methods resolve by class-member MRO, which an
-	// FQ matcher does not cover, so they use a class-aware scan over the same
-	// precomputed reference data.
-	var sites []index.Location
-	if a.kind == tcl.DefMethod {
-		sites = s.methodCallSites(a)
-	} else {
-		sites = s.res.References(a.file, s.sourceOf(a.file), a.nameStart)
-	}
+	// Call sites reaching the anchor: find-references from its definition. A
+	// method's are the bare intra-class calls that resolve to it through the
+	// calling class's inheritance chain; `$obj method` calls are not covered.
+	sites := s.res.References(a.file, s.sourceOf(a.file), a.nameStart)
 
 	type group struct {
 		from   CallHierarchyItem
@@ -164,74 +156,6 @@ func (s *Server) incomingCalls(p CallHierarchyIncomingCallsParams) []CallHierarc
 		out = append(out, CallHierarchyIncomingCall{From: g.from, FromRanges: g.ranges})
 	}
 	return out
-}
-
-// methodCallSites finds bare command-position calls across the workspace that
-// resolve (by class-member MRO) to the method anchor. Explicit `$obj method` /
-// `$this method` calls are not command-position references, so they are not
-// covered — best-effort, matching find-references' method contract.
-func (s *Server) methodCallSites(a anchor) []index.Location {
-	// Per-file work: current file from live source, the rest from precomputed refs.
-	type fileWork struct {
-		file string
-		refs []tcl.ContextRef
-	}
-	work := []fileWork{{a.file, source.Refs(a.file, s.sourceOf(a.file))}}
-	for _, f := range s.ix.Files() {
-		if f != a.file {
-			work = append(work, fileWork{f, s.ix.FileRefs(f)})
-		}
-	}
-
-	// Resolve each file independently. methodResolvesTo only READS the class table
-	// (index.Class) and uses a per-call-local `seen` map, so the fan-out shares no
-	// mutable state; this runs while the dispatch loop is blocked on the request.
-	// Results concatenate in work order, identical to the sequential scan.
-	parts := par.Map(work, func(w fileWork) []index.Location {
-		var out []index.Location
-		for i := range w.refs {
-			r := &w.refs[i]
-			if r.Ref.Kind == tcl.RefCommand && r.Ref.Name == a.name && r.Class != "" &&
-				s.methodResolvesTo(r.Class, a.name, a, map[string]bool{}) {
-				out = append(out, index.Location{File: w.file, Name: a.name, Kind: tcl.DefMethod, NameStart: r.Ref.Start, NameEnd: r.Ref.End})
-			}
-		}
-		return out
-	})
-
-	var out []index.Location
-	for _, p := range parts {
-		out = append(out, p...)
-	}
-	return out
-}
-
-// methodResolvesTo reports whether resolving methodName from classFQ — walking the
-// inheritance chain depth-first, first match wins, cycle-guarded — lands on the
-// anchor's definition site (so an override in a subclass correctly does NOT match).
-func (s *Server) methodResolvesTo(classFQ, methodName string, a anchor, seen map[string]bool) bool {
-	if seen[classFQ] {
-		return false
-	}
-	seen[classFQ] = true
-	ci := s.ix.Class(classFQ)
-	if ci == nil {
-		return false
-	}
-	if locs := ci.Methods[methodName]; len(locs) > 0 {
-		for _, l := range locs {
-			if l.File == a.file && l.NameStart == a.nameStart {
-				return true
-			}
-		}
-		return false // resolves to a different definition here (an override)
-	}
-	for _, base := range ci.Inherit {
-		if s.methodResolvesTo(base, methodName, a, seen) {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Server) outgoingCalls(p CallHierarchyOutgoingCallsParams) []CallHierarchyOutgoingCall {

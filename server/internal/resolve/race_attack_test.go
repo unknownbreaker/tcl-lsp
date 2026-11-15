@@ -5,7 +5,7 @@
 // Attack strategy:
 //  1. Prove the pre-warm is COMPLETE — i.e. no path through refFQ calls
 //     Namespace() with a key not covered by warmNamespaces().
-//  2. Prove methodCallSites is read-only for the class table.
+//  2. Prove the method-owner walk is read-only for the class table.
 //  3. Prove result parity and deterministic ordering across corner cases.
 //  4. Stress par.Map edge cases (empty, single, GOMAXPROCS=1).
 package resolve

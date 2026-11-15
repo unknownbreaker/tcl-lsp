@@ -1,9 +1,10 @@
-// Package lsp — concurrency attack tests for methodCallSites parallel fan-out.
+// Package lsp — concurrency attack tests for the parallel fan-out behind a
+// method's incoming calls (resolve.References over methodOwner).
 //
 // Run with: go test -race -count=50 ./internal/lsp/...
 //
 // Attack strategy:
-//  1. Verify methodResolvesTo only reads the class table (no writes).
+//  1. Verify methodOwner only reads the class table (no writes).
 //  2. Verify a.name bare-name filter across many same-named methods in
 //     different classes with inheritance.
 //  3. Stress MRO cycle detection across many goroutines (per-call seen map).
@@ -21,9 +22,9 @@ import (
 	"github.com/unknownbreaker/tcl-lsp/internal/resolve"
 )
 
-// newMCSServer builds a Server with an index pre-populated from files. Unlike
+// newIncomingServer builds a Server with an index pre-populated from files. Unlike
 // newCHServer it takes (path, content) pairs so tests can use bare paths.
-func newMCSServer(files map[string]string) *Server {
+func newIncomingServer(files map[string]string) *Server {
 	ix := index.New()
 	s := &Server{ix: ix, res: resolve.New(ix), docs: map[string]string{}}
 	for path, content := range files {
@@ -34,9 +35,9 @@ func newMCSServer(files map[string]string) *Server {
 
 // --- Attack 1: many classes with the same bare method name, one class per file.
 //
-// methodCallSites filters with r.Ref.Name == a.name, which compares bare names.
+// References filters a method target by bare name first.
 // When many classes each have a "run" method, every ref passes the name filter;
-// methodResolvesTo then applies MRO to pick only callers that resolve to the
+// methodOwner then applies MRO to pick only callers that resolve to the
 // target anchor. Verify: only callers that inherit the target class are returned,
 // and the result count is exact. Run under -race to prove the class table reads
 // are concurrent-safe.
@@ -44,7 +45,7 @@ func newMCSServer(files map[string]string) *Server {
 // NAMING NOTE: Sub callers use "sg%03d" and unrelated callers use "ug%03d" to
 // avoid name collisions in the callerMap check — both groups call "run" but the
 // ENCLOSING METHOD names must be distinct so we can distinguish them.
-func TestMethodCallSitesManySameNamedMethods(t *testing.T) {
+func TestIncomingMethodCallsManySameNamedMethods(t *testing.T) {
 	const n = 50
 	files := map[string]string{}
 
@@ -71,7 +72,7 @@ func TestMethodCallSitesManySameNamedMethods(t *testing.T) {
 		files[fmt.Sprintf("/unrelated%03d.tcl", k)] = src
 	}
 
-	s := newMCSServer(files)
+	s := newIncomingServer(files)
 
 	// Anchor: ::Base::run (the definition at the start of base.tcl).
 	items := s.prepareCallHierarchy(CallHierarchyPrepareParams{
@@ -90,8 +91,8 @@ func TestMethodCallSitesManySameNamedMethods(t *testing.T) {
 		callerMap[c.From.Name] = true
 	}
 
-	// Unrelated classes (ug*) override run themselves: methodResolvesTo must return
-	// false for them (their resolution lands on their own run, not ::Base::run).
+	// Unrelated classes (ug*) override run themselves: methodOwner must not return
+	// ::Base for them (their resolution lands on their own run, not ::Base::run).
 	for k := 0; k < m; k++ {
 		ugName := fmt.Sprintf("ug%03d", k)
 		if callerMap[ugName] {
@@ -109,10 +110,10 @@ func TestMethodCallSitesManySameNamedMethods(t *testing.T) {
 
 // --- Attack 2: MRO cycle via diamond inheritance across many goroutines.
 //
-// methodResolvesTo uses a per-call-local `seen` map. A diamond (A <- B, A <- C,
+// methodOwner uses a per-call-local `seen` map. A diamond (A <- B, A <- C,
 // B <- D, C <- D) must not loop forever. Multiple goroutines each have their own
 // `seen` — verify no write-sharing under -race.
-func TestMethodCallSitesMROCycleParallel(t *testing.T) {
+func TestIncomingMethodCallsMROCycleParallel(t *testing.T) {
 	// Diamond: Base <- Left, Base <- Right, Left <- Diamond, Right <- Diamond.
 	files := map[string]string{
 		"/base.tcl":    "itcl::class ::Base {\n  public method draw {} {}\n}",
@@ -126,7 +127,7 @@ func TestMethodCallSitesMROCycleParallel(t *testing.T) {
 		files[fmt.Sprintf("/d%03d.tcl", k)] = src
 	}
 
-	s := newMCSServer(files)
+	s := newIncomingServer(files)
 	baseSrc := "itcl::class ::Base {\n  public method draw {} {}\n}"
 	items := s.prepareCallHierarchy(CallHierarchyPrepareParams{
 		TextDocument: TextDocumentIdentifier{URI: "file:///base.tcl"},
@@ -144,14 +145,14 @@ func TestMethodCallSitesMROCycleParallel(t *testing.T) {
 
 // --- Attack 3: GOMAXPROCS=1 forces inline par.Map path.
 //
-// With one CPU, methodCallSites runs all work inline (no goroutines). Verify
+// With one CPU, the incoming-calls scan runs all work inline (no goroutines). Verify
 // correct results under GOMAXPROCS=1.
-func TestMethodCallSitesGOMAXPROCS1(t *testing.T) {
+func TestIncomingMethodCallsGOMAXPROCS1(t *testing.T) {
 	old := runtime.GOMAXPROCS(1)
 	defer runtime.GOMAXPROCS(old)
 
 	src := "itcl::class ::C {\n  public method helper {} {}\n  public method run {} { helper }\n}"
-	s := newMCSServer(map[string]string{"/c.tcl": src})
+	s := newIncomingServer(map[string]string{"/c.tcl": src})
 	items := s.prepareCallHierarchy(CallHierarchyPrepareParams{
 		TextDocument: TextDocumentIdentifier{URI: "file:///c.tcl"},
 		Position:     posOf(src, "helper {}"),
@@ -171,11 +172,11 @@ func TestMethodCallSitesGOMAXPROCS1(t *testing.T) {
 	}
 }
 
-// --- Attack 4: deterministic result order for methodCallSites.
+// --- Attack 4: deterministic result order for the incoming-calls scan.
 //
 // Results must be in work-list order (current file first, then Files() sorted).
 // Run 30 times and verify identical order every time.
-func TestMethodCallSitesDeterministicOrder(t *testing.T) {
+func TestIncomingMethodCallsDeterministicOrder(t *testing.T) {
 	base := "itcl::class ::Base {\n  public method act {} {}\n}"
 	files := map[string]string{"/base.tcl": base}
 	// Three callers in alphabetic file order.
@@ -185,7 +186,7 @@ func TestMethodCallSitesDeterministicOrder(t *testing.T) {
 		files["/"+name+".tcl"] = src
 	}
 
-	s := newMCSServer(files)
+	s := newIncomingServer(files)
 	items := s.prepareCallHierarchy(CallHierarchyPrepareParams{
 		TextDocument: TextDocumentIdentifier{URI: "file:///base.tcl"},
 		Position:     posOf(base, "act {}"),
@@ -215,22 +216,22 @@ func TestMethodCallSitesDeterministicOrder(t *testing.T) {
 
 // --- Attack 5: class table is read-only — no ensureClass calls during fan-out.
 //
-// Verify that methodCallSites never writes to ix.classes by calling a query on
-// a class name that does NOT exist in the index. methodResolvesTo returns false
+// Verify that the incoming-calls scan never writes to ix.classes by calling a query on
+// a class name that does NOT exist in the index. methodOwner finds no owner
 // (not panic) when ix.Class returns nil. No write-through cache fill must happen.
 //
 // This test is structural: we call incomingCalls on a method of a class whose
-// callers reference an unknown base class — methodResolvesTo walks the inherit
+// callers reference an unknown base class — methodOwner walks the inherit
 // chain, calls ix.Class("::Unknown"), gets nil, returns false, and stops. No map
 // write. Under -race this must be clean.
-func TestMethodCallSitesUnknownBaseClassReadOnly(t *testing.T) {
+func TestIncomingMethodCallsUnknownBaseClassReadOnly(t *testing.T) {
 	// ::Derived inherits ::Unknown (not indexed). Its "act" resolves through
 	// ::Derived.act (not found there) to ::Unknown.act — ix.Class("::Unknown") is nil.
 	files := map[string]string{
 		"/base.tcl": "itcl::class ::Base {\n  public method act {} {}\n}",
 		// ::Bridge inherits ::Unknown (unknown) and ::Base (known).
 		// "act" in ::Bridge resolves to ::Unknown::act if ::Unknown had one, but
-		// since ::Unknown is not indexed, methodResolvesTo returns false safely.
+		// since ::Unknown is not indexed, methodOwner finds no owner safely.
 		"/bridge.tcl": "itcl::class ::Bridge {\n  inherit ::Unknown\n  inherit ::Base\n  public method go {} { act }\n}",
 	}
 	// Many files call act through ::Bridge to stress the nil-class path.
@@ -240,7 +241,7 @@ func TestMethodCallSitesUnknownBaseClassReadOnly(t *testing.T) {
 		files[fmt.Sprintf("/sub%03d.tcl", k)] = src
 	}
 
-	s := newMCSServer(files)
+	s := newIncomingServer(files)
 	baseSrc := "itcl::class ::Base {\n  public method act {} {}\n}"
 	items := s.prepareCallHierarchy(CallHierarchyPrepareParams{
 		TextDocument: TextDocumentIdentifier{URI: "file:///base.tcl"},
@@ -253,13 +254,13 @@ func TestMethodCallSitesUnknownBaseClassReadOnly(t *testing.T) {
 	_ = s.incomingCalls(CallHierarchyIncomingCallsParams{Item: items[0]})
 }
 
-// --- Attack 6: methodCallSites with empty workspace (no files, no refs).
+// --- Attack 6: the incoming-calls scan with empty workspace (no files, no refs).
 //
-// methodCallSites builds a work list of [current file] + Files(). With no indexed
+// References builds a work list of [current file] + Files(). With no indexed
 // files, work is [{a.file, liveRefs}] and par.Map has 1 item. Must return nil, not panic.
-func TestMethodCallSitesEmptyWorkspace(t *testing.T) {
+func TestIncomingMethodCallsEmptyWorkspace(t *testing.T) {
 	src := "itcl::class ::C {\n  public method run {} {}\n}"
-	s := newMCSServer(map[string]string{"/c.tcl": src})
+	s := newIncomingServer(map[string]string{"/c.tcl": src})
 	items := s.prepareCallHierarchy(CallHierarchyPrepareParams{
 		TextDocument: TextDocumentIdentifier{URI: "file:///c.tcl"},
 		Position:     posOf(src, "run {}"),

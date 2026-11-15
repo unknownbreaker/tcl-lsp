@@ -6,7 +6,7 @@ package tcl
 // names, in declaration order.
 func FileClasses(src string) map[string][]string {
 	m := map[string][]string{}
-	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", collectors{classes: m})
+	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", false, collectors{classes: m})
 	return m
 }
 
