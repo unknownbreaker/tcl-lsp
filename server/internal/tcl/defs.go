@@ -1,6 +1,9 @@
 package tcl
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // DefKind classifies a definition.
 type DefKind int
@@ -152,9 +155,12 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		}
 	}
 	if frame == FrameProc {
-		for _, vw := range catchVarWords(w) {
-			if name, s, e, ok := arrayBaseName(vw); ok {
-				emitVarAssign(name, s, e, base, ns, frame, scope, class, cmdStart, cmdEnd, out)
+		resultWords, _ := resultVarWords(w)
+		for _, words := range [][]Word{catchVarWords(w), resultWords} {
+			for _, vw := range words {
+				if name, s, e, ok := arrayBaseName(vw); ok {
+					emitVarAssign(name, s, e, base, ns, frame, scope, class, cmdStart, cmdEnd, out)
+				}
 			}
 		}
 	}
@@ -530,6 +536,131 @@ func catchVarWords(w []Word) []Word {
 		}
 	}
 	return w[2:]
+}
+
+// resultVarWords returns the words naming the variables gets, regsub, regexp and
+// binary scan write, and whether the write is certain. Behavior follows tclsh 8.6
+// and 9.0. `gets chan var` always writes var when it returns, including "" at end of
+// file, and regsub always writes its variable, so they replace earlier bindings like
+// set. regexp writes its match variables only on a match, and binary scan stops
+// writing at the end of its data, so theirs are possible writes that join earlier
+// bindings, as is a regsub write when a substituted word may be an option. With an expanded word, or a variable word that is not a plain
+// name, the roles are unknown and nothing binds. Two words naming one variable
+// (`m m`, `m m(x)`) bind nothing either.
+func resultVarWords(w []Word) (words []Word, certain bool) {
+	if hasExpansion(w) {
+		return nil, false
+	}
+	switch {
+	case isCmd(w, "gets"):
+		if len(w) == 3 {
+			words, certain = w[2:], true
+		}
+	case isCmd(w, "regexp"):
+		words = regexpVarWords(w)
+	case isCmd(w, "regsub"):
+		words, certain = regsubVarWord(w)
+	case isCmd(w, "binary"):
+		if len(w) >= 5 && isScanSubcommand(w[1]) {
+			words = w[4:]
+		}
+	}
+	seen := map[string]bool{}
+	for _, vw := range words {
+		name, _, _, ok := arrayBaseName(vw)
+		if !ok || seen[name] {
+			return nil, false
+		}
+		seen[name] = true
+	}
+	return words, certain
+}
+
+// isScanSubcommand reports whether w is binary's scan subcommand. binary is an
+// ensemble, so any prefix of scan works: no other subcommand starts with s.
+func isScanSubcommand(w Word) bool {
+	sub, ok := literalValue(w)
+	return ok && sub != "" && strings.HasPrefix("scan", sub)
+}
+
+// regexpOperands returns the words of a regexp or regsub command after its options,
+// starting at the pattern, or nil when an option is wrong. Options must be spelled
+// in full (Tcl rejects `-noc`); flags lists the ones that take no argument and
+// change no role, and `-start` takes one. Tcl reads every leading word that starts
+// with `-` as an option, even a substituted one (`regexp $re ...` with re set to
+// -nocase). So a substituted word in option position is read as the pattern, and
+// sure is false: if it is an option at run time, the roles shift right and every
+// variable is one of the words returned here, but some of them may not be written.
+func regexpOperands(w []Word, flags ...string) (ops []Word, sure bool) {
+	for i := 1; i < len(w); i++ {
+		v, ok := literalValue(w[i])
+		switch {
+		case !ok:
+			return w[i:], false
+		case !strings.HasPrefix(v, "-"):
+			return w[i:], true
+		case v == "--":
+			return w[i+1:], true
+		case v == "-start":
+			i++ // the option's index argument, whatever it looks like
+		case !slices.Contains(flags, v):
+			return nil, false
+		}
+	}
+	return nil, false
+}
+
+// regsubFlags are the options of regsub that change no word's role, and
+// regexpFlags those of regexp.
+var (
+	regsubFlags = []string{"-all", "-nocase", "-expanded", "-line", "-linestop", "-lineanchor"}
+	regexpFlags = append([]string{"-indices"}, regsubFlags...)
+)
+
+// regexpVarWords returns the match variable words of `regexp ?options? exp string
+// ?matchVar? ?subMatchVar ...?`. -about and -inline take no variables, so they bind
+// nothing.
+func regexpVarWords(w []Word) []Word {
+	ops, _ := regexpOperands(w, regexpFlags...)
+	if len(ops) < 3 {
+		return nil
+	}
+	return ops[2:]
+}
+
+// regsubVarWord returns the variable word of `regsub ?options? exp string subSpec
+// varName`, which Tcl always writes, the input unchanged when nothing matches, so
+// the write is certain unless a substituted word may be an option. More words are
+// an argument error. -command, which only Tcl 9 has, binds nothing.
+func regsubVarWord(w []Word) (words []Word, certain bool) {
+	ops, sure := regexpOperands(w, regsubFlags...)
+	if len(ops) != 4 {
+		return nil, false
+	}
+	return ops[3:], sure
+}
+
+// literalValue returns the value of a word that undergoes no substitution: a bare
+// or quoted word without `$`, `[` or a backslash, or any braced word.
+func literalValue(w Word) (string, bool) {
+	switch w.Kind {
+	case WordBraced:
+		if len(w.Text) >= 2 {
+			return w.Text[1 : len(w.Text)-1], true
+		}
+	case WordBare, WordQuoted:
+		if strings.ContainsAny(w.Text, "$[\\") {
+			return "", false
+		}
+		if w.Kind == WordQuoted {
+			if len(w.Text) < 2 {
+				return "", false
+			}
+			return w.Text[1 : len(w.Text)-1], true
+		}
+		return w.Text, true
+	}
+	return "", false
 }
 
 // tryHandlerDefs returns the DefLocal bindings a try handler makes when it starts.

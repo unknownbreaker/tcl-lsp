@@ -68,8 +68,8 @@ The FlightAware corpus probe found ten kinds of missing answers, ranked in
 `research/08-flightaware-corpus-probe.md` ("Misses"). None are in the current fix
 plan (`docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`), which
 covers wrong answers and the position slowdown only. Rows there are harness counts
-and upper bounds; confirm a root cause by reproducing it before picking one up. Items 1, 2 and 4 and part of
-item 3 are fixed; the notes there say which version.
+and upper bounds; confirm a root cause by reproducing it before picking one up. Items 1, 2, 3 and 4 are fixed
+(item 3 except `scan`); the notes there say which version.
 
 ## Corpus-fix residuals (v0.6.3)
 
@@ -117,6 +117,15 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   call in a custom command's body inside a method answers nothing when the class has a method of
   that name. `dict with` and `dict update` run their body in place but are not in `bodiesRunHere`, so
   a bare `m` there answers nothing for goto-definition and find-references. Adding them would fix it.
+- **regexp in a condition joins earlier bindings.** regexp's match variables are possible writes,
+  so `set m {}; if {[regexp {(a)} $s -> m]} { puts $m }` answers both lines, though inside the
+  body only the regexp reaches. The analysis is not path-sensitive, as with any `if`. Since v0.6.10.
+- **Quoted or braced variable names bind nothing.** `set {v} 1`, `catch {foo} "v"`, `gets $f {v}` and
+  `regexp {a} $s "v"` all write `v`, but only a bare name binds, so a later `$v` answers just the
+  earlier bindings. Likewise a regexp whose substituted leading word is followed by a substituted
+  operand (`regexp $opt {a} $s v`, `regsub $opt {a} $s {b} v`), a dynamic variable name
+  (`regexp {(a)} $s v $n`), the same variable named twice (`regexp {(a)(b)} ab v v`), regsub's
+  9.0-only `-command`, and any `{*}` form bind nothing, though Tcl may write `v`. Since v0.6.10.
 - **`::request` declarations from a `.tcl` file.** Since v0.6.8 a template's `::request` takes only
   that page's `namespace path` and imports. A `.tcl` file that writes them into `::request`
   (outside the model, research/05 V2) is ignored from pages, so if a page sources it, a call can

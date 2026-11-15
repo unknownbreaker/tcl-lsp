@@ -215,7 +215,16 @@ requests stack depends on what the client sends. This is one generated data file
    `catch` and `try … on`/`trap`: catch's result and options variables are bindings that replace
    earlier ones, and a handler's first two variable-list names bind when it starts. These are
    proc-local bindings only: at top level `catch {foo} msg; puts $msg` stays silent, as `foreach`
-   vars do.
+   vars do. **Fixed in v0.6.10** for `gets`, `regexp`, `binary scan` and `regsub`, also proc-local
+   only. `gets chan var` and `regsub ... varName` always write their variable, so they replace
+   earlier bindings; regexp writes its match variables only on a match and binary scan stops at the
+   end of its data, so theirs join earlier ones. A substituted word before a regexp or regsub
+   pattern can be an option at run time, which shifts the roles right, so its variables are
+   possible writes too. Abbreviated options, `-about`, `-inline`, regsub's 9.0-only `-command`,
+   `{*}`, and two words naming one variable bind nothing. A goto-def diff over all 35,702 corpus
+   `$var` uses: 236 silent→answered, 240 changed (180 gained a possible or linked-global write, 60
+   lost a binding that a `gets` or `regsub` overwrites), 0 answered→silent. `scan` result
+   variables are still unmodeled.
 4. **Find-references omits intra-class Itcl calls.** **Reproduced** synthetically. `Definition` has
    `methodInClass` (`resolve.go:260-264`) and `refFQ` does not. **Harness count:** 336 rows (speedtables
    176, piaware 153, piaware-gui 4, tsp 3), sampled at up to 300 defs per repo; "mostly" Itcl, not all
