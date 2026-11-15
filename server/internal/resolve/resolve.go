@@ -257,7 +257,7 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 		}
 	}
 	side := sideOfRef(ref.Ref.Kind)
-	for _, name := range r.candidates(ref) {
+	for _, name := range r.candidates(ref, file) {
 		if locs := r.lookupSide(name, file, side); len(locs) > 0 {
 			return locs
 		}
@@ -283,25 +283,31 @@ func refAt(file, src string, offset int) *tcl.ContextRef {
 }
 
 // candidates returns the fully-qualified names to look up for a reference.
-func (r *Resolver) candidates(ref *tcl.ContextRef) []string {
+func (r *Resolver) candidates(ref *tcl.ContextRef, file string) []string {
 	name := ref.Ref.Name
 	ns := ref.Namespace
 	if ref.Ref.Kind == tcl.RefCommand {
-		return r.commandCandidates(name, ns)
+		return r.commandCandidates(name, ns, file)
 	}
 	return variableCandidates(name, ns, ref.Frame)
 }
 
 // commandCandidates returns the FQ command names to try, in TCL precedence
 // order: current namespace, imported names, namespace-path entries, then global.
-// A qualified name resolves directly.
-func (r *Resolver) commandCandidates(name, ns string) []string {
-	if isQualified(name) {
-		return []string{qualify(name, ns)}
+// An absolute name resolves directly. A relative qualified name (`a::b`) takes
+// the same order without imports, which bring in commands, not namespaces
+// (research/08, miss 1; tclsh 8.6 and 9.0 agree). file is the calling document: in
+// a template, a page-local namespace takes only that page's path and imports.
+func (r *Resolver) commandCandidates(name, ns, file string) []string {
+	if strings.HasPrefix(name, "::") {
+		return []string{name}
 	}
 	cands := []string{qualify(name, ns)} // current namespace
 
-	path, imports := r.ix.Namespace(ns)
+	path, imports := r.namespaceDecls(ns, file)
+	if isQualified(name) {
+		imports = nil
+	}
 	// Imported commands behave like commands in the current namespace. A glob
 	// import (last == "*") adds srcNs::name even when name is not actually
 	// exported by srcNs; Lookup filters non-existent names, so this only
@@ -325,6 +331,34 @@ func (r *Resolver) commandCandidates(name, ns string) []string {
 		cands = append(cands, "::"+name)
 	}
 	return dedup(cands)
+}
+
+// namespaceDecls returns the namespace-path entries and import patterns that apply
+// to command lookup in ns from file. The per-request namespace is recreated for each
+// page, so a template's ::request (or a child of it) sees only that page's own
+// declarations, the way lookupScoped scopes page-local definitions. Everywhere else
+// the declarations merge across the workspace.
+func (r *Resolver) namespaceDecls(ns, file string) (path, imports []string) {
+	if pageLocalNS(file, ns) {
+		return r.ix.NamespaceDeclsIn(file, ns)
+	}
+	return r.ix.Namespace(ns)
+}
+
+// pageLocalNS reports whether namespace ns, seen from file, is page-local: file is
+// a template and ns is ::request or a child of it. Rivet recreates ::request for
+// each page, so its definitions and declarations do not cross pages (see
+// research/05-rvt-scope.md V2). A .tcl file that writes into ::request is outside
+// the supported model and stays workspace-wide.
+func pageLocalNS(file, ns string) bool {
+	return source.IsRVT(file) && (ns == "::request" || strings.HasPrefix(ns, "::request::"))
+}
+
+// pageLocalName reports whether the fully-qualified name, seen from file, lives in
+// a page-local namespace. A global proc named ::request is not page-local.
+func pageLocalName(file, name string) bool {
+	ns, _, ok := splitLastSegment(name)
+	return ok && pageLocalNS(file, ns)
 }
 
 // splitLastSegment splits a qualified name into (namespace, lastSegment), e.g.
@@ -429,7 +463,7 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	// A page-local (::request) symbol has references only within its own page, so
 	// scanning other files would risk matching an identically-named page-local
 	// helper elsewhere (their primary candidate name collides).
-	pageLocal := source.IsRVT(file) && strings.HasPrefix(target, "::request::")
+	pageLocal := pageLocalName(file, target)
 
 	// Build the per-file work list: the current file from live source, the rest
 	// from precomputed refs. The current file is first so results stay in the same
@@ -530,7 +564,7 @@ func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind
 	if ref.Ref.Kind != tcl.RefCommand {
 		return 0, false
 	}
-	for _, name := range r.commandCandidates(ref.Ref.Name, ref.Namespace) {
+	for _, name := range r.commandCandidates(ref.Ref.Name, ref.Namespace, file) {
 		if locs := r.lookupSide(name, file, sideCommand); len(locs) > 0 {
 			return locs[0].Kind, true
 		}
@@ -637,11 +671,7 @@ func (r *Resolver) lookupSide(name, file string, side nameSide) []index.Location
 // All other names resolve workspace-wide.
 func (r *Resolver) lookupScoped(name, file string) []index.Location {
 	locs := r.ix.Lookup(name)
-	// Page-locality applies only when resolving from within a template: the
-	// ::request namespace is recreated per request and not shared across .rvt
-	// pages. A .tcl file that writes into ::request (unusual — outside the
-	// supported model, see research/05-rvt-scope.md V2) resolves workspace-wide.
-	if !source.IsRVT(file) || !strings.HasPrefix(name, "::request::") {
+	if !pageLocalName(file, name) {
 		return locs
 	}
 	var kept []index.Location
@@ -659,7 +689,7 @@ func (r *Resolver) lookupScoped(name, file string) []index.Location {
 // own side count. If no candidate is defined, the primary candidate is used so
 // undefined references still group together.
 func (r *Resolver) refFQ(ref *tcl.ContextRef, file string) string {
-	cands := r.candidates(ref)
+	cands := r.candidates(ref, file)
 	side := sideOfRef(ref.Ref.Kind)
 	for _, name := range cands {
 		if len(r.lookupSide(name, file, side)) > 0 {

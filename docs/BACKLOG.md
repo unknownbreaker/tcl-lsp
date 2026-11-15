@@ -68,8 +68,8 @@ The FlightAware corpus probe found ten kinds of missing answers, ranked in
 `research/08-flightaware-corpus-probe.md` ("Misses"). None are in the current fix
 plan (`docs/plans/2026-11-05-corpus-wrong-answers-and-position-perf.md`), which
 covers wrong answers and the position slowdown only. Rows there are harness counts
-and upper bounds; confirm a root cause by reproducing it before picking one up. Item 2 and part of item 3
-are fixed; the notes there say which version.
+and upper bounds; confirm a root cause by reproducing it before picking one up. Items 1 and 2 and part of
+item 3 are fixed; the notes there say which version.
 
 ## Corpus-fix residuals (v0.6.3)
 
@@ -99,6 +99,16 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   The scan also over-reads what is conditional: a `?` that a paren already closed
   (`expr {($c ? 1 : 2) + [set x 1]}`) and an operator or `"` inside an array index (`$a(?)`) both
   make a later bracket conditional, so `return $x` also answers `set x 0`. Same on v0.6.6.
+- **Itcl method bodies resolve calls in the lexical namespace.** A method runs in its class
+  namespace, so from `itcl::class K` inside `namespace eval ::ns`, Tcl calls `util::f` as
+  `::ns::K::util::f`, then `::util::f`, and a bare `g` defined in `::ns` is `invalid command name`
+  (tclsh 8.6, Itcl 4.3.7). The server tries `::ns` first, so it answers `::ns::util::f` and
+  `::ns::g`. Before v0.6.8 the qualified call was answered the same way. v0.6.8 adds the global
+  fallback, but the class-namespace candidate is still never tried.
+- **`::request` declarations from a `.tcl` file.** Since v0.6.8 a template's `::request` takes only
+  that page's `namespace path` and imports. A `.tcl` file that writes them into `::request`
+  (outside the model, research/05 V2) is ignored from pages, so if a page sources it, a call can
+  fall through to a global target. A `.tcl` caller in `::request` still merges every page's.
 - **Skipped bindings ignore control flow.** A wrapper's binding answers a use nothing else reaches, wherever
   the wrapper sits: `if {$c} { with {set x 1} } else { puts $x }` answers the sibling, and so does a wrapper in a
   branch that returned. Same on `main@26f8ab2`.

@@ -45,6 +45,11 @@ Unqualified vars/procs defined at template top level are created in **`::request
 `::request::foo`; a bare `set x` defines `::request::x`. Application code that
 wants shared/persistent symbols must use explicit namespaces or the global `::`
 (the docs note globals are used for things like DB connections/IO channels). [A]
+**Resolver rule (shipped):** from a template, `::request` and its children are
+page-local. Their definitions resolve only within the page, and so do their
+`namespace path` entries and `namespace import`s: one page's `namespace path` never
+steers command lookup on another page. Every other namespace merges its
+declarations across the workspace.
 
 ### V3 — `<?= expr ?>` regions contain real references
 `<?= $title ?>` outputs a variable; the region is real TCL and its symbols must be

@@ -124,7 +124,7 @@ top-to-bottom streaming pass.
 | Command (first word of a command, or after `[`) | current ns → `namespace path` → global `::` |
 | Variable (`$name`, `set name`, etc., inside a proc) | local only; else needs `global`/`variable`/`upvar`/FQN |
 | Variable at `namespace eval` top level (not in a proc) | the namespace's own variable (needs experiment — see OQ5) |
-| Any qualified name | leading `::` = absolute; else relative to current ns, then falls back to global (commands on 8.6 and 9.0; variables on 8.6 only; see the F-C correction) |
+| Any qualified name | leading `::` = absolute; else relative to current ns, then (commands only) each `namespace path` entry, then global (commands on 8.6 and 9.0; variables on 8.6 only; see the F-C correction) |
 
 ## Open questions raised
 
