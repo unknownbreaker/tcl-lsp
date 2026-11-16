@@ -117,7 +117,9 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   (before, they were not walked at all). `dict with` writes a variable per key of the dict, and the
   keys are runtime data, so `set x 0; dict with d { puts $x }` answers `set x 0`, as does a `$x` after
   the body, though a key `x` overwrites it. This is the same as other writes to names the analyzer
-  cannot see (`set $n`). `dict update`'s variables are named, so they bind.
+  cannot see (`set $n`). `dict update`'s variables bind when they are literal names (`v`, `{v}`,
+  `"v"`); a substituted one (`$n`) or any `{*}` form binds nothing, and at namespace level they are
+  not definitions, like `foreach` variables there.
 - **regexp in a condition joins earlier bindings.** regexp's match variables are possible writes,
   so `set m {}; if {[regexp {(a)} $s -> m]} { puts $m }` answers both lines, though inside the
   body only the regexp reaches. The analysis is not path-sensitive, as with any `if`. Since v0.6.10.

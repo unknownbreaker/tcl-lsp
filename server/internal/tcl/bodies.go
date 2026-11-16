@@ -248,9 +248,44 @@ func dictBodyHead(w []Word) bool {
 	case "with":
 		return true
 	case "update":
-		return len(w) >= 6 && len(w)%2 == 0
+		return isDictUpdate(w)
 	}
 	return false
+}
+
+// isDictUpdate reports whether w has the shape `dict update dictVar key varName
+// ?key varName ...? body`. It does not look at the body word.
+func isDictUpdate(w []Word) bool {
+	return len(w) >= 6 && len(w)%2 == 0 && w[0].Kind == WordBare && w[0].Text == "dict" &&
+		w[1].Kind == WordBare && w[1].Text == "update"
+}
+
+// dictUpdateVarWords returns the varName words of a dict update command. With an
+// expanded word the roles are unknown, so it returns none.
+func dictUpdateVarWords(w []Word) []Word {
+	if !isDictUpdate(w) || hasExpansion(w) {
+		return nil
+	}
+	var out []Word
+	for i := 4; i < len(w)-1; i += 2 {
+		out = append(out, w[i])
+	}
+	return out
+}
+
+// unquotedLiteral returns w as a bare word when it is a braced or quoted word whose
+// value is its inner text: `{v}` and `"v"` both name `v`. A braced backslash is
+// literal and a quoted `$`, `[` or `\` substitutes, so those words, and any other,
+// are returned unchanged.
+func unquotedLiteral(w Word) Word {
+	if (w.Kind != WordBraced && w.Kind != WordQuoted) || len(w.Text) < 2 {
+		return w
+	}
+	inner := w.Text[1 : len(w.Text)-1]
+	if strings.ContainsAny(inner, "\\$[") {
+		return w
+	}
+	return Word{Kind: WordBare, Text: inner, Start: w.Start + 1, End: w.End - 1}
 }
 
 // listOrDataHeads are builtins whose arguments may literally contain the word
