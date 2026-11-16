@@ -57,7 +57,7 @@ func TestSwitchOptionsFollowTcl(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			refs := FileRefs(testCase.src)
-			FileDefs(testCase.src)
+			FileDefs(testCase.src) // must not panic
 			FileFolds(testCase.src)
 			for _, name := range []string{"stop", "a", "b"} {
 				if got := countCommandRefs(refs, name); got != 0 {

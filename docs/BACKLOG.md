@@ -80,8 +80,9 @@ The larger known limits, including the two parser limits, are in
 ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
 
 - **Switch, now silent.** Since v0.6.15 options follow Tcl's parser (abbreviations, quoted or braced
-  options, never the last two words, `::switch`), and a switch Tcl rejects, or whose subject a
-  substituted word may displace, walks no arm. So `switch {*}$opts $x {...}`, `switch $o $x {...}`,
+  options, never the last two words, `::switch`), and a switch whose options Tcl rejects, or whose
+  subject a substituted word may displace, walks no arm. (A complete switch Tcl rejects for its
+  arms, such as an odd inline count after `--`, still walks them, so a half-typed one keeps working.) So `switch {*}$opts $x {...}`, `switch $o $x {...}`,
   `switch -regexp $x a {...} b {...}` (`$x` may be `-matchvar`) and a single inline arm without `--`
   whose body is a two-word list (`switch $k "a" { puts $y }`) are silent, and so is a half-typed
   inline switch without `--` that reads as complete if its subject is an option. None of these

@@ -592,9 +592,47 @@ type switchScan struct {
 
 // switchState is the option scan's position and what it has seen so far.
 type switchState struct {
-	i                         int
-	mode, regexp, needsRegexp bool
-	done                      bool // `--` ended the options, so w[i] is the subject
+	i                            int
+	modeSet, regexp, needsRegexp bool
+	done                         bool // `--` ended the options, so w[i] is the subject
+}
+
+// switchStep is what the option scan makes of the word at its position.
+type switchStep int
+
+const (
+	stepSubject       switchStep = iota // certainly the subject
+	stepOption                          // a literal option, already applied
+	stepRuntimeOption                   // an option, but which one is known only at run time
+	stepRuntime                         // the subject or an option, known only at run time
+	stepRejected                        // an option Tcl rejects
+)
+
+// step classifies the word at st.i. For stepOption, next is the state after it.
+func (s *switchScan) step(st switchState) (next switchState, kind switchStep) {
+	word := s.w[st.i]
+	v, literal := decodedLiteral(word)
+	if !literal {
+		c, fixed := leadingByte(word)
+		switch {
+		case !fixed:
+			return st, stepRuntime
+		case c == '-':
+			return st, stepRuntimeOption
+		}
+		return st, stepSubject
+	}
+	if v == "" || v[0] != '-' {
+		return st, stepSubject
+	}
+	opt, ok := switchOption(v)
+	if !ok {
+		return st, stepRejected
+	}
+	if next, ok = s.apply(st, opt); !ok {
+		return st, stepRejected
+	}
+	return next, stepOption
 }
 
 // apply reads option opt at st.i. ok is false where Tcl rejects it: a second mode
@@ -605,10 +643,10 @@ func (s *switchScan) apply(st switchState, opt string) (switchState, bool) {
 		st.i++
 		st.done = true
 	case "-exact", "-glob", "-regexp":
-		if st.mode {
+		if st.modeSet {
 			return st, false
 		}
-		st.mode, st.regexp = true, opt == "-regexp"
+		st.modeSet, st.regexp = true, opt == "-regexp"
 		st.i++
 	case "-nocase":
 		st.i++
@@ -638,8 +676,10 @@ func (s *switchScan) accepted(st switchState) bool {
 	return false
 }
 
-// armListMayPair reports whether a word may be a list of (pattern, body) pairs. Parse's
-// words are the list's elements only when the list has none of `;`, `#`, `[`, `\` or `"`.
+// armListMayPair reports whether a word may be a non-empty list of (pattern, body)
+// pairs. A literal word with no space, quote or brace is a one-element list, so it
+// cannot be. A braced word's Parse words are the list's elements only when it has none
+// of `;`, `#`, `[`, `\` or `"`, so only then can an odd count rule it out.
 func armListMayPair(w Word) bool {
 	if w.Kind != WordBraced {
 		_, literal := decodedLiteral(w)
@@ -660,16 +700,15 @@ func (s *switchScan) mayAccept(st switchState) bool {
 		return r
 	}
 	var r bool
-	if v, known := decodedLiteral(s.w[st.i]); known {
-		if v == "" || v[0] != '-' {
-			r = s.accepted(st)
-		} else if opt, ok := switchOption(v); ok {
-			r = s.mayAcceptOption(st, opt)
-		}
-	} else if c, known := leadingByte(s.w[st.i]); known && c != '-' {
+	switch next, kind := s.step(st); kind {
+	case stepSubject:
 		r = s.accepted(st)
-	} else {
-		r = (!known && s.accepted(st)) || s.someOptionMayAccept(st)
+	case stepOption:
+		r = s.mayAccept(next)
+	case stepRuntimeOption:
+		r = s.someOptionMayAccept(st)
+	case stepRuntime:
+		r = s.accepted(st) || s.someOptionMayAccept(st)
 	}
 	s.memo[st] = r
 	return r
@@ -679,54 +718,41 @@ func (s *switchScan) mayAccept(st switchState) bool {
 // accept the command.
 func (s *switchScan) someOptionMayAccept(st switchState) bool {
 	for _, opt := range switchOptions {
-		if s.mayAcceptOption(st, opt) {
+		if next, ok := s.apply(st, opt); ok && s.mayAccept(next) {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *switchScan) mayAcceptOption(st switchState, opt string) bool {
-	next, ok := s.apply(st, opt)
-	return ok && s.mayAccept(next)
-}
-
 // switchSubjectIndex returns the index in w of a switch command's subject word, the
 // first word after its options, or len(w) when no subject is certain. Options follow
 // Tcl: abbreviations count, a quoted or braced option counts, and the last two words
-// are never options. A shape Tcl rejects has no subject. A substituted word that may
+// are never options. Options Tcl rejects leave no subject. A substituted word that may
 // be an option (`switch $o $x {...}`) is the subject only when no option reading of it
-// lets Tcl accept the command. The arms themselves are not checked here, so a switch
-// still being typed keeps its subject.
+// lets Tcl accept the command, arms included. Otherwise the arms are not checked, so a
+// switch still being typed keeps its subject.
 func switchSubjectIndex(w []Word) int {
 	if hasExpansion(w) {
 		return len(w)
 	}
 	s := switchScan{w: w, limit: len(w) - 2, memo: map[switchState]bool{}}
 	st := switchState{i: 1}
+scan:
 	for !st.done && st.i < s.limit {
-		word := w[st.i]
-		v, known := decodedLiteral(word)
-		if !known {
-			c, fixed := leadingByte(word)
-			if fixed && c == '-' {
-				return len(w) // an option named at run time
-			}
-			if !fixed && s.someOptionMayAccept(st) {
+		next, kind := s.step(st)
+		switch kind {
+		case stepOption:
+			st = next
+			continue
+		case stepRejected, stepRuntimeOption:
+			return len(w)
+		case stepRuntime:
+			if s.someOptionMayAccept(st) {
 				return len(w)
 			}
-			break
 		}
-		if v == "" || v[0] != '-' {
-			break
-		}
-		opt, ok := switchOption(v)
-		if !ok {
-			return len(w)
-		}
-		if st, ok = s.apply(st, opt); !ok {
-			return len(w)
-		}
+		break scan
 	}
 	if st.needsRegexp && !st.regexp {
 		return len(w)
