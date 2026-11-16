@@ -316,7 +316,7 @@ func conservativeHead(c Command) bool {
 	if isCmd(w, "eval") {
 		return len(w) == 2
 	}
-	return isCmd(w, "catch") || isCmd(w, "try") || isCmd(w, "switch") || isCmd(w, "time") || isCmd(w, "timerate")
+	return isCmd(w, "catch") || isCmd(w, "try") || isSwitch(w) || isCmd(w, "time") || isCmd(w, "timerate")
 }
 
 // bodiesRunHere reports whether the scripts of command c are known to run in this

@@ -163,7 +163,10 @@ func TestSwitchPatternNamedLikeProcIsSilentInEveryForm(t *testing.T) {
 		{"fall-through", "switch $x {\n stop -\n stop { helper }\n}", 1},
 		{"inline fall-through", "switch $x stop - go { helper }", 1},
 		{"pattern still being typed", "switch $x {\n a { helper }\n stop\n}", 1},
-		{"inline, pattern still being typed", "switch $x a { helper } stop", 1},
+		{"inline, pattern still being typed", "switch -- $x a { helper } stop", 1},
+		// Without `--`, $x may be an option (`-nocase`), and then `a { helper } stop`
+		// is a complete arm whose body is `stop`, so no reading is certain.
+		{"inline, still being typed, subject may be an option", "switch $x a { helper } stop", 0},
 		{"bracket", "set r [switch $x { stop { helper } }]", 1},
 		{"bracket, inline", "set r [switch $x stop { helper }]", 1},
 		{"crlf", "switch $x {\r\n stop {\r\n helper }\r\n}\r\n", 1},
@@ -383,8 +386,6 @@ func TestSwitchWithoutSubjectWalksNothing(t *testing.T) {
 		"switch -matchvar --",
 		"switch -matchvar -- { a { helper } }",
 		"switch -indexvar -- { a { helper } }",
-		"switch -exact { a { helper } }",
-		"switch -glob -- { a { helper } }",
 		"switch { a { helper } }",
 	}
 	for _, src := range sources {
@@ -414,7 +415,7 @@ func TestSwitchSubjectShapes(t *testing.T) {
 		{"subject looks like -matchvar", "switch -- -matchvar { a { helper } }", 1},
 		{"subject is --", "switch -regexp -- -- { a { helper } }", 1},
 		{"subject looks like -exact, after real options", "switch -glob -nocase -- -exact { a { helper } }", 1},
-		{"every option", "switch -exact -glob -regexp -nocase -matchvar m -indexvar i -- $x { a { helper } }", 1},
+		{"every option Tcl accepts together", "switch -regexp -nocase -matchvar m -indexvar i -- $x { a { helper } }", 1},
 		{"empty subject", "switch {} { a { helper } }", 1},
 		{"braced subject", "switch {c d} { a { helper } }", 1},
 		{"braced subject, inline", "switch {c d} a { helper }", 1},
@@ -665,7 +666,8 @@ func TestFileFolds_SwitchFoldsExactlyTheBodies(t *testing.T) {
 		{"nested switch", "switch $x {\n  a {\n    switch $y {\n      b {\n        puts 1\n      }\n    }\n  }\n}\n", 4},
 		{"options only, nothing to fold", "switch -glob\n", 0},
 		{"subject only, nothing to fold", "switch {a b}\n", 0},
-		{"braced subject without arms", "switch -exact {\n  a {\n    puts 1\n  }\n}\n", 0},
+		// The last two words are never options, so `-exact` is the subject (tclsh 8.6, 9.0).
+		{"option-like subject, then the arm list", "switch -exact {\n  a {\n    puts 1\n  }\n}\n", 2},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
