@@ -128,9 +128,6 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   9.0-only `-command`, and any `{*}` form bind nothing, though Tcl may write `v`. Since v0.6.10.
   Since v0.6.11 the same holds for `scan`, including distinct elements of one array
   (`scan $s {%d %d} a(1) a(2)`).
-- **Backslash-escaped variable names bind their raw text.** `set a\x62 new` and `scan $s %d a\x62`
-  write `ab` (tclsh 8.6 and 9.0), but the binding is named `a\x62`, so a later `$ab` answers only
-  the earlier `set ab old`, which `set` overwrote. This is a wrong answer, but only for an unusual spelling.
 - **Goto-def repeats a result-var location after `global`.** With `global a` and then
   `scan $s %d a` (also `regexp`, `binary scan`) in a proc, `$a` lists the scan's location twice.
   The set of locations is right; only the dedupe is missing.
@@ -145,6 +142,8 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   `set a(1) 1; set a(2) 2; array names a` answers only the last `set`. Same on `main@26f8ab2`.
 - **Silent, not wrong.** `foo destructor {set x 1}`: tail matching reads an unknown command's word as
   a member keyword. `$a` in a bracketed proc or class body loses its semantic token.
+  Itcl `variable`/`common` and `proc` names keep their raw text, so `proc a\x62` is not a target
+  for `ab`. Variable names decode their escapes (`set a\x62` binds `ab`), and so do proc params.
 - **Cost.** `workspace/symbol` builds line indexes for every file even on a narrow query.
   `incomingCalls` fetches source twice per site and re-parses once per site. `refFQ` calls
   `lookupSide` only for a length check, allocating per candidate on the workspace scan; unmeasured.
