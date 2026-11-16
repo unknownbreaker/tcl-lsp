@@ -110,10 +110,10 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		})
 	}
 	// A bare `variable NAME` in a body of unknown frame may be a TclOO declaration.
-	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) && !isUncertainName(w[1].Text, frame) {
+	if vname, ok := variableDeclName(w); ok && !isUncertainName(vname, frame) {
 		*out = append(*out, Definition{
 			Kind:      DefNamespaceVar,
-			Name:      qualifyName(w[1].Text, ns),
+			Name:      qualifyName(vname, ns),
 			Namespace: ns,
 			NameStart: base + w[1].Start,
 			NameEnd:   base + w[1].End,
@@ -127,9 +127,9 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 			// variable (like `global` links to ::cfg) -- Origin makes the link
 			// chaseable and lets later assignments promote to the namespace var.
 			*out = append(*out, Definition{
-				Kind: DefLocal, Name: w[1].Text, Namespace: ns,
+				Kind: DefLocal, Name: vname, Namespace: ns,
 				NameStart: base + w[1].Start, NameEnd: base + w[1].End, Scope: scope,
-				Origin: qualifyName(w[1].Text, ns),
+				Origin: qualifyName(vname, ns),
 				Class:  class,
 			})
 		}
@@ -166,11 +166,11 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 	}
 	if isCmd(w, "global") && frame == FrameProc {
 		for _, gw := range w[1:] {
-			if isPlainName(gw) {
+			if gname, ok := plainVarName(gw); ok {
 				*out = append(*out, Definition{
-					Kind: DefGlobalLink, Name: gw.Text, Namespace: ns,
+					Kind: DefGlobalLink, Name: gname, Namespace: ns,
 					NameStart: base + gw.Start, NameEnd: base + gw.End, Scope: scope,
-					Origin: globalOrigin(gw.Text),
+					Origin: globalOrigin(gname),
 					Class:  class,
 				})
 			}
@@ -188,9 +188,9 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		}
 		for i := 1; i < len(args); i += 2 {
 			alias := args[i]
-			if isPlainName(alias) {
+			if aname, ok := plainVarName(alias); ok {
 				*out = append(*out, Definition{
-					Kind: DefLocal, Name: alias.Text, Namespace: ns,
+					Kind: DefLocal, Name: aname, Namespace: ns,
 					NameStart: base + alias.Start, NameEnd: base + alias.End, Scope: scope,
 					Origin: upvarOrigin(level, args[i-1]),
 					Class:  class,
@@ -356,10 +356,14 @@ func isPlainName(w Word) bool {
 // range covering just `arr`; for a plain scalar target it returns the whole word.
 // ok is false when the target is not a usable bare name (empty, a leading `(`, a
 // `(` without a final `)`, or a base containing a substitution). The index
-// between the parens may be anything.
+// between the parens may be anything. Backslash escapes are decoded first, as Tcl
+// does: `a\x62` binds `ab` and `a\(k)` binds array `a`.
 func arrayBaseName(w Word) (name string, start, end int, ok bool) {
 	if w.Kind != WordBare || w.Text == "" {
 		return "", 0, 0, false
+	}
+	if strings.IndexByte(w.Text, '\\') >= 0 {
+		return escapedArrayBaseName(w)
 	}
 	p := strings.IndexByte(w.Text, '(')
 	if p < 0 {
@@ -428,6 +432,12 @@ func isUpvarLevel(w Word) bool {
 
 // emitProcParams emits a DefLocal for each parameter name in a proc args word.
 func emitProcParams(argsWord Word, base int, ns string, scope int, class string, out *[]Definition) {
+	if p, ok, handled := escapedListName(argsWord, base); handled {
+		if ok {
+			*out = append(*out, localDef(p, ns, scope, class))
+		}
+		return
+	}
 	inner, innerBase := argsWord, base
 	text := inner.Text
 	start := innerBase + inner.Start
@@ -435,7 +445,7 @@ func emitProcParams(argsWord Word, base int, ns string, scope int, class string,
 		text = text[1 : len(text)-1]
 		start = innerBase + inner.Start + 1
 	}
-	for _, p := range scanParams(text, start) {
+	for _, p := range scanParams(text, start, false) {
 		*out = append(*out, localDef(p, ns, scope, class))
 	}
 }
@@ -445,12 +455,12 @@ type paramName struct {
 	Start, End int
 }
 
-func scanParams(text string, base int) []paramName {
+func scanParams(text string, base int, varList bool) []paramName {
 	var ps []paramName
 	cmds := Parse(text)
 	for _, c := range cmds {
 		for _, word := range c.Words {
-			name, s, e := paramFromWord(word, base)
+			name, s, e := paramFromWord(word, base, varList)
 			if name != "" {
 				ps = append(ps, paramName{Name: name, Start: s, End: e})
 			}
@@ -462,19 +472,35 @@ func scanParams(text string, base int) []paramName {
 // paramFromWord extracts the parameter name and its absolute range from one
 // args-list element: a bareword `name`, or a braced `{name default}` (first
 // inner word). base is the absolute offset of the params text's first byte.
-func paramFromWord(w Word, base int) (string, int, int) {
+func paramFromWord(w Word, base int, varList bool) (string, int, int) {
 	if w.Kind == WordBraced && len(w.Text) >= 2 {
 		inner := w.Text[1 : len(w.Text)-1]
 		innerBase := base + w.Start + 1
+		if varList {
+			// A braced var-list element is one name, undecoded: {a b} names `a b`.
+			if inner == "" {
+				return "", 0, 0
+			}
+			return inner, innerBase, innerBase + len(inner)
+		}
 		for _, c := range Parse(inner) {
 			if len(c.Words) > 0 {
 				fw := c.Words[0]
+				if name, ok := plainVarName(fw); ok {
+					return name, innerBase + fw.Start, innerBase + fw.End
+				}
+				if strings.IndexByte(fw.Text, '\\') >= 0 {
+					return "", 0, 0
+				}
 				return fw.Text, innerBase + fw.Start, innerBase + fw.End
 			}
 		}
 		return "", 0, 0
 	}
-	if w.Kind == WordBare && w.Text != "" {
+	if name, ok := plainVarName(w); ok {
+		return name, base + w.Start, base + w.End
+	}
+	if w.Kind == WordBare && w.Text != "" && strings.IndexByte(w.Text, '\\') < 0 {
 		return w.Text, base + w.Start, base + w.End
 	}
 	return "", 0, 0
@@ -494,9 +520,11 @@ func emitLoopVarDefs(w []Word, base int, ns string, scope int, class string, out
 			emitVarListNames(w[i], base, ns, scope, class, out)
 		}
 	case "lassign":
-		// lassign list var ?var ...? -- targets are w[2:].
+		// lassign list var ?var ...? -- each target is one variable name, not a list.
 		for _, vw := range w[2:] {
-			emitVarListNames(vw, base, ns, scope, class, out)
+			if name, s, e, ok := arrayBaseName(vw); ok {
+				*out = append(*out, localDef(paramName{Name: name, Start: base + s, End: base + e}, ns, scope, class))
+			}
 		}
 	case "dict":
 		// dict for {k v} dict body ; dict map {k v} dict body.
@@ -529,8 +557,12 @@ func catchVarWords(w []Word) []Word {
 		switch {
 		case !rok || !ook:
 			return nil
-		case w[2].Text == w[3].Text:
+		case w[2].Text == w[3].Text && !strings.ContainsRune(w[2].Text, '\\'):
 			return w[2:3]
+		case decodedEqual(w[2], w[3]):
+			// tclsh 8.6 and 9.0: once a word has an escape, the options are
+			// written last, even when the two words are spelled alike.
+			return w[3:4]
 		case r == o:
 			return nil
 		}
@@ -750,6 +782,12 @@ func tryVarNames(h tryHandler, base int) []paramName {
 // brace list {a b} yields a and b; a bare word yields itself. Substituted/quoted
 // specs are skipped.
 func emitVarListNames(vw Word, base int, ns string, scope int, class string, out *[]Definition) {
+	if p, ok, handled := escapedListName(vw, base); handled {
+		if ok {
+			*out = append(*out, localDef(p, ns, scope, class))
+		}
+		return
+	}
 	text := vw.Text
 	start := base + vw.Start
 	if vw.Kind == WordBraced && len(text) >= 2 {
@@ -758,7 +796,7 @@ func emitVarListNames(vw Word, base int, ns string, scope int, class string, out
 	} else if vw.Kind != WordBare {
 		return
 	}
-	for _, p := range scanParams(text, start) {
+	for _, p := range scanParams(text, start, true) {
 		*out = append(*out, localDef(p, ns, scope, class))
 	}
 }

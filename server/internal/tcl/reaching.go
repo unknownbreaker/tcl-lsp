@@ -737,13 +737,13 @@ func localBindings(c Command, base int, ns string, frame FrameKind) []Definition
 	// namespace variable, so Origin carries the qualified target for the
 	// resolver to chase (mirrors emitDefs' FrameProc case). In a namespace
 	// frame the declaration IS the definition: no Origin.
-	if isCmd(w, "variable") && len(w) >= 2 && isPlainName(w[1]) {
+	if vname, ok := variableDeclName(w); ok {
 		d := Definition{
-			Kind: DefLocal, Name: w[1].Text,
+			Kind: DefLocal, Name: vname,
 			NameStart: base + w[1].Start, NameEnd: base + w[1].End,
 		}
 		if frame == FrameProc {
-			d.Origin = qualifyName(w[1].Text, ns)
+			d.Origin = qualifyName(vname, ns)
 		}
 		out = append(out, d)
 	}
@@ -751,11 +751,11 @@ func localBindings(c Command, base int, ns string, frame FrameKind) []Definition
 	// global NAME ... (DefGlobalLink per name)
 	if isCmd(w, "global") {
 		for _, gw := range w[1:] {
-			if isPlainName(gw) {
+			if gname, ok := plainVarName(gw); ok {
 				out = append(out, Definition{
-					Kind: DefGlobalLink, Name: gw.Text,
+					Kind: DefGlobalLink, Name: gname,
 					NameStart: base + gw.Start, NameEnd: base + gw.End,
-					Origin: globalOrigin(gw.Text),
+					Origin: globalOrigin(gname),
 				})
 			}
 		}
@@ -771,9 +771,9 @@ func localBindings(c Command, base int, ns string, frame FrameKind) []Definition
 		}
 		for i := 1; i < len(args); i += 2 {
 			alias := args[i]
-			if isPlainName(alias) {
+			if aname, ok := plainVarName(alias); ok {
 				out = append(out, Definition{
-					Kind: DefLocal, Name: alias.Text,
+					Kind: DefLocal, Name: aname,
 					NameStart: base + alias.Start, NameEnd: base + alias.End,
 					Origin: upvarOrigin(level, args[i-1]),
 				})
