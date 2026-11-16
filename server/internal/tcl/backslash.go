@@ -8,12 +8,12 @@ import (
 // decodeBackslashes applies Tcl's backslash substitution to s, the text of a bare
 // word or list element with no `$` or `[`, and returns the value Tcl sees. at[i] is
 // the offset in s where the escape or byte that produced value byte i starts. The
-// rules follow tclsh 8.6 and 9.0, which agree: \x reads at most 2 hex digits, \u at
-// most 4, \U at most 8; an octal escape reads a third digit only while its value is
+// rules follow tclsh 8.6 and 9.0, which agree here: \x reads at most 2 hex digits,
+// \u at most 4, \U at most 8; an octal escape reads a third digit only while its value is
 // below 040; a letter with no hex digit after it, and any other escaped character,
 // stands for itself. ok is false where the value is not certain here: a
-// backslash-newline (it separates words), a trailing backslash, and a \u or \U
-// value that is a surrogate or past U+10FFFF.
+// backslash-newline (it separates words), a trailing backslash, a surrogate, and a
+// \U value past U+FFFF, which 8.6 writes as U+FFFD and 9.0 as the character itself.
 func decodeBackslashes(s string) (value string, at []int, ok bool) {
 	var b strings.Builder
 	emit := func(str string, from int) {
@@ -51,7 +51,13 @@ func decodeBackslashes(s string) (value string, at []int, ok bool) {
 		case '\n', '\r':
 			return "", nil, false
 		case 'x', 'u', 'U':
-			limit := map[byte]int{'x': 2, 'u': 4, 'U': 8}[c]
+			limit := 8
+			switch c {
+			case 'x':
+				limit = 2
+			case 'u':
+				limit = 4
+			}
 			v, n := 0, 0
 			for n < limit && i < len(s) && hexVal(s[i]) >= 0 {
 				v = v<<4 | hexVal(s[i])
@@ -63,7 +69,7 @@ func decodeBackslashes(s string) (value string, at []int, ok bool) {
 				emit(string(c), start)
 			case c == 'x':
 				emit(string(rune(v)), start)
-			case v > utf8.MaxRune || (v >= 0xD800 && v <= 0xDFFF):
+			case v > 0xFFFF || (v >= 0xD800 && v <= 0xDFFF):
 				return "", nil, false
 			default:
 				emit(string(rune(v)), start)
@@ -134,6 +140,16 @@ func escapedArrayBaseName(w Word) (name string, start, end int, ok bool) {
 		return "", 0, 0, false
 	}
 	return value[:p], w.Start, w.Start + at[p], true
+}
+
+// emitEscapedListName emits the binding of a bare var-list word with a backslash,
+// if it has one, and reports whether the word was such a word.
+func emitEscapedListName(w Word, base int, ns string, scope int, class string, out *[]Definition) bool {
+	p, ok, handled := escapedListName(w, base)
+	if ok {
+		*out = append(*out, localDef(p, ns, scope, class))
+	}
+	return handled
 }
 
 // escapedListName handles a bare variable-list word with a backslash in it, such as

@@ -62,3 +62,37 @@ func TestGotoDefEscapedVariableNames(t *testing.T) {
 		}
 	}
 }
+
+// An escaped global, variable or upvar alias links the decoded name, so $ab answers
+// what it answers for the plain spelling: the global or namespace variable, plus the
+// proc's own `variable` declaration.
+func TestGotoDefEscapedLinks(t *testing.T) {
+	cases := []struct {
+		name, src string
+		defs      []string
+	}{
+		{"global", "set ab 1\nproc f {} {\n  global a\\x62\n  puts $ab\n}\n", []string{"ab 1"}},
+		{"upvar #0", "set ab 1\nproc f {} {\n  upvar #0 a\\x62 a\\x62\n  puts $ab\n}\n", []string{"ab 1"}},
+		{"variable", "namespace eval n {\n  variable ab 1\n  proc f {} {\n    variable a\\x62\n    puts $ab\n  }\n}\n",
+			[]string{"ab 1", "a\\x62\n"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ix := index.New()
+			ix.IndexFile("a.tcl", c.src)
+			locs := New(ix).Definition("a.tcl", c.src, strings.Index(c.src, "$ab")+1)
+			got := map[int]bool{}
+			for _, l := range locs {
+				got[l.NameStart] = true
+			}
+			for _, d := range c.defs {
+				if !got[strings.Index(c.src, d)] {
+					t.Fatalf("goto-def on $ab = %#v, want locations at %q", locs, c.defs)
+				}
+			}
+			if len(got) != len(c.defs) {
+				t.Fatalf("goto-def on $ab = %#v, want %d locations", locs, len(c.defs))
+			}
+		})
+	}
+}

@@ -432,10 +432,7 @@ func isUpvarLevel(w Word) bool {
 
 // emitProcParams emits a DefLocal for each parameter name in a proc args word.
 func emitProcParams(argsWord Word, base int, ns string, scope int, class string, out *[]Definition) {
-	if p, ok, handled := escapedListName(argsWord, base); handled {
-		if ok {
-			*out = append(*out, localDef(p, ns, scope, class))
-		}
+	if emitEscapedListName(argsWord, base, ns, scope, class, out) {
 		return
 	}
 	inner, innerBase := argsWord, base
@@ -547,6 +544,8 @@ func emitLoopVarDefs(w []Word, base int, ns string, scope int, class string, out
 // two words, both must be plain names, so a quoted `{m} m` cannot hide that they are
 // one variable, and two different spellings of one variable, such as `m m(x)`, bind
 // nothing: Tcl writes one and fails on the other.
+// With an escape in either word (`a\x62 ab`, even `a\x62 a\x62`), tclsh 8.6 and
+// 9.0 write the options last, so only the options word binds.
 func catchVarWords(w []Word) []Word {
 	if !isCmd(w, "catch") || len(w) < 3 || len(w) > 4 || hasExpansion(w) {
 		return nil
@@ -782,10 +781,7 @@ func tryVarNames(h tryHandler, base int) []paramName {
 // brace list {a b} yields a and b; a bare word yields itself. Substituted/quoted
 // specs are skipped.
 func emitVarListNames(vw Word, base int, ns string, scope int, class string, out *[]Definition) {
-	if p, ok, handled := escapedListName(vw, base); handled {
-		if ok {
-			*out = append(*out, localDef(p, ns, scope, class))
-		}
+	if emitEscapedListName(vw, base, ns, scope, class, out) {
 		return
 	}
 	text := vw.Text

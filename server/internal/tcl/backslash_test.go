@@ -6,14 +6,15 @@ import "testing"
 func TestDecodeBackslashes(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{`a\x62`, "ab"},
-		{`a\x626`, "ab6"}, // \x reads at most 2 hex digits
-		{`a\xg`, "axg"},   // no hex digit: the letter stands for itself
-		{`a\142`, "ab"},   // octal
-		{`a\1420`, "ab0"}, // at most 3 octal digits
-		{`a\777`, "a?7"},  // a third digit only while the value is below 040
-		{`abc`, "abc"},    // \u reads at most 4 hex digits
-		{`ab1`, "ab1"},
+		{`a\x626`, "ab6"},   // \x reads at most 2 hex digits
+		{`a\xg`, "axg"},     // no hex digit: the letter stands for itself
+		{`a\142`, "ab"},     // octal
+		{`a\1420`, "ab0"},   // at most 3 octal digits
+		{`a\777`, "a?7"},    // a third digit only while the value is below 040
+		{`a\u0062c`, "abc"}, // \u reads at most 4 hex digits
+		{`a\u00621`, "ab1"},
 		{`a\U00000062z`, "abz"},
+		{`a\U0000FFFFz`, "a\uffffz"},
 		{`a\Uq`, "aUq"},
 		{`a\q`, "aq"},
 		{`a\n`, "a\n"},
@@ -21,7 +22,7 @@ func TestDecodeBackslashes(t *testing.T) {
 		{`a\(k)`, "a(k)"},
 		{`a\x28k)`, "a(k)"},
 		{`a\é`, "aé"},
-		{`aé`, "aé"},
+		{`a\u00e9`, "aé"},
 		{`a\xe9`, "aé"},
 	}
 	for _, c := range cases {
@@ -30,7 +31,7 @@ func TestDecodeBackslashes(t *testing.T) {
 			t.Errorf("decodeBackslashes(%q) = %q, %v, %v; want %q", c.in, got, at, ok, c.want)
 		}
 	}
-	for _, in := range []string{"a\\", "a\\\nb", `a\uD800`, `a\U00110000`} {
+	for _, in := range []string{"a\\", "a\\\nb", `a\uD800`, `a\U00110000`, `a\U1F600`} {
 		if _, _, ok := decodeBackslashes(in); ok {
 			t.Errorf("decodeBackslashes(%q) is ok, want not certain", in)
 		}
