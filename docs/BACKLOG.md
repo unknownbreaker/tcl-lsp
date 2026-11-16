@@ -128,9 +128,6 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   9.0-only `-command`, and any `{*}` form bind nothing, though Tcl may write `v`. Since v0.6.10.
   Since v0.6.11 the same holds for `scan`, including distinct elements of one array
   (`scan $s {%d %d} a(1) a(2)`).
-- **Goto-def repeats a result-var location after `global`.** With `global a` and then
-  `scan $s %d a` (also `regexp`, `binary scan`) in a proc, `$a` lists the scan's location twice.
-  The set of locations is right; only the dedupe is missing.
 - **`::request` declarations from a `.tcl` file.** Since v0.6.8 a template's `::request` takes only
   that page's `namespace path` and imports. A `.tcl` file that writes them into `::request`
   (outside the model, research/05 V2) is ignored from pages, so if a page sources it, a call can
