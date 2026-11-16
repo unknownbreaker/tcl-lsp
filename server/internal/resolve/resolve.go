@@ -21,6 +21,15 @@ func New(ix *index.Index) *Resolver {
 	return &Resolver{ix: ix}
 }
 
+// locKey identifies a location by file and name range, for deduping results.
+type locKey struct {
+	File      string
+	NameStart int
+	NameEnd   int
+}
+
+func locationKey(loc index.Location) locKey { return locKey{loc.File, loc.NameStart, loc.NameEnd} }
+
 // isLocalBinding reports whether a definition kind binds a proc-local name.
 func isLocalBinding(k tcl.DefKind) bool {
 	return k == tcl.DefLocal || k == tcl.DefGlobalLink
@@ -82,15 +91,26 @@ func (r *Resolver) localDefinition(file, src, name string, scope int, element bo
 			if len(defs) == 0 {
 				return localBindingAt(file, src, name, scope, offset)
 			}
+			// A link's chased sites can include a later binding that also reaches
+			// (`global a; scan $s %d a`), so each location is listed once.
+			seen := map[locKey]bool{}
 			var out []index.Location
+			add := func(loc index.Location) {
+				if key := locationKey(loc); !seen[key] {
+					seen[key] = true
+					out = append(out, loc)
+				}
+			}
 			for _, d := range defs {
 				if d.Origin != "" {
 					if locs := r.lookupSide(d.Origin, file, sideVariable); len(locs) > 0 {
-						out = append(out, locs...)
+						for _, loc := range locs {
+							add(loc)
+						}
 						continue
 					}
 				}
-				out = append(out, index.Location{File: file, Name: d.Name, Kind: tcl.DefLocal, NameStart: d.NameStart, NameEnd: d.NameEnd})
+				add(index.Location{File: file, Name: d.Name, Kind: tcl.DefLocal, NameStart: d.NameStart, NameEnd: d.NameEnd})
 			}
 			if len(out) > 0 {
 				return out
@@ -251,16 +271,11 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 			}
 		}
 		if len(classes) > 0 {
-			type locKey struct {
-				File      string
-				NameStart int
-				NameEnd   int
-			}
 			seen := map[locKey]bool{}
 			var out []index.Location
 			for _, cls := range classes {
 				for _, loc := range r.methodInClass(cls, methodName) {
-					key := locKey{loc.File, loc.NameStart, loc.NameEnd}
+					key := locationKey(loc)
 					if !seen[key] {
 						seen[key] = true
 						out = append(out, loc)
