@@ -505,7 +505,8 @@ func paramFromWord(w Word, base int, varList bool) (string, int, int) {
 
 // emitLoopVarDefs emits DefLocal bindings for loop/destructuring target variables
 // that introduce proc-locals: foreach/lmap var lists, lassign targets, dict for/map
-// key lists, and try handler variable lists. Called only in FrameProc.
+// key lists, dict update variables, and try handler variable lists. Called only in
+// FrameProc.
 func emitLoopVarDefs(w []Word, base int, ns string, scope int, class string, out *[]Definition) {
 	if len(w) == 0 || w[0].Kind != WordBare {
 		return
@@ -527,6 +528,13 @@ func emitLoopVarDefs(w []Word, base int, ns string, scope int, class string, out
 		// dict for {k v} dict body ; dict map {k v} dict body.
 		if len(w) >= 5 && w[1].Kind == WordBare && (w[1].Text == "for" || w[1].Text == "map") {
 			emitVarListNames(w[2], base, ns, scope, class, out)
+		}
+		// dict update dictVar key varName ?key varName ...? body -- each varName is
+		// written before the body runs, or unset when its key is missing.
+		for _, vw := range dictUpdateVarWords(w) {
+			if name, s, e, ok := arrayBaseName(unquotedLiteral(vw)); ok {
+				*out = append(*out, localDef(paramName{Name: name, Start: base + s, End: base + e}, ns, scope, class))
+			}
 		}
 	case "try":
 		_, handlers, _ := tryParts(w)
