@@ -505,7 +505,8 @@ func paramFromWord(w Word, base int, varList bool) (string, int, int) {
 
 // emitLoopVarDefs emits DefLocal bindings for loop/destructuring target variables
 // that introduce proc-locals: foreach/lmap var lists, lassign targets, dict for/map
-// key lists, and try handler variable lists. Called only in FrameProc.
+// key lists, dict update variables, and try handler variable lists. Called only in
+// FrameProc.
 func emitLoopVarDefs(w []Word, base int, ns string, scope int, class string, out *[]Definition) {
 	if len(w) == 0 || w[0].Kind != WordBare {
 		return
@@ -528,12 +529,36 @@ func emitLoopVarDefs(w []Word, base int, ns string, scope int, class string, out
 		if len(w) >= 5 && w[1].Kind == WordBare && (w[1].Text == "for" || w[1].Text == "map") {
 			emitVarListNames(w[2], base, ns, scope, class, out)
 		}
+		// dict update dictVar key varName ?key varName ...? body -- each varName is
+		// written before the body runs, or unset when its key is missing.
+		if len(w) >= 6 && len(w)%2 == 0 && w[1].Kind == WordBare && w[1].Text == "update" && !hasExpansion(w) {
+			for i := 4; i < len(w)-1; i += 2 {
+				if name, s, e, ok := arrayBaseName(literalWord(w[i])); ok {
+					*out = append(*out, localDef(paramName{Name: name, Start: base + s, End: base + e}, ns, scope, class))
+				}
+			}
+		}
 	case "try":
 		_, handlers, _ := tryParts(w)
 		for _, h := range handlers {
 			*out = append(*out, tryHandlerDefs(h, base, ns, scope, class)...)
 		}
 	}
+}
+
+// literalWord returns w as a bare word when it is a braced or quoted word whose
+// value is its inner text: `{v}` and `"v"` both name `v`. A braced backslash is
+// literal and a quoted `$`, `[` or `\` substitutes, so those words, and any other,
+// are returned unchanged.
+func literalWord(w Word) Word {
+	if (w.Kind != WordBraced && w.Kind != WordQuoted) || len(w.Text) < 2 {
+		return w
+	}
+	inner := w.Text[1 : len(w.Text)-1]
+	if strings.ContainsAny(inner, "\\$[") {
+		return w
+	}
+	return Word{Kind: WordBare, Text: inner, Start: w.Start + 1, End: w.End - 1}
 }
 
 // catchVarWords returns the words naming the variables catch assigns: the result,

@@ -324,7 +324,7 @@ func conservativeHead(c Command) bool {
 // runs its script in another frame. childBodies asks this too, so indexed definitions
 // and reach sets agree on which bodies run here.
 func bodiesRunHere(c Command) bool {
-	return isCmd(c.Words, "if") || conservativeHead(c) || loopHead(c)
+	return isCmd(c.Words, "if") || conservativeHead(c) || loopHead(c) || dictBodyHead(c.Words)
 }
 
 // analyzedScope marks a body as still in the analyzed scope when asking childBodies
@@ -539,6 +539,19 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		return a.analyzeConservative(c, base, in)
 	case loopHead(c):
 		return a.analyzeLoop(c, base, in)
+	case dictBodyHead(c.Words):
+		// dict update writes its variables (or unsets them, for a missing key) before
+		// the body runs once, in place. dict with's variables are named by the dict's
+		// keys, so they bind nothing.
+		out := in
+		if binds := localBindings(c, base, a.ns, a.frame); len(binds) > 0 {
+			out = in.clone()
+			for _, d := range binds {
+				out[d.Name] = []Definition{d}
+			}
+		}
+		body := c.Words[len(c.Words)-1]
+		return a.runScript(&body, base, out)
 	case isCmd(c.Words, "return"):
 		a.ret = joinAll([]reachSet{nonNil(a.ret), in})
 		return in, false

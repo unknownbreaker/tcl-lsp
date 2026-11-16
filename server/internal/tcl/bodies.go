@@ -236,6 +236,23 @@ func decoratedProcDef(w []Word) (name, args, body Word, ok bool) {
 	return
 }
 
+// dictBodyHead reports whether w is `dict with dictVar ?key ...? body` or
+// `dict update dictVar key varName ?key varName ...? body` with a braced body. Tcl
+// runs that body once, in place, in the current frame (tclsh 8.6 and 9.0), and
+// passes break, continue and return through.
+func dictBodyHead(w []Word) bool {
+	if len(w) < 4 || w[0].Kind != WordBare || w[0].Text != "dict" || w[1].Kind != WordBare || w[len(w)-1].Kind != WordBraced {
+		return false
+	}
+	switch w[1].Text {
+	case "with":
+		return true
+	case "update":
+		return len(w) >= 6 && len(w)%2 == 0
+	}
+	return false
+}
+
 // listOrDataHeads are builtins whose arguments may literally contain the word
 // `proc` as data (a list element, a value or a switch pattern), so a trailing
 // `proc name args body` in them is not a decorated proc definition.
@@ -264,6 +281,9 @@ func scriptBodies(w []Word) []Word {
 	case "dict":
 		// dict for {k v} dict body ; dict map {k v} dict body -- body is last.
 		if len(w) >= 2 && w[1].Kind == WordBare && (w[1].Text == "for" || w[1].Text == "map") && braced(last) {
+			return []Word{w[last]}
+		}
+		if dictBodyHead(w) {
 			return []Word{w[last]}
 		}
 	case "catch":
