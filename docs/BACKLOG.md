@@ -79,14 +79,21 @@ The larger known limits, including the two parser limits, are in
 `research/08-flightaware-corpus-probe.md` ("Known limits that remain"). These are the smaller
 ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
 
-- **Switch, still a wrong answer.** Abbreviated or quoted options read a pattern as a call:
-  `switch -reg $x {stop {...}}`, `switch "-glob" $x {stop {...}}`. Tcl's rule is that the last two
-  words are never options. `::switch` is unhandled, so a pattern reads as a call and
-  `::switch $k proc - method {...}` makes `::-`. Same on `main@26f8ab2`.
-- **Switch, now silent.** `switch {*}$opts $x {...}` and `switch -exact {...}` find no arms, and a `;`
-  in a bare pattern shifts the pairing. Their arms' calls resolved on `main@26f8ab2`. Also, `#* { helper }`
-  at line start in an arm list parses as a comment, so its body is silent, where Tcl treats it as a pattern.
-  That one is silent on `main@26f8ab2` too.
+- **Switch, now silent.** Since v0.6.15 options follow Tcl's parser (abbreviations, quoted or braced
+  options, never the last two words, `::switch`), and a switch whose options Tcl rejects, or whose
+  subject a substituted word may displace, walks no arm. (A complete switch Tcl rejects for its
+  arms, such as an odd inline count after `--`, still walks them, so a half-typed one keeps working.) So `switch {*}$opts $x {...}`, `switch $o $x {...}`,
+  `switch -regexp $x a {...} b {...}` (`$x` may be `-matchvar`) and a single inline arm without `--`
+  whose body is a two-word list (`switch $k "a" { puts $y }`) are silent, and so is a half-typed
+  inline switch without `--` that reads as complete if its subject is an option. None of these
+  occur in the corpus. Other `::`-qualified builtins (`::if`, `::foreach`) are still read as
+  unknown commands.
+- **Switch arm lists, still a wrong answer.** An arm list is split into `Parse` words, not Tcl list
+  elements, so a `;` in a pattern or a line starting with `#` shifts the pairing and can make a
+  pattern a body: in `switch $x {a;b {pat} {body} c}` and `switch $x {a {x}\n#\n{pq} {bq} z}`, Tcl
+  runs `c` and `z`, yet `body` and `bq` are walked as calls. When the shift leaves the count odd,
+  the arms go silent instead (`#* { helper }` at line start). Same on v0.6.14. Also, a switch whose
+  last body is `-` (`switch $x {a {bb} b -}`) is an error in Tcl, yet its arms are walked.
 - **Reaching, still a wrong answer.** `set x 0; eval {set y 1;} {set x 1}; puts $x` answers `set x 0`.
   `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. Both are
   the same on `main@26f8ab2`. (A `for` whose body cannot complete no longer runs `next`, since v0.6.7.) So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which

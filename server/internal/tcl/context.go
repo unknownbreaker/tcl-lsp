@@ -42,6 +42,11 @@ func isCmd(words []Word, name string) bool {
 	return len(words) > 0 && words[0].Kind == WordBare && words[0].Text == name
 }
 
+// isSwitch reports whether a command is switch, written bare or as `::switch`.
+func isSwitch(words []Word) bool {
+	return isCmd(words, "switch") || isCmd(words, "::switch")
+}
+
 // qualifyNamespace resolves a namespace name argument against the current
 // namespace: a leading "::" is absolute, otherwise it is relative to current.
 func qualifyNamespace(name, current string) string {

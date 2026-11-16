@@ -211,9 +211,12 @@ func TestSwitchPatternIsNotAReferenceFromAnotherFile(t *testing.T) {
 func TestSwitchLocalsResolveInArmsAcrossScopes(t *testing.T) {
 	const file = "main.tcl"
 	templates := map[string]string{
-		"quoted pattern":        "proc f {@B} {\n  switch $k {\n    \"a\" { puts $@U }\n  }\n}",
-		"braced pattern":        "proc f {@B} {\n  switch $k {\n    {a b} { puts $@U }\n  }\n}",
-		"inline":                "proc f {@B} {\n  switch $k \"a\" { puts $@U }\n}",
+		"quoted pattern": "proc f {@B} {\n  switch $k {\n    \"a\" { puts $@U }\n  }\n}",
+		"braced pattern": "proc f {@B} {\n  switch $k {\n    {a b} { puts $@U }\n  }\n}",
+		// One inline arm needs `--`: without it $k may be an option, and then
+		// `{ puts $y }` is a two-element arm list (tclsh 8.6, 9.0).
+		"inline":                "proc f {@B} {\n  switch -- $k \"a\" { puts $@U }\n}",
+		"inline, two arms":      "proc f {@B} {\n  switch $k \"a\" { puts $@U } \"b\" { puts $@U }\n}",
 		"fall-through":          "proc f {@B} {\n  switch $k {\n    \"a\" -\n    \"b\" { puts $@U }\n  }\n}",
 		"set before the switch": "proc f {} {\n  set @B 1\n  switch $k {\n    \"a\" { puts $@U }\n  }\n}",
 		"nested switch":         "proc f {@B} {\n  switch $k {\n    \"a\" {\n      switch $j {\n        \"b\" { puts $@U }\n      }\n    }\n  }\n}",
