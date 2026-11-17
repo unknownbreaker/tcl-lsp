@@ -290,6 +290,9 @@ The dominant Rivet/speedtables idiom — `itcl::class`, `[::C #auto]`,
 - **Methods and ivars** resolve — inline and external `itcl::body`, with or
   without `public`/`protected`/`private` modifiers (the usual real-world form).
 - **`inherit` chains** resolve through the class hierarchy.
+- **Calls in a method body** look up procs the way Itcl does: in the class's
+  own namespace first, then global. A class inside `namespace eval ::ns` does
+  not see `::ns`'s procs from its methods, and neither does Tcl.
 - **Find-references** on a method lists the bare calls in method bodies that
   resolve to it, the same way goto-definition does. `$obj method` calls are
   not listed.

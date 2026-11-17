@@ -332,11 +332,49 @@ func refAt(file, src string, offset int) *tcl.ContextRef {
 // candidates returns the fully-qualified names to look up for a reference.
 func (r *Resolver) candidates(ref *tcl.ContextRef, file string) []string {
 	name := ref.Ref.Name
-	ns := ref.Namespace
 	if ref.Ref.Kind == tcl.RefCommand {
-		return r.commandCandidates(name, ns, file)
+		return r.commandRefCandidates(ref, file)
 	}
-	return variableCandidates(name, ns, ref.Frame)
+	return variableCandidates(name, ref.Namespace, ref.Frame)
+}
+
+// commandRefCandidates returns the FQ names a command reference may bind to, from
+// the namespace it is looked up in. A wrapper's body inside a method (`after 0 {g}`,
+// `uplevel #0 {g}`, `with_lock {g}`) may run in the method or globally, so it is
+// answered only when both lookups find the same command, and is silent otherwise.
+func (r *Resolver) commandRefCandidates(ref *tcl.ContextRef, file string) []string {
+	ns := commandNamespace(ref)
+	cands := r.commandCandidates(ref.Ref.Name, ns, file)
+	if ref.Wrapped && ns != ref.Namespace &&
+		r.firstDefined(cands, file) != r.firstDefined(r.commandCandidates(ref.Ref.Name, "::", file), file) {
+		return nil
+	}
+	return cands
+}
+
+// firstDefined returns the first of cands with a command definition, or "".
+func (r *Resolver) firstDefined(cands []string, file string) string {
+	for _, name := range cands {
+		if len(r.lookupSide(name, file, sideCommand)) > 0 {
+			return name
+		}
+	}
+	return ""
+}
+
+// commandNamespace returns the namespace a command reference is looked up from.
+// An Itcl method, constructor, destructor, class proc or itcl::body runs in its
+// class's namespace, not in the namespace that lexically holds the class, so its
+// calls try the class namespace, then that namespace's path and imports, then
+// global. The enclosing namespace is never searched (tclsh 8.6 and 9.0, Itcl 4.3;
+// research/experiments/08_itcl_class_namespace.tcl). A `namespace eval` or a
+// qualified proc inside a method runs in its own namespace (ref.InClassNS is false
+// there). Everywhere else it is the reference's own namespace.
+func commandNamespace(ref *tcl.ContextRef) string {
+	if ref.Frame == tcl.FrameProc && ref.InClassNS && ref.Class != "" {
+		return ref.Class
+	}
+	return ref.Namespace
 }
 
 // commandCandidates returns the FQ command names to try, in TCL precedence
@@ -521,7 +559,7 @@ func (r *Resolver) References(file, src string, offset int) []index.Location {
 	}
 
 	// Pre-warm the namespace cache single-threaded. Resolving a command ref calls
-	// index.Namespace(ref.Namespace), which WRITES the memoized nsCache on a miss;
+	// index.Namespace on its lookup namespace (and on "::" in a method's wrapper body), which WRITES the memoized nsCache on a miss;
 	// under the parallel scan below that would be a concurrent map write (a Go
 	// fatal panic, not merely a race). Warming every referenced namespace first
 	// makes the scan touch nsCache read-only.
@@ -558,13 +596,15 @@ type refScan struct {
 
 // warmNamespaces populates the index's namespace cache for every namespace
 // referenced by work, single-threaded. Command resolution only ever queries
-// index.Namespace(ref.Namespace), so warming that exact set guarantees the
-// subsequent parallel scan finds every entry already cached (read-only).
+// index.Namespace(commandNamespace(ref)), plus "::" for a wrapper's body in a
+// method (commandRefCandidates), so warming that set guarantees the subsequent
+// parallel scan finds every entry already cached (read-only).
 func (r *Resolver) warmNamespaces(work []refScan) {
-	seen := map[string]bool{}
+	seen := map[string]bool{"::": true}
+	r.ix.Namespace("::")
 	for _, w := range work {
 		for i := range w.refs {
-			ns := w.refs[i].Namespace
+			ns := commandNamespace(&w.refs[i])
 			if !seen[ns] {
 				seen[ns] = true
 				r.ix.Namespace(ns)
@@ -606,7 +646,7 @@ func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind
 	if ref.Ref.Kind != tcl.RefCommand {
 		return 0, false
 	}
-	for _, name := range r.commandCandidates(ref.Ref.Name, ref.Namespace, file) {
+	for _, name := range r.commandRefCandidates(ref, file) {
 		if locs := r.lookupSide(name, file, sideCommand); len(locs) > 0 {
 			return locs[0].Kind, true
 		}
