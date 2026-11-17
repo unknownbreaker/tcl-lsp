@@ -293,8 +293,8 @@ differs from this section, this section is right, and the plan lists the departu
    keyed by file, never cached across requests, because live documents change. Workspace symbols convert
    in parallel, so that map is built single-threaded first and only read by the workers.
 2. **Switch.** `scriptBodies` gets a `switch` case: parse options and subject; one braced word left is an
-   arm list (its parsed words flattened and shifted to `w`'s coordinates), otherwise inline pairs. Only a
-   braced body is returned, `-` is fall-through, and patterns are never walked. An odd word count with a
+   arm list (split into Tcl list elements since v0.6.16, shifted to `w`'s coordinates), otherwise inline pairs. Only a
+   braced body is returned, `-` is fall-through (a last `-`, or a list Tcl rejects, returns nil), and patterns are never walked. An odd word count with a
    braced last word returns nil; an unbraced last word is a pattern still being typed and is dropped, so
    the other arms keep resolving mid-edit, as they do on `main@26f8ab2`. The reaching workaround goes away.
    `FileFolds` keeps the outer arm-list fold through a small helper. The inline form also made a fake

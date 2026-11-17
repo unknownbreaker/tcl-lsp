@@ -111,18 +111,3 @@ func bracedValue(inner string) string {
 	}
 	return string(b)
 }
-
-// listElementValue returns the value of a list element, with a bare or quoted
-// element's backslash escapes decoded. ok is false where the decoding is not
-// certain (see decodeBackslashes).
-func listElementValue(e Word) (string, bool) {
-	switch e.Kind {
-	case WordBraced:
-		return e.Text[1 : len(e.Text)-1], true
-	case WordQuoted:
-		v, _, ok := decodeBackslashes(e.Text[1 : len(e.Text)-1])
-		return v, ok
-	}
-	v, _, ok := decodeBackslashes(e.Text)
-	return v, ok
-}

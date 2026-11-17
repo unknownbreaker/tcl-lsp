@@ -683,7 +683,7 @@ func armListMayPair(w Word) bool {
 	var elems []Word
 	var ok bool
 	if w.Kind == WordBraced {
-		elems, ok = switchArmListWords(w)
+		elems, ok = switchArmListElements(w)
 	} else {
 		v, literal := decodedLiteral(w)
 		if !literal {
@@ -788,11 +788,11 @@ func switchArmList(w []Word) (Word, bool) {
 	return args[0], true
 }
 
-// switchArmListWords splits an arm list into its Tcl list elements. Each element is
+// switchArmListElements splits an arm list into its Tcl list elements. Each element is
 // shifted into the coordinates of the list's enclosing source, so bracedInner works
 // on it with the same base as on the list itself. ok is false where Tcl rejects the
 // list.
-func switchArmListWords(list Word) ([]Word, bool) {
+func switchArmListElements(list Word) ([]Word, bool) {
 	inner, interiorStart := bracedInner(list, 0)
 	elems, ok := listElements(bracedValue(inner))
 	if !ok {
@@ -818,9 +818,11 @@ func switchArmListWords(list Word) ([]Word, bool) {
 func switchBodies(w []Word) []Word {
 	arms := switchArgs(w)
 	if list, ok := switchArmList(w); ok {
-		if arms, ok = switchArmListWords(list); !ok {
+		elems, split := switchArmListElements(list)
+		if !split {
 			return nil
 		}
+		arms = elems
 	}
 	if len(arms)%2 == 1 && arms[len(arms)-1].Kind == WordBraced {
 		return nil
