@@ -117,8 +117,9 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
 - **Itcl method-body namespace neighbours.** Since v0.6.17 calls in a method body look up from the
   class namespace, then global, and since v0.6.18 class-body code (`common c [g]`) looks up from
   `::itcl::parser`, then global, and an unqualified `proc inner` in a method is indexed as
-  `::ns::K::inner`, and since v0.6.19 so is an unqualified `itcl::class Inner` (`::ns::K::Inner`; one a
-  wrapper defines there is not indexed). Some neighbours are still wrong (tclsh 8.6 and 9.0, Itcl 4.3). A substituted
+  `::ns::K::inner`, and since v0.6.19 so is an unqualified `itcl::class Inner` (`::ns::K::Inner`;
+  one a wrapper defines there is not indexed). Some neighbours are still wrong (tclsh 8.6 and 9.0,
+  Itcl 4.3). A substituted
   `namespace path` (`namespace path [list {*}[namespace path] ::lib]`, the form an Itcl class
   namespace needs, as a plain one replaces Itcl's own path) is recorded as one literal entry, so the
   class's path is silent. A wrapper's body in a method answers only when the class-namespace and
@@ -129,9 +130,8 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   wrapper's body there (`after`, `uplevel 1`) a relative `proc sub::d` is still indexed as `::ns::sub::d`,
   though Tcl creates it under the namespace the wrapper runs it in. A
   `variable v` in a method links `::ns::K::v` in Tcl, yet resolves against `::ns`. Same on v0.6.16.
-  A class a wrapper defines in a method still indexes its methods and ivars under the lexical name
-  (`::ns::Inner4`), though no class of that name exists, so `inherit Inner4` in `::ns` answers them.
-  Its own calls answer only when that guess and global agree. Same on v0.6.18.
+  A class a wrapper defines in a method is not indexed under any name, so in its methods only
+  absolute calls, `$this` calls, and its own ivars answer; bare calls are silent. Since v0.6.19.
 - **Semantic tokens skip the intra-class check.** `CommandRefKind` resolves a bare call in a method
   as an ordinary command, so a call to a method that a same-named global proc shadows
   (`proc ::m {}`, `method w {} { after 0 {m} }; method m {} {}`) is colored as the proc, though

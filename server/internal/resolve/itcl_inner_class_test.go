@@ -110,10 +110,8 @@ namespace eval ::ns::Inner4 { proc g {} {} }
 	}
 	// Not icbDef: CommandRefKind skips the intra-class check, so it colors hi2 as
 	// ::hi2 (a known wrong answer on main, docs/BACKLOG.md).
-	at := strings.Index(src, "hi2 }")
-	r := resolverOverGuardFile(src)
-	if got := r.Definition(guardFile, src, at); got != nil {
-		t.Errorf("hi2 in a wrapped class -> %v, want silent", got)
+	if got := iicMethodDef(src, "hi2 }"); got != nil {
+		t.Errorf("hi2 in a wrapped class -> lines %v, want silent", got)
 	}
 }
 
@@ -165,5 +163,42 @@ func TestIICInheritOfAQualifiedClassUsesItsOwnNamespace(t *testing.T) {
 `
 	if got := iicMethodDef(src, "bm } }"); !slices.Equal(got, []int{3}) {
 		t.Errorf("bm in sub::X -> lines %v, want [3] (::ns::sub::B::bm)", got)
+	}
+}
+
+// A class a wrapper defines in a method is not ::ns::Inner4 (Tcl creates it in
+// the caller's namespace), so `inherit Inner4` in ::ns does not reach its members.
+func TestIICWrappedClassMembersAreNotUnderTheLexicalName(t *testing.T) {
+	src := `namespace eval ::ns {
+  itcl::class Inner4 { method hi {} {} }
+  itcl::class K {
+    method w {} { uplevel 1 { itcl::class Inner4 { method hi {} {} } } }
+  }
+  itcl::class D { inherit Inner4; method x {} { hi } }
+}
+`
+	if got := iicMethodDef(src, "hi } }\n}"); !slices.Equal(got, []int{2}) {
+		t.Errorf("hi in D -> lines %v, want [2] (::ns::Inner4::hi only)", got)
+	}
+}
+
+// In a wrapped class's method a bare call may be an inherited method of a base
+// whose namespace is unknown, so it is silent; its own ivars still resolve.
+func TestIICWrappedClassBareCallsSilentIvarsResolve(t *testing.T) {
+	src := `proc ::bm {} {}
+namespace eval ::ns {
+  itcl::class K {
+    method w {} { uplevel 1 { itcl::class Inner4 { inherit B; variable v; method hi {} { bm; ::bm; set v } } } }
+  }
+}
+`
+	if got := iicMethodDef(src, "bm; ::bm"); got != nil {
+		t.Errorf("bare bm -> lines %v, want silent", got)
+	}
+	if got := icbDef(t, src, "::bm; set"); !slices.Equal(got, []int{1}) {
+		t.Errorf("::bm -> lines %v, want [1]", got)
+	}
+	if got := iicMethodDef(src, "v } } }"); !slices.Equal(got, []int{4}) {
+		t.Errorf("ivar v -> lines %v, want [4]", got)
 	}
 }

@@ -342,7 +342,14 @@ func (r *Resolver) candidates(ref *tcl.ContextRef, file string) []string {
 // the namespace it is looked up in. A wrapper's body inside a method (`after 0 {g}`,
 // `uplevel #0 {g}`, `with_lock {g}`) may run in the method or globally, so it is
 // answered only when both lookups find the same command, and is silent otherwise.
+//
+// In a method of a class whose namespace is unknown (tcl.IsUnknownClass), a bare or
+// relative call may be an inherited method of a base the walker cannot name, or a
+// proc in that namespace, so only an absolute name answers.
 func (r *Resolver) commandRefCandidates(ref *tcl.ContextRef, file string) []string {
+	if ref.Frame == tcl.FrameProc && tcl.IsUnknownClass(ref.Class) && !strings.HasPrefix(ref.Ref.Name, "::") {
+		return nil
+	}
 	ns := commandNamespace(ref)
 	cands := r.commandCandidates(ref.Ref.Name, ns, file)
 	if ref.Wrapped && ns != ref.Namespace &&

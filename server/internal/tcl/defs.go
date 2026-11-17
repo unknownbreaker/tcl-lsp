@@ -202,7 +202,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		}
 	}
 	// w[0]=itcl::class  w[1]=ClassName  w[2]=class body (required, hence len >= 3)
-	if (isCmd(w, "itcl::class") || isCmd(w, "::itcl::class")) && len(w) >= 3 && isPlainName(w[1]) {
+	if isItclClassCmd(w) && len(w) >= 3 && isPlainName(w[1]) {
 		if name, ok := nestedDefName(w[1].Text, ns, frame, class, wrapped, inClassNS); ok {
 			*out = append(*out, Definition{
 				Kind:      DefClass,

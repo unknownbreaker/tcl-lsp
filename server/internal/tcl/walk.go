@@ -74,15 +74,18 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 		}
 
 		// An itcl::class body's class is the name its definition takes. When that
-		// is not certain (a wrapper's body in a method), its body is wrapped.
-		if isCmd(w, "itcl::class") || isCmd(w, "::itcl::class") {
+		// is not certain (a wrapper's body in a method), its body is wrapped and
+		// keyed by unknownClassKey, so no name lookup or `inherit` reaches it.
+		if isItclClassCmd(w) && len(bodies) > 0 {
+			name, ok := nestedDefName(w[1].Text, ns, frame, class, wrapped, inClassNS)
 			for i := range bodies {
 				if bodies[i].Frame != FrameClass {
 					continue
 				}
-				if name, ok := nestedDefName(w[1].Text, ns, frame, class, wrapped, inClassNS); ok {
+				if ok {
 					bodies[i].Class = name
 				} else {
+					bodies[i].Class = unknownClassKey(bodies[i].Class, bodies[i].Base)
 					bodies[i].Wrapped = true
 				}
 			}

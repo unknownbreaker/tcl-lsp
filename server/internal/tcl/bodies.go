@@ -2,6 +2,7 @@ package tcl
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -162,7 +163,7 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		// `variable cfg` inside proc ::a::b link to ::a::cfg.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(w[1].Text, ns), Frame: FrameProc, Scope: innerBase, Class: class, InClassNS: procClassNS(w[1].Text, frame)}}
-	case (isCmd(w, "itcl::class") || isCmd(w, "::itcl::class")) && len(w) >= 3 && w[len(w)-1].Kind == WordBraced:
+	case isItclClassCmd(w) && len(w) >= 3 && w[len(w)-1].Kind == WordBraced:
 		// itcl::class NAME BODY — the body is a member-declaration scope.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
 		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameClass, Scope: 0, Class: qualifyName(w[1].Text, ns), InClassNS: classNSOn}}
@@ -242,6 +243,27 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 // head must not be `proc` (handled directly by the proc cases) nor a list/data
 // builtin (so `lappend x proc foo {} {}` is not misread). This covers single,
 // argument-taking, and stacked decorators, a qualified NAME, and trailing flags.
+// unknownClassKey keys the members of a class whose namespace is not known (one a
+// wrapper defines in a method: Tcl creates it wherever the wrapper runs it). Every
+// FQ name starts with "::" and this key does not, so no command lookup or
+// `inherit` names it; its own bodies still find its methods and ivars through it.
+// guess is the lexical FQ name and bodyBase the class body's offset, which keeps
+// two such classes in a file apart. A same-named one at the same offset in another
+// file would share the key.
+func unknownClassKey(guess string, bodyBase int) string {
+	return "?" + strconv.Itoa(bodyBase) + guess
+}
+
+// IsUnknownClass reports whether class is an unknownClassKey.
+func IsUnknownClass(class string) bool {
+	return class != "" && !strings.HasPrefix(class, "::")
+}
+
+// isItclClassCmd reports whether w is an `itcl::class` or `::itcl::class` command.
+func isItclClassCmd(w []Word) bool {
+	return isCmd(w, "itcl::class") || isCmd(w, "::itcl::class")
+}
+
 // procBodyNS returns the namespace a proc's body runs in: for a qualified proc
 // name (`::a::b`, `a::b`) the namespace part of the qualified name; for a plain
 // name, the lexically enclosing namespace.
