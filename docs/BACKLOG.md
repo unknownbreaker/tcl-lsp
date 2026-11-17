@@ -132,12 +132,9 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   `variable v` in a method links `::ns::K::v` in Tcl, yet resolves against `::ns`. Same on v0.6.16.
   A class a wrapper defines in a method is not indexed under any name, so in its methods only
   absolute calls, `$this` calls, and its own ivars answer; bare calls are silent. Since v0.6.19.
-- **Semantic tokens skip the intra-class check.** `CommandRefKind` resolves a bare call in a method
-  as an ordinary command, so a call to a method that a same-named global proc shadows
-  (`proc ::m {}`, `method w {} { after 0 {m} }; method m {} {}`) is colored as the proc, though
-  goto-definition answers the method, or nothing in a wrapper's body. Same on v0.6.18.
 - **Itcl method calls Tcl rejects.** A bare call to a base class's `private` method, to an instance
-  method from a class `proc`, or from a nested `proc` inside a method errors in Tcl, yet resolves to
+  method from a class `proc`, or from a nested `proc` inside a method (unqualified, or named
+  into the class namespace: `proc ::K::r`, `namespace eval ::K`) errors in Tcl, yet resolves to
   the method and is listed as its reference. Same on v0.6.8 for goto-definition.
 - **`dict with` keys bind nothing.** Since v0.6.14 `dict with` and `dict update` bodies run in place
   (before, they were not walked at all). `dict with` writes a variable per key of the dict, and the

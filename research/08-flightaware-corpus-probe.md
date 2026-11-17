@@ -254,6 +254,17 @@ requests stack depends on what the client sends. This is one generated data file
 9. **Semantic tokens leave resolved intra-class calls uncolored** (**harness count:** 301 rows,
    speedtables and piaware). `resolve.go:526-527` documents `$obj method` staying uncolored; bare
    intra-class calls go uncolored too.
+   **Fixed in v0.6.20:** a bare call in a method body takes goto-definition's intra-class
+   precedence, so it is colored as the method goto-definition answers, even over a same-named
+   global proc, and stays uncolored in a custom command's body (`after 0 {m}`), where
+   goto-definition is silent. A bare call in a qualified proc inside a method is a method call
+   only when the proc's namespace is the class namespace (`proc ::K::r`), as is one in
+   `namespace eval ::K` there; `proc ::p` and `proc ::K::sub::r` run `::m`, and a substituted
+   name (`proc [namespace current]::s`) answers nothing (tclsh 8.6 and 9.0). On v0.6.19
+   goto-definition answered the method for every such proc and `::m` for `namespace eval ::K`.
+   The probe's resolved-but-uncolored rows went from 302 on v0.6.19 (speedtables 174, piaware
+   124, piaware-gui 4) to 0, and 43 piaware calls changed from function to method color; no
+   other count or goto-definition answer changed.
 10. **Relative qualified variables.** **Reproduced:** the server is silent, **8.6 falls back, and 9.0
     errors.** The target is 8.6 (`research/README.md`), so this is a real miss on 8.6, and silence is the
     safe choice while the versions differ.

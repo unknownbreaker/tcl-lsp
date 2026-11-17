@@ -108,16 +108,14 @@ namespace eval ::ns::Inner4 { proc g {} {} }
 	if got := icbDef(t, src, "g; hi2"); got != nil {
 		t.Errorf("g in a wrapped class -> lines %v, want silent", got)
 	}
-	// Not icbDef: CommandRefKind skips the intra-class check, so it colors hi2 as
-	// ::hi2 (a known wrong answer on main, docs/BACKLOG.md).
-	if got := iicMethodDef(src, "hi2 }"); got != nil {
+	if got := icbDef(t, src, "hi2 }"); got != nil {
 		t.Errorf("hi2 in a wrapped class -> lines %v, want silent", got)
 	}
 }
 
-// iicMethodDef resolves the bare method call at the first occurrence of mark. It
-// skips icbDef's CommandRefKind check: semantic tokens do not resolve intra-class
-// calls (docs/BACKLOG.md).
+// iicMethodDef resolves the reference at the first occurrence of mark, without
+// icbDef's CommandRefKind check, for references that are not command calls
+// (an ivar).
 func iicMethodDef(src, mark string) []int {
 	r := resolverOverGuardFile(src)
 	return startLinesOf(src, guardFile, r.Definition(guardFile, src, strings.Index(src, mark)))
@@ -135,7 +133,7 @@ func TestIICInheritResolvesInTheClassParentNamespace(t *testing.T) {
   itcl::class K::Base { method bm {} {} }
 }
 `
-	if got := iicMethodDef(src, "bm } } }"); !slices.Equal(got, []int{6}) {
+	if got := icbDef(t, src, "bm } } }"); !slices.Equal(got, []int{6}) {
 		t.Errorf("bm in Inner -> lines %v, want [6] (::ns::K::Base::bm)", got)
 	}
 }
@@ -149,7 +147,7 @@ func TestIICInheritOfALexicalOnlyBaseIsSilent(t *testing.T) {
   }
 }
 `
-	if got := iicMethodDef(src, "bm } } }"); got != nil {
+	if got := icbDef(t, src, "bm } } }"); got != nil {
 		t.Errorf("bm in Inner2 -> lines %v, want silent", got)
 	}
 }
@@ -161,7 +159,7 @@ func TestIICInheritOfAQualifiedClassUsesItsOwnNamespace(t *testing.T) {
   itcl::class sub::X { inherit B; method hi {} { bm } }
 }
 `
-	if got := iicMethodDef(src, "bm } }"); !slices.Equal(got, []int{3}) {
+	if got := icbDef(t, src, "bm } }"); !slices.Equal(got, []int{3}) {
 		t.Errorf("bm in sub::X -> lines %v, want [3] (::ns::sub::B::bm)", got)
 	}
 }
@@ -177,7 +175,7 @@ func TestIICWrappedClassMembersAreNotUnderTheLexicalName(t *testing.T) {
   itcl::class D { inherit Inner4; method x {} { hi } }
 }
 `
-	if got := iicMethodDef(src, "hi } }\n}"); !slices.Equal(got, []int{2}) {
+	if got := icbDef(t, src, "hi } }\n}"); !slices.Equal(got, []int{2}) {
 		t.Errorf("hi in D -> lines %v, want [2] (::ns::Inner4::hi only)", got)
 	}
 }
@@ -192,7 +190,7 @@ namespace eval ::ns {
   }
 }
 `
-	if got := iicMethodDef(src, "bm; ::bm"); got != nil {
+	if got := icbDef(t, src, "bm; ::bm"); got != nil {
 		t.Errorf("bare bm -> lines %v, want silent", got)
 	}
 	if got := icbDef(t, src, "::bm; set"); !slices.Equal(got, []int{1}) {

@@ -118,3 +118,31 @@ func TestServerSemanticTokens(t *testing.T) {
 		}
 	}
 }
+
+// A bare call in a method colors as the method goto-definition answers, even
+// when a global proc of that name exists; in a wrapper's body (`after 0 {m}`),
+// where goto-definition is silent, it is uncolored.
+func TestServerSemanticTokensIntraClassCall(t *testing.T) {
+	src := "proc ::m {} {}\nitcl::class K {\n  method a {} { m }\n  method w {} { after 0 {m} }\n  method m {} {}\n}\n"
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	in.Write(frame(t, "textDocument/didOpen", nil, DidOpenParams{
+		TextDocument: TextDocumentItem{URI: "file:///m.tcl", Text: src}}))
+	in.Write(frame(t, "textDocument/semanticTokens/full", 2, SemanticTokensParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///m.tcl"}}))
+	in.Write(frame(t, "exit", nil, nil))
+	resp := responseByID(runServer(t, in.Bytes()), "2")
+
+	var st SemanticTokens
+	_ = json.Unmarshal(resp.Result, &st)
+	typeAt := map[[2]int]int{}
+	for _, tk := range decodeSemanticTokens(st.Data) {
+		typeAt[[2]int{tk.line, tk.char}] = tk.typ
+	}
+	if typ, ok := typeAt[[2]int{2, 16}]; !ok || typ != stMethod {
+		t.Errorf("bare m in method a: type %d (present=%v), want method %d", typ, ok, stMethod)
+	}
+	if typ, ok := typeAt[[2]int{3, 25}]; ok {
+		t.Errorf("m in after 0 {m}: type %d, want uncolored", typ)
+	}
+}

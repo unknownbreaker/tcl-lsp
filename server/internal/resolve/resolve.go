@@ -190,11 +190,22 @@ func (r *Resolver) methodOwnerSeen(classFQ, name string, seen map[string]bool) s
 // class method body runs, or "" when the call is not one (it then resolves as an
 // ordinary command). ambiguous is true when a method of that name exists but the
 // call is in a custom command's body (`after 0 {m}`, `uplevel #0 {m}`, a wrapper),
-// which may run it in the method or elsewhere: the call answers nothing.
-// Goto-definition and find-references share it so they agree.
+// which may run it in the method or elsewhere: the call answers nothing. The call
+// must run in the class namespace: a method-like body (ref.InClassNS), or a
+// qualified proc or `namespace eval` inside one that names the class namespace
+// (`proc ::K::r`). One naming another namespace (`proc ::p`, `proc ::K::sub::r`)
+// runs ::m (tclsh 8.6 and 9.0), and one with a substituted name
+// (`proc [namespace current]::s`) may be either, so it answers nothing.
+// Goto-definition, find-references and semantic tokens share it so they agree.
 func (r *Resolver) intraClassOwner(ref *tcl.ContextRef) (owner string, ambiguous bool) {
-	if ref.Ref.Kind != tcl.RefCommand || ref.Frame != tcl.FrameProc || ref.Class == "" {
+	if ref.Ref.Kind != tcl.RefCommand || ref.Class == "" ||
+		(ref.Frame != tcl.FrameProc && ref.Frame != tcl.FrameNamespace) {
 		return "", false
+	}
+	inClassNS := (ref.Frame == tcl.FrameProc && ref.InClassNS) || ref.Namespace == ref.Class
+	if !inClassNS {
+		substituted := strings.ContainsAny(ref.Namespace, "$[")
+		return "", substituted && r.methodOwner(ref.Class, ref.Ref.Name) != ""
 	}
 	if owner = r.methodOwner(ref.Class, ref.Ref.Name); owner != "" && ref.Wrapped {
 		return "", true
@@ -295,9 +306,15 @@ func (r *Resolver) Definition(file, src string, offset int) []index.Location {
 	if ref == nil {
 		return nil
 	}
-	// Intra-class method resolution: a bare command call (or $this method) inside
-	// a class method body resolves to a method on the current class (or its bases).
-	// This takes precedence over the global command path but comes after proc-locals.
+	return r.refDefinition(ref, file)
+}
+
+// refDefinition returns the definition sites a command or qualified-variable
+// reference binds to, by TCL precedence. Intra-class method resolution comes
+// first: a bare command call inside a class method body resolves to a method on
+// the current class (or its bases), ahead of the global command path. Definition
+// and CommandRefKind share it so a call's color agrees with its jump.
+func (r *Resolver) refDefinition(ref *tcl.ContextRef, file string) []index.Location {
 	if owner, ambiguous := r.intraClassOwner(ref); ambiguous {
 		return nil
 	} else if owner != "" {
@@ -655,17 +672,17 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 // TCL command precedence) and whether it resolves to an indexed definition.
 // Semantic tokens use it to color only calls that resolve to known procs/methods
 // -- so color means "there is source to jump to" -- leaving builtins (and
-// anything without indexed source) to fall back to syntax highlighting.
+// anything without indexed source) to fall back to syntax highlighting. It
+// resolves through refDefinition, as goto-definition does, so the color agrees
+// with the jump.
 // Method-MRO resolution ($obj method) is out of scope here -- those stay
 // uncolored.
 func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind, bool) {
 	if ref.Ref.Kind != tcl.RefCommand {
 		return 0, false
 	}
-	for _, name := range r.commandRefCandidates(ref, file) {
-		if locs := r.lookupSide(name, file, sideCommand); len(locs) > 0 {
-			return locs[0].Kind, true
-		}
+	if locs := r.refDefinition(ref, file); len(locs) > 0 {
+		return locs[0].Kind, true
 	}
 	return 0, false
 }
