@@ -48,6 +48,9 @@ func TestSwitchOptionsFollowTcl(t *testing.T) {
 		// is the subject only when no option reading gives a shape Tcl accepts.
 		{"substituted option", "switch $o $x {stop { helper }}", 0},
 		{"bracketed option", "switch [opts] $x {stop { helper }}", 0},
+		// As a list, `{ helper ; helper }` has three elements, so no option reading
+		// is accepted and `$o` is the subject, which makes the list one body.
+		{"substituted option, odd list", "switch $o $x { helper ; helper }", 2},
 		{"after -regexp, may be -matchvar", "switch -regexp $x a { helper } b { helper }", 0},
 		{"inline arms, odd if an option", "switch $x a { helper } b { helper }", 2},
 		{"inline arms after -glob", "switch -glob $x a { helper } b { helper }", 2},

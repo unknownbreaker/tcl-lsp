@@ -88,12 +88,12 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   inline switch without `--` that reads as complete if its subject is an option. None of these
   occur in the corpus. Other `::`-qualified builtins (`::if`, `::foreach`) are still read as
   unknown commands.
-- **Switch arm lists, still a wrong answer.** An arm list is split into `Parse` words, not Tcl list
-  elements, so a `;` in a pattern or a line starting with `#` shifts the pairing and can make a
-  pattern a body: in `switch $x {a;b {pat} {body} c}` and `switch $x {a {x}\n#\n{pq} {bq} z}`, Tcl
-  runs `c` and `z`, yet `body` and `bq` are walked as calls. When the shift leaves the count odd,
-  the arms go silent instead (`#* { helper }` at line start). Same on v0.6.14. Also, a switch whose
-  last body is `-` (`switch $x {a {bb} b -}`) is an error in Tcl, yet its arms are walked.
+- **Switch, a substituted last body.** A last body of `-` makes Tcl reject the switch, so its arms
+  are silent, but only a literal `-` is seen: in `switch $x a { helper } b $body` the arms are
+  walked though `$body` may be `-` at run time. (Arm lists are split as Tcl lists since v0.6.16.)
+- **Switch, an odd arm count with an unbraced last word.** Tcl rejects it (`extra switch pattern
+  with no body`), yet the complete pairs before it are walked, on purpose: it is a pattern still
+  being typed, as in `switch $x {a { helper } b}`.
 - **Reaching, still a wrong answer.** `set x 0; eval {set y 1;} {set x 1}; puts $x` answers `set x 0`.
   `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. Both are
   the same on `main@26f8ab2`. (A `for` whose body cannot complete no longer runs `next`, since v0.6.7.) So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which

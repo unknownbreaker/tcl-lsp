@@ -193,19 +193,20 @@ func TestSwitchPatternNamedLikeProcIsSilentInEveryForm(t *testing.T) {
 
 // `-` means "same body as the next arm" only in body position. Hunting: a `-`
 // handled by position-blind code, which would shift every later pairing by one or
-// drop the arm that follows, and a `-` as the very last word.
+// drop the arm that follows, and a `-` as the very last body, which Tcl rejects
+// ("no body specified for pattern"), so no arm runs.
 func TestSwitchDashEdges(t *testing.T) {
 	cases := []struct {
 		name, src string
 		helpers   int
 	}{
-		{"dash as last arm", "switch $x {\n a { helper }\n b -\n}", 1},
+		{"dash as last arm", "switch $x {\n a { helper }\n b -\n}", 0},
 		{"dash as only arm", "switch $x {\n b -\n}", 0},
 		{"dash as pattern", "switch $x {\n - { helper }\n}", 1},
 		{"dash body then dash pattern", "switch $x {\n a - - { helper }\n}", 1},
 		{"dash chain", "switch $x {\n a -\n b -\n c -\n d { helper }\n}", 1},
-		{"dash chain, then dash last", "switch $x {\n a { helper }\n b -\n c -\n}", 1},
-		{"inline dash last", "switch $x a { helper } b -", 1},
+		{"dash chain, then dash last", "switch $x {\n a { helper }\n b -\n c -\n}", 0},
+		{"inline dash last", "switch $x a { helper } b -", 0},
 		{"inline dash pattern", "switch $x - { helper }", 1},
 		{"dash then default", "switch $x {\n a -\n default { helper }\n}", 1},
 		{"dash pattern, odd braced last: pairing lost", "switch $x {\n a { helper }\n - -\n { helper }\n}", 0},
@@ -765,6 +766,130 @@ func TestSwitchArmsDeclareNamespacesAndClassesOnlyInBodies(t *testing.T) {
 	} {
 		if got := FileClasses(src); len(got) != 0 {
 			t.Errorf("%q: pattern words declared classes %v", src, got)
+		}
+	}
+}
+
+// An arm list is a Tcl list, not a script: `;`, `#`, `[` and `"` are ordinary
+// characters in it, and a backslash-newline separates elements. Each want is
+// tclsh 8.6 and 9.0's pairing. Hunting: a pattern walked as a body after a shift,
+// and arms walked in a list Tcl cannot split or a switch whose last body is `-`.
+func TestSwitchArmListIsATclList(t *testing.T) {
+	cases := []struct {
+		name, src string
+		helpers   int
+	}{
+		{"semicolon in a pattern", "switch $x {a;b {pat} { helper } c}", 0},
+		{"semicolon pattern, then a body", "switch $x {a;b { helper }}", 1},
+		{"hash line is an element", "switch $x {a {x}\n#\n{pq} { helper } z}", 0},
+		{"hash-star pattern at line start", "switch $x {\n#* { helper }\n b { helper }\n}", 2},
+		{"hash pattern, comment-like words", "switch $x {\n # note { helper }\n}", 0},
+		{"bracket in a pattern", "switch $x {[a { helper }}", 1},
+		{"dollar in a pattern", "switch $x {$y { helper }}", 1},
+		{"escaped space in a pattern", "switch $x {a\\ b { helper }}", 1},
+		{"escaped brace in a body", "switch $x {a {x\\} y} b { helper }}", 1},
+		{"backslash-newline separates", "switch $x {a { helper } \\\n   b { helper }}", 2},
+		{"backslash-newline splits a pattern", "switch $x {a\\\nb { helper } c}", 0},
+		{"quoted pattern with a space", "switch $x {\"a b\" { helper }}", 1},
+		{"unmatched quote", "switch $x {\"a { helper }}", 0},
+		{"brace followed by text", "switch $x {a { helper }x b { helper }}", 0},
+		{"quote followed by text", "switch $x {\"a\"b { helper }}", 0},
+		{"braced dash falls through", "switch $x {a {-} b { helper }}", 1},
+		{"braced dash last", "switch $x {a { helper } b {-}}", 0},
+		{"escaped dash last", "switch $x {a { helper } b \\x2d}", 0},
+		{"quoted dash last", "switch $x {a { helper } b \"-\"}", 0},
+		{"inline braced dash last", "switch $x a { helper } b {-}", 0},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			refs := FileRefs(testCase.src)
+			for _, name := range []string{"-", "a", "b", "c", "z", "#", "note"} {
+				if got := countCommandRefs(refs, name); got != 0 {
+					t.Errorf("pattern or body `%s` read as a command %d time(s); refs = %+v", name, got, refs)
+				}
+			}
+			if got := countCommandRefs(refs, "helper"); got != testCase.helpers {
+				t.Errorf("helper refs = %d, want %d; refs = %+v", got, testCase.helpers, refs)
+			}
+		})
+	}
+}
+
+// Bodies found by list splitting keep source offsets, after a backslash-newline
+// and multi-byte text. Hunting: offsets taken from the padded value or shifted twice.
+func TestSwitchArmListOffsets(t *testing.T) {
+	for _, src := range []string{
+		"switch $x {a { helper } \\\n   b { helper }}",
+		"switch $x {é;ü { helper }\n\"世界\" { helper } c\\ d {helper}}",
+		"proc p {} {\n switch $x {\n  #* { helper }\n }\n}",
+	} {
+		want := everyIndex(src, "helper", 0)
+		if got := commandRefStarts(FileRefs(src), "helper"); !sameInts(got, want) {
+			t.Errorf("helper starts = %v, want %v\nsource:\n%s", got, want, src)
+		}
+	}
+}
+
+// listElements against `llength` and `lindex` in tclsh 8.6 and 9.0.
+func TestListElements(t *testing.T) {
+	cases := []struct {
+		src  string
+		want []string // nil: Tcl rejects the list
+	}{
+		{"", []string{}},
+		{" \t\n ", []string{}},
+		{"a b", []string{"a", "b"}},
+		{"a;b #c [d $e", []string{"a;b", "#c", "[d", "$e"}},
+		{"{a b} c", []string{"{a b}", "c"}},
+		{"{a {b} c}", []string{"{a {b} c}"}},
+		{"{x\\} y} b", []string{"{x\\} y}", "b"}},
+		{"a\\ b c", []string{"a\\ b", "c"}},
+		{"\"a b\" c", []string{"\"a b\"", "c"}},
+		{"\"a\\\" b\"", []string{"\"a\\\" b\""}},
+		{"a\"b c", []string{"a\"b", "c"}},
+		{"a{b c", []string{"a{b", "c"}},
+		{"a b", []string{"a b"}},
+		{"a\vb\fc", []string{"a", "b", "c"}},
+		{"{a", nil},
+		{"\"a", nil},
+		{"{a}b", nil},
+		{"\"a\"b", nil},
+	}
+	for _, testCase := range cases {
+		elems, ok := listElements(testCase.src)
+		if testCase.want == nil {
+			if ok {
+				t.Errorf("listElements(%q) = %+v, want rejected", testCase.src, elems)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("listElements(%q) rejected, want %q", testCase.src, testCase.want)
+			continue
+		}
+		got := []string{}
+		for _, e := range elems {
+			if testCase.src[e.Start:e.End] != e.Text {
+				t.Errorf("listElements(%q): element %q has offsets [%d,%d)", testCase.src, e.Text, e.Start, e.End)
+			}
+			got = append(got, e.Text)
+		}
+		if strings.Join(got, "|") != strings.Join(testCase.want, "|") || len(got) != len(testCase.want) {
+			t.Errorf("listElements(%q) = %q, want %q", testCase.src, got, testCase.want)
+		}
+	}
+}
+
+// A backslash-newline in a list value takes the spaces after it into its element,
+// and it does not separate a closing brace or quote from the next element.
+// tclsh 8.6 and 9.0: `llength "a\\\n  b"` is 1, and the other two are errors.
+func TestListElementsBackslashNewline(t *testing.T) {
+	if e, ok := listElements("a\\\n  b"); !ok || len(e) != 1 {
+		t.Errorf("listElements(a\\<nl>  b) = %d elems ok=%v, want 1 elem", len(e), ok)
+	}
+	for _, s := range []string{"{a}\\\n b", "\"a\"\\\n b"} {
+		if _, ok := listElements(s); ok {
+			t.Errorf("listElements(%q) ok, want rejected", s)
 		}
 	}
 }
