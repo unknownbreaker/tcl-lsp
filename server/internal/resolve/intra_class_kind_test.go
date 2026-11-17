@@ -9,30 +9,38 @@ import (
 )
 
 // ickKind returns CommandRefKind for the command ref starting at the first
-// occurrence of mark, and fails if CommandRefKind and Definition disagree on
-// whether the call resolves.
+// occurrence of mark; see ickAt.
 func ickKind(t *testing.T, src, mark string) (tcl.DefKind, bool) {
 	t.Helper()
 	at := strings.Index(src, mark)
 	if at < 0 {
 		t.Fatalf("test bug: mark %q not found", mark)
 	}
+	kind, ok, _ := ickAt(t, src, at)
+	return kind, ok
+}
+
+// ickAt returns CommandRefKind and Definition's start lines for the command ref
+// starting at byte offset at, and fails if they disagree on whether the call
+// resolves or on its kind.
+func ickAt(t *testing.T, src string, at int) (tcl.DefKind, bool, []int) {
+	t.Helper()
 	r := resolverOverGuardFile(src)
 	def := r.Definition(guardFile, src, at)
 	for _, ref := range source.Refs(guardFile, src) {
 		if ref.Ref.Start == at && ref.Ref.Kind == tcl.RefCommand {
 			kind, ok := r.CommandRefKind(&ref, guardFile)
 			if ok != (len(def) > 0) {
-				t.Errorf("CommandRefKind at %q resolves=%v but Definition=%v", mark, ok, def)
+				t.Errorf("CommandRefKind at %d resolves=%v but Definition=%v", at, ok, def)
 			}
 			if ok && len(def) > 0 && kind != def[0].Kind {
-				t.Errorf("CommandRefKind at %q kind=%v but Definition kind=%v", mark, kind, def[0].Kind)
+				t.Errorf("CommandRefKind at %d kind=%v but Definition kind=%v", at, kind, def[0].Kind)
 			}
-			return kind, ok
+			return kind, ok, startLinesOf(src, guardFile, def)
 		}
 	}
-	t.Fatalf("test bug: no command ref at %q", mark)
-	return 0, false
+	t.Fatalf("test bug: no command ref at %d", at)
+	return 0, false, nil
 }
 
 // tclsh 8.6 and 9.0 (Itcl 4.3): a bare `m` in a method runs the method even when
@@ -86,47 +94,50 @@ itcl::class K { method a {} { g } }
 	}
 }
 
-// tclsh 8.6 and 9.0 (Itcl 4.3): a qualified proc defined in a method, and a
-// `namespace eval` there, run outside the class namespace, so a bare `m` in
-// them runs ::m, not the method. itcl::body and constructor bodies stay in it.
-const ickOutsideSrc = `proc ::m {} {}
+// tclsh 8.6 and 9.0 (Itcl 4.3): a bare `m` runs the method only where its
+// commands run in the class namespace: a method, constructor or itcl::body, and a
+// proc or `namespace eval` inside a method that names the class namespace (there
+// Tcl rejects it without an object, a known wrong answer, docs/BACKLOG.md). One
+// naming another namespace runs ::m. A substituted proc name may be either.
+const ickNSSrc = `proc ::m {} {}
 namespace eval ::x {}
 itcl::class K {
   method m {} {}
-  method a {} { proc ::p {} { m }; ::p }
-  method b {} { namespace eval ::x {m} }
+  method a {} { proc ::p {} {m-a} }
+  method b {} { namespace eval ::x {m-b} }
   method c {}
-  constructor {} { m }
+  constructor {} {m-ctor}
+  method i {} { proc ::K::r {} {m-i} }
+  method j {} { proc ::K::sub::r {} {m-j} }
+  method k {} { proc [namespace current]::s {} {m-k} }
+  method n {} { namespace eval ::K {m-n} }
 }
-itcl::body K::c {} { m }
+itcl::body K::c {} {m-body}
 `
 
-func TestCommandRefKindQualifiedProcInMethodIsNotIntraClass(t *testing.T) {
-	for _, mark := range []string{"m }; ::p", "m} }"} {
-		if kind, ok := ickKind(t, ickOutsideSrc, mark); !ok || kind != tcl.DefProc {
-			t.Errorf("%q -> (%v, %v), want (DefProc, true) for ::m", mark, kind, ok)
-		}
-		at := strings.Index(ickOutsideSrc, mark)
-		if got := startLinesOf(ickOutsideSrc, guardFile, resolverOverGuardFile(ickOutsideSrc).Definition(guardFile, ickOutsideSrc, at)); len(got) != 1 || got[0] != 1 {
-			t.Errorf("%q -> lines %v, want [1] (::m)", mark, got)
-		}
-	}
-}
-
-func TestCommandRefKindBodyAndConstructorAreIntraClass(t *testing.T) {
-	ctor := strings.Index(ickOutsideSrc, "constructor {} { m }") + len("constructor {} { ")
-	body := strings.LastIndex(ickOutsideSrc, "{ m }") + 2
-	r := resolverOverGuardFile(ickOutsideSrc)
-	for name, at := range map[string]int{"constructor": ctor, "itcl::body": body} {
-		if got := startLinesOf(ickOutsideSrc, guardFile, r.Definition(guardFile, ickOutsideSrc, at)); len(got) != 1 || got[0] != 4 {
-			t.Errorf("%s m -> lines %v, want [4] (method m)", name, got)
-		}
-		for _, ref := range source.Refs(guardFile, ickOutsideSrc) {
-			if ref.Ref.Start == at {
-				if kind, ok := r.CommandRefKind(&ref, guardFile); !ok || kind != tcl.DefMethod {
-					t.Errorf("%s m -> (%v, %v), want (DefMethod, true)", name, kind, ok)
-				}
-			}
+func TestCommandRefKindFollowsTheClassNamespace(t *testing.T) {
+	// Each call is `m`; the -suffix only marks it and is not part of the name.
+	src := ickNSSrc
+	for _, tc := range []struct {
+		mark string
+		ok   bool
+		kind tcl.DefKind
+		line int
+	}{
+		{"m-a", true, tcl.DefProc, 1},
+		{"m-b", true, tcl.DefProc, 1},
+		{"m-j", true, tcl.DefProc, 1},
+		{"m-ctor", true, tcl.DefMethod, 4},
+		{"m-body", true, tcl.DefMethod, 4},
+		{"m-i", true, tcl.DefMethod, 4},
+		{"m-n", true, tcl.DefMethod, 4},
+		{"m-k", false, 0, 0},
+	} {
+		at := strings.Index(src, tc.mark)
+		clean := strings.ReplaceAll(src, tc.mark, "m"+strings.Repeat(" ", len(tc.mark)-1))
+		kind, ok, lines := ickAt(t, clean, at)
+		if ok != tc.ok || kind != tc.kind || (tc.ok && (len(lines) != 1 || lines[0] != tc.line)) {
+			t.Errorf("%s -> (%v, %v, lines %v), want (%v, %v, line %d)", tc.mark, kind, ok, lines, tc.kind, tc.ok, tc.line)
 		}
 	}
 }
