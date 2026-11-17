@@ -13,7 +13,10 @@ func FileClasses(src string) map[string][]string {
 // recordInherit records `inherit Base1 Base2 ...` inside a class body. A base name
 // resolves in the namespace that holds the class (::ns::sub for `itcl::class
 // sub::X` in ::ns, ::ns::K for a class defined in K's method), not the lexical one
-// (tclsh 8.6 and 9.0, Itcl 4.3; research/experiments/08_itcl_inner_class.tcl).
+// (tclsh 8.6 and 9.0, Itcl 4.3; research/experiments/08_itcl_inner_class.tcl). A
+// relative one there names the local class, else the global one (classRefKey).
+// In a class whose namespace is unknown (unknownClassKey) no base is certain, so
+// it keeps a key under that unknown namespace, which nothing declares.
 func recordInherit(c Command, class string, m map[string][]string) {
 	ns := procBodyNS(class, "::") // the namespace part of the class's FQ name
 	w := c.Words
@@ -25,7 +28,10 @@ func recordInherit(c Command, class string, m map[string][]string) {
 		if baseName == "" {
 			continue
 		}
-		baseFQ := qualifyName(baseName, ns)
+		baseFQ := classRefKey(baseName, ns)
+		if IsUnknownClass(class) {
+			baseFQ = qualifyName(baseName, ns)
+		}
 		// Dedup within this call (the index deduplicates across files).
 		already := false
 		for _, existing := range m[class] {

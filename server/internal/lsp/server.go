@@ -154,7 +154,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		_ = json.Unmarshal(m.Params, &p)
 		path := uriToPath(p.TextDocument.URI)
 		src := s.sourceOf(path)
-		s.reply(m.ID, buildDocumentSymbols(source.Defs(path, src), src, source.IsRVT(path)))
+		s.reply(m.ID, buildDocumentSymbolsIn(source.Defs(path, src), src, source.IsRVT(path), s.ix.CanonicalClass))
 	case "workspace/symbol":
 		var p WorkspaceSymbolParams
 		_ = json.Unmarshal(m.Params, &p)

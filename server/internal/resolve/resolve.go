@@ -166,6 +166,7 @@ func (r *Resolver) methodOwner(classFQ, name string) string {
 }
 
 func (r *Resolver) methodOwnerSeen(classFQ, name string, seen map[string]bool) string {
+	classFQ = r.ix.CanonicalClass(classFQ)
 	if seen[classFQ] {
 		return ""
 	}
@@ -202,12 +203,13 @@ func (r *Resolver) intraClassOwner(ref *tcl.ContextRef) (owner string, ambiguous
 		(ref.Frame != tcl.FrameProc && ref.Frame != tcl.FrameNamespace) {
 		return "", false
 	}
-	inClassNS := (ref.Frame == tcl.FrameProc && ref.InClassNS) || ref.Namespace == ref.Class
+	class := r.ix.CanonicalClass(ref.Class)
+	inClassNS := (ref.Frame == tcl.FrameProc && ref.InClassNS) || ref.Namespace == class
 	if !inClassNS {
 		substituted := strings.ContainsAny(ref.Namespace, "$[")
-		return "", substituted && r.methodOwner(ref.Class, ref.Ref.Name) != ""
+		return "", substituted && r.methodOwner(class, ref.Ref.Name) != ""
 	}
-	if owner = r.methodOwner(ref.Class, ref.Ref.Name); owner != "" && ref.Wrapped {
+	if owner = r.methodOwner(class, ref.Ref.Name); owner != "" && ref.Wrapped {
 		return "", true
 	}
 	return owner, false
@@ -222,6 +224,7 @@ func (r *Resolver) ivarInClass(classFQ, name string) []index.Location {
 }
 
 func (r *Resolver) ivarInClassSeen(classFQ, name string, seen map[string]bool) []index.Location {
+	classFQ = r.ix.CanonicalClass(classFQ)
 	if seen[classFQ] {
 		return nil
 	}
@@ -367,8 +370,21 @@ func (r *Resolver) commandRefCandidates(ref *tcl.ContextRef, file string) []stri
 	if ref.Frame == tcl.FrameProc && tcl.IsUnknownClass(ref.Class) && !strings.HasPrefix(ref.Ref.Name, "::") {
 		return nil
 	}
-	ns := commandNamespace(ref)
+	ns := r.commandNamespace(ref)
 	cands := r.commandCandidates(ref.Ref.Name, ns, file)
+	if r.ix.HasMaybeCommands() {
+		// A proc an `itcl::body` with a fallback class key defines may be the
+		// command a candidate names (index.MaybeCommand): reaching one before a
+		// definition answers nothing.
+		for _, name := range cands {
+			if len(r.lookupSide(name, file, sideCommand)) > 0 {
+				break
+			}
+			if r.ix.MaybeCommand(name) {
+				return nil
+			}
+		}
+	}
 	if ref.Wrapped && ns != ref.Namespace &&
 		r.firstDefined(cands, file) != r.firstDefined(r.commandCandidates(ref.Ref.Name, "::", file), file) {
 		return nil
@@ -397,10 +413,11 @@ func (r *Resolver) firstDefined(cands []string, file string) string {
 // whose path is empty, so they try ::itcl::parser, then global; neither the
 // enclosing nor the class namespace is searched (research/experiments/
 // 08_itcl_class_body.tcl). Everywhere else it is the reference's own namespace.
-func commandNamespace(ref *tcl.ContextRef) string {
+// The class is the one the index resolves ref.Class to (index.CanonicalClass).
+func (r *Resolver) commandNamespace(ref *tcl.ContextRef) string {
 	switch {
 	case ref.Frame == tcl.FrameProc && ref.InClassNS && ref.Class != "":
-		return ref.Class
+		return r.ix.CanonicalClass(ref.Class)
 	case ref.Frame == tcl.FrameClass && ref.Class != "":
 		return itclParserNS
 	}
@@ -629,7 +646,7 @@ type refScan struct {
 
 // warmNamespaces populates the index's namespace cache for every namespace
 // referenced by work, single-threaded. Command resolution only ever queries
-// index.Namespace(commandNamespace(ref)), plus "::" for a wrapper's body in a
+// index.Namespace(r.commandNamespace(ref)), plus "::" for a wrapper's body in a
 // method (commandRefCandidates), so warming that set guarantees the subsequent
 // parallel scan finds every entry already cached (read-only).
 func (r *Resolver) warmNamespaces(work []refScan) {
@@ -637,7 +654,7 @@ func (r *Resolver) warmNamespaces(work []refScan) {
 	r.ix.Namespace("::")
 	for _, w := range work {
 		for i := range w.refs {
-			ns := commandNamespace(&w.refs[i])
+			ns := r.commandNamespace(&w.refs[i])
 			if !seen[ns] {
 				seen[ns] = true
 				r.ix.Namespace(ns)
@@ -712,7 +729,7 @@ func (r *Resolver) FileHighlights(file, src string, offset int) []index.Location
 	}
 	// In-file declaration site(s), from live source so an unsaved edit is honored.
 	for _, d := range source.Defs(file, src) {
-		if defSymbol(d) == target {
+		if r.defSymbol(d) == target {
 			out = append(out, index.Location{File: file, Name: target.name, Kind: d.Kind, NameStart: d.NameStart, NameEnd: d.NameEnd})
 		}
 	}
@@ -730,14 +747,15 @@ type symbol struct {
 }
 
 // defSymbol returns the symbol a definition declares, or the zero symbol for a
-// definition find-references does not target (locals, ivars).
-func defSymbol(d tcl.Definition) symbol {
+// definition find-references does not target (locals, ivars). A method's class is
+// the one the index resolves its key to (index.CanonicalClass).
+func (r *Resolver) defSymbol(d tcl.Definition) symbol {
 	switch d.Kind {
 	case tcl.DefProc, tcl.DefNamespaceVar, tcl.DefClass:
 		return symbol{name: d.Name, side: sideOfDef(d.Kind)}
 	case tcl.DefMethod:
 		if d.Class != "" {
-			return symbol{name: d.Name, side: sideCommand, class: d.Class}
+			return symbol{name: d.Name, side: sideCommand, class: r.ix.CanonicalClass(d.Class)}
 		}
 	}
 	return symbol{}
@@ -778,7 +796,7 @@ func (r *Resolver) refBindsTo(ref *tcl.ContextRef, file string, target symbol) b
 // there is no resolvable symbol.
 func (r *Resolver) targetAt(file, src string, offset int) (symbol, bool) {
 	for _, d := range source.Defs(file, src) {
-		if sym := defSymbol(d); sym.name != "" && offset >= d.NameStart && offset < d.NameEnd {
+		if sym := r.defSymbol(d); sym.name != "" && offset >= d.NameStart && offset < d.NameEnd {
 			return sym, true
 		}
 	}

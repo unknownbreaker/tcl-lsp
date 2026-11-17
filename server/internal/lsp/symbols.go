@@ -67,7 +67,18 @@ func leafSymbol(d tcl.Definition, lines *lineIndex) DocumentSymbol {
 //
 // When hoistRequest is true, a root-level ::request namespace node is elided
 // and its children are promoted to the document root (used for .rvt pages).
+//
+// A method or ivar whose class is a fallback key (an `itcl::body` outside the
+// global namespace) nests only under the local class this file declares: whether
+// it names the global one is a workspace fact (buildDocumentSymbolsIn).
 func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) []DocumentSymbol {
+	return buildDocumentSymbolsIn(defs, src, hoistRequest, nil)
+}
+
+// buildDocumentSymbolsIn is buildDocumentSymbols with canonical resolving a
+// member's class key to the class it names (index.CanonicalClass); nil keeps
+// buildDocumentSymbols's file-only rule.
+func buildDocumentSymbolsIn(defs []tcl.Definition, src string, hoistRequest bool, canonical func(string) string) []DocumentSymbol {
 	lines := newLineIndex(src)
 
 	// --- Step 1: build class nodes (with method/ivar children) ---
@@ -90,7 +101,15 @@ func buildDocumentSymbols(defs []tcl.Definition, src string, hoistRequest bool) 
 		if d.Kind != tcl.DefMethod && d.Kind != tcl.DefIvar {
 			continue
 		}
-		parent, ok := classSyms[d.Class]
+		// An `itcl::body` outside the global namespace names its class by a
+		// fallback key: the local class, else the global one (tcl.CanonicalClass).
+		class := d.Class
+		if canonical != nil {
+			class = canonical(class)
+		} else if local, _, ok := tcl.FallbackClass(class); ok {
+			class = local
+		}
+		parent, ok := classSyms[class]
 		if !ok {
 			continue
 		}

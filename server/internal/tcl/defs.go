@@ -37,8 +37,9 @@ type Definition struct {
 	// (e.g. `global config` -> "::config"), or "" when there is none or it is
 	// not statically known. Used by goto-definition to chase past the link.
 	Origin string
-	// Class is the fully-qualified itcl class name this definition belongs to,
-	// or "" when not inside a class body.
+	// Class is the fully-qualified itcl class name this definition belongs to, or
+	// a class key (classRefKey, unknownClassKey; index.CanonicalClass resolves
+	// it), or "" when not inside a class body.
 	Class string
 }
 
@@ -223,7 +224,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 	if (isCmd(w, "itcl::body") || isCmd(w, "::itcl::body")) && len(w) >= 2 && isPlainName(w[1]) {
 		full := w[1].Text
 		if i := strings.LastIndex(full, "::"); i > 0 {
-			classFQ := qualifyName(full[:i], ns)
+			classFQ := classRefKey(full[:i], ns)
 			methodSeg := full[i+2:]
 			if methodSeg != "" {
 				segStart := w[1].Start + i + 2
@@ -810,6 +811,29 @@ func emitVarListNames(vw Word, base int, ns string, scope int, class string, out
 	}
 }
 
+// fallbackNestedNames returns the commands an unqualified `proc NAME` (or a
+// decorated one) or `itcl::class NAME` in an `itcl::body` whose class is a
+// fallback key may create: NAME in the local class namespace or in the global
+// one's. nestedDefName defines neither, so a lookup that reaches one answers
+// nothing (index.MaybeCommand).
+func fallbackNestedNames(c Command, frame FrameKind, class string, wrapped, inClassNS bool) []string {
+	local, global, ok := FallbackClass(class)
+	if !ok || frame != FrameProc || !inClassNS || wrapped {
+		return nil
+	}
+	w := c.Words
+	var name string
+	if (isCmd(w, "proc") || isItclClassCmd(w)) && len(w) >= 2 && isPlainName(w[1]) {
+		name = w[1].Text
+	} else if nw, _, _, ok := decoratedProcDef(w); ok {
+		name = nw.Text
+	}
+	if name == "" || strings.Contains(name, "::") {
+		return nil
+	}
+	return []string{qualifyName(name, local), qualifyName(name, global)}
+}
+
 // nestedDefName returns the FQ name a `proc NAME` or `itcl::class NAME` command
 // defines, or false when it is not certain. An unqualified one defined in a method,
 // constructor, destructor, class proc or itcl::body is created in the class
@@ -817,13 +841,17 @@ func emitVarListNames(vw Word, base int, ns string, scope int, class string, out
 // wrapper's body there it is created wherever the wrapper runs it (`after`: ::,
 // `uplevel 1`: the caller's namespace), so it defines nothing (tclsh 8.6 and 9.0,
 // Itcl 4.3; research/experiments/08_itcl_class_body.tcl and
-// 08_itcl_inner_class.tcl).
+// 08_itcl_inner_class.tcl). Neither does one in an `itcl::body` whose class is a
+// fallback key (classRefKey): which class namespace it names is a workspace fact.
 func nestedDefName(name, ns string, frame FrameKind, class string, wrapped, inClassNS bool) (string, bool) {
 	if frame != FrameProc || !inClassNS || class == "" || strings.Contains(name, "::") {
 		return qualifyName(name, ns), true
 	}
 	if wrapped {
 		return "", false
+	}
+	if _, _, ok := FallbackClass(class); ok {
+		return "", false // the class namespace is a workspace fact, not known here
 	}
 	return qualifyName(name, class), true
 }

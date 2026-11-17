@@ -106,14 +106,14 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   The scan also over-reads what is conditional: a `?` that a paren already closed
   (`expr {($c ? 1 : 2) + [set x 1]}`) and an operator or `"` inside an array index (`$a(?)`) both
   make a later bracket conditional, so `return $x` also answers `set x 0`. Same on v0.6.6.
-- **Itcl class names miss Tcl's global fallback.** `itcl::body G::run` inside `namespace eval other`,
-  or in a template (`::request`), names class `::other::G`, and `inherit Base` in a class inside
-  `namespace eval ns` names `::ns::Base`, where Tcl finds the global `::G` or `::Base` (tclsh 8.6 and
-  9.0, Itcl 4.3.7). Calls in those methods then miss the class's methods and its namespace's procs,
-  and answer a same-named global proc. Same on v0.6.8; since v0.6.17 they look up from the misnamed
-  class's namespace, not from `::other`. Since v0.6.19 `inherit` names resolve in the namespace that
-  holds the class (`::ns::sub` for `itcl::class sub::X`, `::ns::K` for a class defined in K's
-  method), but the global fallback is still missed.
+- **Itcl class names under the global fallback.** Since v0.6.21 a relative class name in
+  `itcl::body` or `inherit` outside the global namespace names the local class when the workspace
+  declares it, else the global one (`::G` for `itcl::body G::run` in `::other` or a template), as
+  Itcl does. Tcl decides when the command runs, so a local class defined only later still wins here.
+  An unqualified `proc` or `itcl::class` in such a body is created in a class namespace the parser
+  cannot name, so it defines nothing, and a call that may reach it (`inner` in the body,
+  `::G::inner`) answers nothing. One in a class whose namespace is unknown (an `itcl::class` a
+  wrapper defines in a method) inherits no base.
 - **Itcl method-body namespace neighbours.** Since v0.6.17 calls in a method body look up from the
   class namespace, then global, and since v0.6.18 class-body code (`common c [g]`) looks up from
   `::itcl::parser`, then global, and an unqualified `proc inner` in a method is indexed as

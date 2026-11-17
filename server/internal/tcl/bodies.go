@@ -22,7 +22,7 @@ type bodyScope struct {
 	NS    string    // namespace the body runs in
 	Frame FrameKind // frame kind the body runs in
 	Scope int       // enclosing proc body's interior offset; 0 at namespace frame
-	Class string    // fully-qualified itcl class name, or "" when not inside a class
+	Class string    // fully-qualified itcl class name or class key (classRefKey, unknownClassKey), or "" when not inside a class
 	// Wrapped marks a custom command's body inside a proc or method: it keeps the
 	// frame, but it may be deferred or run elsewhere (`after`, `uplevel`).
 	Wrapped bool
@@ -197,7 +197,7 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		// resolve with the correct class context.
 		full := w[1].Text
 		if i := strings.LastIndex(full, "::"); i > 0 {
-			classFQ := qualifyName(full[:i], ns)
+			classFQ := classRefKey(full[:i], ns)
 			inner, innerBase := bracedInner(w[len(w)-1], base)
 			return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: classFQ, InClassNS: classNSOn}}
 		}
@@ -251,12 +251,62 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 // two such classes in a file apart. A same-named one at the same offset in another
 // file would share the key.
 func unknownClassKey(guess string, bodyBase int) string {
-	return "?" + strconv.Itoa(bodyBase) + guess
+	return unknownClassPrefix + strconv.Itoa(bodyBase) + guess
 }
+
+// unknownClassPrefix starts every unknownClassKey.
+const unknownClassPrefix = "?"
 
 // IsUnknownClass reports whether class is an unknownClassKey.
 func IsUnknownClass(class string) bool {
-	return class != "" && !strings.HasPrefix(class, "::")
+	return strings.HasPrefix(class, unknownClassPrefix)
+}
+
+// fallbackPrefix and fallbackSep frame a fallbackClassKey. Neither occurs in a
+// name isPlainName accepts, and a key never starts with "::", so no command
+// lookup names one.
+const (
+	fallbackPrefix = "!"
+	fallbackSep    = "\x00"
+)
+
+// classRefKey returns the key of the class an `itcl::body` or `inherit` names.
+// Itcl looks a relative class name up in the current namespace, then in the
+// global one, never in a parent or on the namespace path (tclsh 8.6 and 9.0, Itcl
+// 4.3; research/experiments/08_itcl_class_fallback.tcl). Which one exists is a
+// workspace fact, so in a namespace other than global it returns a
+// fallbackClassKey that the index resolves (CanonicalClass). In a substituted
+// namespace (`namespace eval $ns`) the local class may exist there, so the name
+// stays local, which no declaration names.
+func classRefKey(name, ns string) string {
+	if strings.HasPrefix(name, "::") || ns == "::" || strings.ContainsAny(ns, "$[") {
+		return qualifyName(name, ns)
+	}
+	return fallbackPrefix + qualifyName(name, ns) + fallbackSep + "::" + name
+}
+
+// FallbackClass splits a fallbackClassKey into the class in the current
+// namespace and the global one. ok is false for any other key.
+func FallbackClass(key string) (local, global string, ok bool) {
+	if !strings.HasPrefix(key, fallbackPrefix) {
+		return "", "", false
+	}
+	local, global, ok = strings.Cut(key[len(fallbackPrefix):], fallbackSep)
+	return local, global, ok
+}
+
+// CanonicalClass returns the class a key names: for a fallbackClassKey, the local
+// class when declared reports it, else the global one when declared reports it,
+// else the local one. Any other key is returned unchanged.
+func CanonicalClass(key string, declared func(string) bool) string {
+	local, global, ok := FallbackClass(key)
+	if !ok {
+		return key
+	}
+	if !declared(local) && declared(global) {
+		return global
+	}
+	return local
 }
 
 // isItclClassCmd reports whether w is an `itcl::class` or `::itcl::class` command.
