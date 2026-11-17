@@ -245,3 +245,12 @@ namespace eval ::ns {
 		t.Errorf("references to ::g = %v, want the class-body call only", got)
 	}
 }
+
+// A destructor runs in the class namespace too, so its nested proc is ::ns::K::d
+// (research/experiments/08_itcl_class_body.tcl, inner7).
+func TestICBDestructorProcDef(t *testing.T) {
+	src := "namespace eval ::ns { itcl::class K { destructor { proc d {} {} } } }\n"
+	if got := icbProcDefs(src); !slices.Equal(got, []string{"::ns::K::d"}) {
+		t.Errorf("proc defs = %v, want [::ns::K::d]", got)
+	}
+}

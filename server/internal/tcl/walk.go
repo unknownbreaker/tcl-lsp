@@ -33,7 +33,8 @@ type collectors struct {
 // collectors descend exactly the same bodies and cannot drift. base offsets a
 // re-parsed braced body's defs/refs back to absolute source coordinates.
 // wrapped says the commands are inside a custom command's body in this proc frame
-// (see bodyScope.Wrapped); bodies that keep the frame inherit it. classNS says the
+// (see bodyScope.Wrapped); bodies that keep the frame inherit it, and so does the
+// body of an unqualified proc a wrapper defines in a class-namespace frame. classNS says the
 // commands are looked up from class's namespace (see bodyScope.InClassNS).
 func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, wrapped, inClassNS bool, c collectors) {
 	for _, cmd := range cmds {
@@ -76,8 +77,8 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 			// A body keeping the frame inherits wrapped. So does an unqualified proc
 			// defined in a wrapper's body in a class-namespace frame: Tcl creates it
 			// wherever the wrapper runs it, so its body's namespace is not known either.
-			inherit := wrapped && (b.Frame == frame && b.Scope == scope ||
-				inClassNS && b.Frame == FrameProc && b.InClassNS == classNSInherit)
+			inherit := wrapped && ((b.Frame == frame && b.Scope == scope) ||
+				(inClassNS && b.Frame == FrameProc && b.InClassNS == classNSInherit))
 			bodyInClassNS := inClassNS
 			if b.InClassNS != classNSInherit {
 				bodyInClassNS = b.InClassNS == classNSOn

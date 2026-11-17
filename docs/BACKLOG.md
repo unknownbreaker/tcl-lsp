@@ -122,7 +122,9 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   global lookups agree, but `uplevel 1` runs in the caller's namespace, which neither may be.
   A relative `namespace eval sub {g}` or `proc sub::p` inside a method is qualified against the
   lexical namespace (`::ns::sub`), though Tcl puts it in `::ns::K::sub` when that exists and in the
-  object's own namespace (`::oo::ObjN::sub`) otherwise, so its calls answer `::ns::sub::g`. A
+  object's own namespace (`::oo::ObjN::sub`) otherwise, so its calls answer `::ns::sub::g`. In a
+  wrapper's body there (`after`, `uplevel 1`) a relative `proc sub::d` is still indexed as `::ns::sub::d`,
+  though Tcl creates it under the namespace the wrapper runs it in. A
   `variable v` in a method links `::ns::K::v` in Tcl, yet resolves against `::ns`. Same on v0.6.16.
   An unqualified `itcl::class Inner` defined in a method is indexed as `::ns::Inner`, though Tcl
   creates `::ns::K::Inner`, and one in an `uplevel 1` body is indexed though its namespace is the

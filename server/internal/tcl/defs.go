@@ -97,14 +97,14 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		}
 	}
 	// A proc defined through a decorator macro (`CACHE_PROC proc name args body`).
-	if dn, _, _, ok := decoratedProcDef(w); ok {
-		if name, ok := procDefName(dn.Text, ns, frame, class, wrapped, inClassNS); ok {
+	if nameWord, _, _, ok := decoratedProcDef(w); ok {
+		if name, ok := procDefName(nameWord.Text, ns, frame, class, wrapped, inClassNS); ok {
 			*out = append(*out, Definition{
 				Kind:      DefProc,
 				Name:      name,
 				Namespace: ns,
-				NameStart: base + dn.Start,
-				NameEnd:   base + dn.End,
+				NameStart: base + nameWord.Start,
+				NameEnd:   base + nameWord.End,
 				FullStart: cmdStart,
 				FullEnd:   cmdEnd,
 				Scope:     scope,
@@ -808,8 +808,6 @@ func emitVarListNames(vw Word, base int, ns string, scope int, class string, out
 	}
 }
 
-// qualifyName resolves a command/variable name against the current namespace:
-// a leading "::" is absolute, otherwise it is qualified into current.
 // procDefName returns the FQ name a `proc NAME` command defines, or false when it
 // is not certain. An unqualified proc defined in a method, constructor, destructor,
 // class proc or itcl::body is created in the class namespace (::ns::K::inner),
@@ -827,6 +825,8 @@ func procDefName(name, ns string, frame FrameKind, class string, wrapped, inClas
 	return qualifyName(name, class), true
 }
 
+// qualifyName resolves a command/variable name against the current namespace:
+// a leading "::" is absolute, otherwise it is qualified into current.
 func qualifyName(name, current string) string {
 	if strings.HasPrefix(name, "::") {
 		return name
