@@ -20,8 +20,6 @@ Shipped:
 - **Navigation:** goto-definition, find-references, document and workspace symbols
   (source-ordered), call hierarchy (procs and methods).
 - **Structure:** folding, document highlight, selection range, semantic tokens.
-  Semantic tokens color only defs, `$`-vars and calls that resolve to user
-  procs or methods. Builtins fall back to syntax highlighting.
 - **Itcl OO:** classes, methods, ivars, inheritance, `$obj method` receiver typing.
 - **Reaching-definitions** for proc-locals: `$x` jumps to the assignments that
   reach it. It runs only when needed, off the goto-def hot path.
@@ -29,27 +27,14 @@ Shipped:
   statically indexes external source dirs (the `$tcl_library`, package checkouts).
   It is read-only, executes nothing, and skips missing paths. This is the only
   way the server reaches outside the workspace, and adding another needs a written
-  design first. A tclsh-introspection extractor shipped in v0.2–v0.4 and was
-  removed in v0.5 because coloring sourceless names wasn't worth a manual,
-  code-executing step whose output goes stale. So color and jumps mean "there is
-  source". C builtins, runtime-generated procs and dynamic call sites (`$cmd`,
-  `eval`) stay out of reach.
+  design first. Color and jumps mean "there is source": C builtins,
+  runtime-generated procs and dynamic call sites (`$cmd`, `eval`) stay out of reach.
 
 The feature set is closed. Hover, completion, signature help, rename,
 formatting, diagnostics, code actions and inlay hints all need inferred types or
 make assertions that can be wrong, and that is the bet v2 refuses. The one
 candidate addition, opt-in and off by default undefined-proc diagnostics, needs a
 written design first.
-
-## Concurrency invariants
-
-One parse per file feeds all four analyses. The initial index and the workspace
-read-scans (find-references, incoming calls, workspace symbols) fan out across
-GOMAXPROCS **while the single-goroutine dispatch loop is blocked on the request**,
-so the index takes no locks. Preserve that: anything new that reads the index in
-parallel runs under the same blocked loop. The one lazily-mutated cache,
-`nsCache`, is pre-warmed single-threaded before a parallel scan. Test with
-`go test -race`.
 
 ## Verify
 
@@ -70,8 +55,9 @@ docs, clients or tests skip the release. Steps are in `docs/RELEASING.md`.
 
 ## Where things live
 
-- `research/`: findings as Markdown, numbered (`08-flightaware-corpus-probe.md` is
-  the latest). Read the relevant one before changing resolution behavior.
+- `research/`: findings as Markdown, numbered. Read the highest-numbered relevant
+  one before changing resolution behavior.
+- `.claude/rules/`: path-scoped conventions (server concurrency invariants, Lua, Tcl).
 - `docs/plans/`: implementation plans, written once the research is mapped.
 - `docs/BACKLOG.md`: deferred work and known wrong answers.
 - Issue tracker: GitHub Issues on `unknownbreaker/tcl-lsp` via `gh`. See
