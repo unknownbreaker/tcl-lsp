@@ -677,17 +677,21 @@ func (s *switchScan) accepted(st switchState) bool {
 }
 
 // armListMayPair reports whether a word may be a non-empty list of (pattern, body)
-// pairs. A literal word with no space, quote or brace is a one-element list, so it
-// cannot be. A braced word's Parse words are the list's elements only when it has none
-// of `;`, `#`, `[`, `\` or `"`, so only then can an odd count rule it out.
+// pairs. A braced or literal word's list is certain, so only an even, non-empty
+// element count may pair; a substituted word may hold any list.
 func armListMayPair(w Word) bool {
-	if w.Kind != WordBraced {
-		_, literal := decodedLiteral(w)
-		return !literal || strings.ContainsAny(w.Text, " \t\r\n\"{")
+	var elems []Word
+	var ok bool
+	if w.Kind == WordBraced {
+		elems, ok = switchArmListWords(w)
+	} else {
+		v, literal := decodedLiteral(w)
+		if !literal {
+			return true
+		}
+		elems, ok = listElements(v)
 	}
-	inner, _ := bracedInner(w, 0)
-	n := len(switchArmListWords(w))
-	return n > 0 && (n%2 == 0 || strings.ContainsAny(inner, ";#[\\\""))
+	return ok && len(elems) > 0 && len(elems)%2 == 0
 }
 
 // mayAccept reports whether some run-time value of the substituted words from st.i on
@@ -784,41 +788,61 @@ func switchArmList(w []Word) (Word, bool) {
 	return args[0], true
 }
 
-// switchArmListWords parses an arm list into one flat word list. Each word is
+// switchArmListWords splits an arm list into its Tcl list elements. Each element is
 // shifted into the coordinates of the list's enclosing source, so bracedInner works
-// on it with the same base as on the list itself.
-func switchArmListWords(list Word) []Word {
+// on it with the same base as on the list itself. ok is false where Tcl rejects the
+// list.
+func switchArmListWords(list Word) ([]Word, bool) {
 	inner, interiorStart := bracedInner(list, 0)
-	var words []Word
-	for _, command := range Parse(inner) {
-		for _, word := range command.Words {
-			word.Start += interiorStart
-			word.End += interiorStart
-			words = append(words, word)
-		}
+	elems, ok := listElements(bracedValue(inner))
+	if !ok {
+		return nil, false
 	}
-	return words
+	for i := range elems {
+		e := &elems[i]
+		e.Text = inner[e.Start:e.End]
+		e.Start += interiorStart
+		e.End += interiorStart
+	}
+	return elems, true
 }
 
 // switchBodies returns every braced arm body of a switch command, in source order.
-// Arms are (pattern, body) pairs, and a pattern is never a script. A non-braced
-// body (including the fall-through `-`) is skipped. An odd word count with a braced
-// last word has lost its pairing, so no word can be called a body with certainty
-// and the result is nil. An unbraced last word is a pattern still being typed: it
-// is dropped and the complete pairs before it still count.
+// Arms are (pattern, body) pairs, and a pattern is never a script. A body whose
+// value is `-` falls through and is not a script; nor is any other non-braced body.
+// The result is nil wherever Tcl runs no arm: an arm list Tcl cannot split, or a
+// last body of `-`. An odd word count with a braced last word has lost its pairing,
+// so no word can be called a body with certainty and the result is nil too. An
+// unbraced last word is a pattern still being typed: it is dropped and the complete
+// pairs before it still count.
 func switchBodies(w []Word) []Word {
 	arms := switchArgs(w)
 	if list, ok := switchArmList(w); ok {
-		arms = switchArmListWords(list)
+		if arms, ok = switchArmListWords(list); !ok {
+			return nil
+		}
 	}
 	if len(arms)%2 == 1 && arms[len(arms)-1].Kind == WordBraced {
 		return nil
 	}
+	if n := len(arms) - len(arms)%2; n > 0 && isFallThrough(arms[n-1]) {
+		return nil
+	}
 	var bodies []Word
 	for i := 1; i < len(arms); i += 2 {
-		if arms[i].Kind == WordBraced {
+		if arms[i].Kind == WordBraced && !isFallThrough(arms[i]) {
 			bodies = append(bodies, arms[i])
 		}
 	}
 	return bodies
+}
+
+// isFallThrough reports whether an arm body's value is certainly `-`. Text is the
+// body's raw source, which reads the same as a script word or a list element.
+func isFallThrough(body Word) bool {
+	if body.Kind == WordBraced {
+		return body.Text == "{-}"
+	}
+	v, ok := decodedLiteral(body)
+	return ok && v == "-"
 }
