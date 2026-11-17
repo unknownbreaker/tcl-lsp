@@ -190,10 +190,12 @@ func (r *Resolver) methodOwnerSeen(classFQ, name string, seen map[string]bool) s
 // class method body runs, or "" when the call is not one (it then resolves as an
 // ordinary command). ambiguous is true when a method of that name exists but the
 // call is in a custom command's body (`after 0 {m}`, `uplevel #0 {m}`, a wrapper),
-// which may run it in the method or elsewhere: the call answers nothing.
-// Goto-definition and find-references share it so they agree.
+// which may run it in the method or elsewhere: the call answers nothing. A call
+// whose commands run outside the class namespace (a qualified proc or a
+// `namespace eval` inside the method, ref.InClassNS false) is not one.
+// Goto-definition, find-references and semantic tokens share it so they agree.
 func (r *Resolver) intraClassOwner(ref *tcl.ContextRef) (owner string, ambiguous bool) {
-	if ref.Ref.Kind != tcl.RefCommand || ref.Frame != tcl.FrameProc || ref.Class == "" {
+	if ref.Ref.Kind != tcl.RefCommand || ref.Frame != tcl.FrameProc || ref.Class == "" || !ref.InClassNS {
 		return "", false
 	}
 	if owner = r.methodOwner(ref.Class, ref.Ref.Name); owner != "" && ref.Wrapped {
@@ -655,11 +657,21 @@ func (r *Resolver) Declarations(file, src string, offset int) []index.Location {
 // TCL command precedence) and whether it resolves to an indexed definition.
 // Semantic tokens use it to color only calls that resolve to known procs/methods
 // -- so color means "there is source to jump to" -- leaving builtins (and
-// anything without indexed source) to fall back to syntax highlighting.
+// anything without indexed source) to fall back to syntax highlighting. A bare
+// call in a method body takes goto-definition's intra-class precedence (a method,
+// or nothing when ambiguous), so the color agrees with the jump.
 // Method-MRO resolution ($obj method) is out of scope here -- those stay
 // uncolored.
 func (r *Resolver) CommandRefKind(ref *tcl.ContextRef, file string) (tcl.DefKind, bool) {
 	if ref.Ref.Kind != tcl.RefCommand {
+		return 0, false
+	}
+	if owner, ambiguous := r.intraClassOwner(ref); ambiguous {
+		return 0, false
+	} else if owner != "" {
+		if locs := r.classMethods(owner, ref.Ref.Name); len(locs) > 0 {
+			return locs[0].Kind, true
+		}
 		return 0, false
 	}
 	for _, name := range r.commandRefCandidates(ref, file) {
