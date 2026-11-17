@@ -112,19 +112,21 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   9.0, Itcl 4.3.7). Calls in those methods then miss the class's methods and its namespace's procs,
   and answer a same-named global proc. Same on v0.6.8; since v0.6.17 they look up from the misnamed
   class's namespace, not from `::other`.
-- **Itcl class-body code and procs defined in methods.** Since v0.6.17 calls in a method body look up
-  from the class namespace, then global. Three neighbours do not (tclsh 8.6 and 9.0, Itcl 4.3):
-  a command in the class body itself (`common c [g]`) still looks up from the enclosing `::ns`, though
-  Tcl runs it in the class namespace; an unqualified `proc inner` defined inside a method is indexed as
-  `::ns::inner`, though Tcl creates `::ns::K::inner`, so a call to `inner` from `::ns` answers it; and
-  a substituted `namespace path` (`namespace path [list {*}[namespace path] ::lib]`, the form an Itcl
-  class namespace needs, as a plain one replaces Itcl's own path) is recorded as one literal entry, so
-  the class's path is silent. A wrapper's body in a method answers only when the class-namespace and
+- **Itcl method-body namespace neighbours.** Since v0.6.17 calls in a method body look up from the
+  class namespace, then global, and since v0.6.18 class-body code (`common c [g]`) looks up from
+  `::itcl::parser`, then global, and an unqualified `proc inner` in a method is indexed as
+  `::ns::K::inner`. Some neighbours are still wrong (tclsh 8.6 and 9.0, Itcl 4.3). A substituted
+  `namespace path` (`namespace path [list {*}[namespace path] ::lib]`, the form an Itcl class
+  namespace needs, as a plain one replaces Itcl's own path) is recorded as one literal entry, so the
+  class's path is silent. A wrapper's body in a method answers only when the class-namespace and
   global lookups agree, but `uplevel 1` runs in the caller's namespace, which neither may be.
   A relative `namespace eval sub {g}` or `proc sub::p` inside a method is qualified against the
   lexical namespace (`::ns::sub`), though Tcl puts it in `::ns::K::sub` when that exists and in the
   object's own namespace (`::oo::ObjN::sub`) otherwise, so its calls answer `::ns::sub::g`. A
   `variable v` in a method links `::ns::K::v` in Tcl, yet resolves against `::ns`. Same on v0.6.16.
+  An unqualified `itcl::class Inner` defined in a method is indexed as `::ns::Inner`, though Tcl
+  creates `::ns::K::Inner`, and one in an `uplevel 1` body is indexed though its namespace is the
+  caller's. Same on v0.6.17.
 - **Itcl method calls Tcl rejects.** A bare call to a base class's `private` method, to an instance
   method from a class `proc`, or from a nested `proc` inside a method errors in Tcl, yet resolves to
   the method and is listed as its reference. Same on v0.6.8 for goto-definition.

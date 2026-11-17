@@ -41,7 +41,7 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 		bodies := childBodies(cmd, base, ns, frame, scope, class)
 
 		if c.defs != nil {
-			emitDefs(cmd, base, ns, frame, scope, class, c.defs)
+			emitDefs(cmd, base, ns, frame, scope, class, wrapped, inClassNS, c.defs)
 			// A proc's parameters are local definitions; emit them alongside the
 			// proc itself, as the former recurseDefBodies did before recursing.
 			if isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced {
@@ -73,7 +73,11 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 		}
 
 		for _, b := range bodies {
-			inherit := wrapped && b.Frame == frame && b.Scope == scope
+			// A body keeping the frame inherits wrapped. So does an unqualified proc
+			// defined in a wrapper's body in a class-namespace frame: Tcl creates it
+			// wherever the wrapper runs it, so its body's namespace is not known either.
+			inherit := wrapped && (b.Frame == frame && b.Scope == scope ||
+				inClassNS && b.Frame == FrameProc && b.InClassNS == classNSInherit)
 			bodyInClassNS := inClassNS
 			if b.InClassNS != classNSInherit {
 				bodyInClassNS = b.InClassNS == classNSOn

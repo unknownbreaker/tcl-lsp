@@ -369,13 +369,22 @@ func (r *Resolver) firstDefined(cands []string, file string) string {
 // global. The enclosing namespace is never searched (tclsh 8.6 and 9.0, Itcl 4.3;
 // research/experiments/08_itcl_class_namespace.tcl). A `namespace eval` or a
 // qualified proc inside a method runs in its own namespace (ref.InClassNS is false
-// there). Everywhere else it is the reference's own namespace.
+// there). The class body's own commands (`common c [g]`) run in ::itcl::parser,
+// whose path is empty, so they try ::itcl::parser, then global; neither the
+// enclosing nor the class namespace is searched (research/experiments/
+// 08_itcl_class_body.tcl). Everywhere else it is the reference's own namespace.
 func commandNamespace(ref *tcl.ContextRef) string {
-	if ref.Frame == tcl.FrameProc && ref.InClassNS && ref.Class != "" {
+	switch {
+	case ref.Frame == tcl.FrameProc && ref.InClassNS && ref.Class != "":
 		return ref.Class
+	case ref.Frame == tcl.FrameClass && ref.Class != "":
+		return itclParserNS
 	}
 	return ref.Namespace
 }
+
+// itclParserNS is the namespace an itcl::class body's commands run in.
+const itclParserNS = "::itcl::parser"
 
 // commandCandidates returns the FQ command names to try, in TCL precedence
 // order: current namespace, imported names, namespace-path entries, then global.

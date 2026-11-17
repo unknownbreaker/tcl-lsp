@@ -50,7 +50,7 @@ func FileDefs(src string) []Definition {
 	return promoteLinkedAssignments(out)
 }
 
-func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class string, out *[]Definition) {
+func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class string, wrapped, inClassNS bool, out *[]Definition) {
 	w := c.Words
 	var cmdStart, cmdEnd int
 	if len(w) > 0 {
@@ -82,32 +82,35 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		return // class-body declarations handled; skip namespace/proc rules below
 	}
 	if isCmd(w, "proc") && len(w) >= 2 && isPlainName(w[1]) {
-		name := qualifyName(w[1].Text, ns)
-		*out = append(*out, Definition{
-			Kind:      DefProc,
-			Name:      name,
-			Namespace: ns,
-			NameStart: base + w[1].Start,
-			NameEnd:   base + w[1].End,
-			FullStart: cmdStart,
-			FullEnd:   cmdEnd,
-			Scope:     scope,
-			Class:     class,
-		})
+		if name, ok := procDefName(w[1].Text, ns, frame, class, wrapped, inClassNS); ok {
+			*out = append(*out, Definition{
+				Kind:      DefProc,
+				Name:      name,
+				Namespace: ns,
+				NameStart: base + w[1].Start,
+				NameEnd:   base + w[1].End,
+				FullStart: cmdStart,
+				FullEnd:   cmdEnd,
+				Scope:     scope,
+				Class:     class,
+			})
+		}
 	}
 	// A proc defined through a decorator macro (`CACHE_PROC proc name args body`).
-	if name, _, _, ok := decoratedProcDef(w); ok {
-		*out = append(*out, Definition{
-			Kind:      DefProc,
-			Name:      qualifyName(name.Text, ns),
-			Namespace: ns,
-			NameStart: base + name.Start,
-			NameEnd:   base + name.End,
-			FullStart: cmdStart,
-			FullEnd:   cmdEnd,
-			Scope:     scope,
-			Class:     class,
-		})
+	if dn, _, _, ok := decoratedProcDef(w); ok {
+		if name, ok := procDefName(dn.Text, ns, frame, class, wrapped, inClassNS); ok {
+			*out = append(*out, Definition{
+				Kind:      DefProc,
+				Name:      name,
+				Namespace: ns,
+				NameStart: base + dn.Start,
+				NameEnd:   base + dn.End,
+				FullStart: cmdStart,
+				FullEnd:   cmdEnd,
+				Scope:     scope,
+				Class:     class,
+			})
+		}
 	}
 	// A bare `variable NAME` in a body of unknown frame may be a TclOO declaration.
 	if vname, ok := variableDeclName(w); ok && !isUncertainName(vname, frame) {
@@ -807,6 +810,23 @@ func emitVarListNames(vw Word, base int, ns string, scope int, class string, out
 
 // qualifyName resolves a command/variable name against the current namespace:
 // a leading "::" is absolute, otherwise it is qualified into current.
+// procDefName returns the FQ name a `proc NAME` command defines, or false when it
+// is not certain. An unqualified proc defined in a method, constructor, destructor,
+// class proc or itcl::body is created in the class namespace (::ns::K::inner),
+// not the one that lexically holds the class. In a wrapper's body there it is
+// created wherever the wrapper runs it (`after`: ::, `uplevel 1`: the caller's
+// namespace), so it defines nothing (tclsh 8.6 and 9.0, Itcl 4.3;
+// research/experiments/08_itcl_class_body.tcl).
+func procDefName(name, ns string, frame FrameKind, class string, wrapped, inClassNS bool) (string, bool) {
+	if frame != FrameProc || !inClassNS || class == "" || strings.Contains(name, "::") {
+		return qualifyName(name, ns), true
+	}
+	if wrapped {
+		return "", false
+	}
+	return qualifyName(name, class), true
+}
+
 func qualifyName(name, current string) string {
 	if strings.HasPrefix(name, "::") {
 		return name
