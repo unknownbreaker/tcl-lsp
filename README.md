@@ -294,7 +294,7 @@ The dominant Rivet/speedtables idiom — `itcl::class`, `[::C #auto]`,
   own namespace first, then global. A class inside `namespace eval ::ns` does
   not see `::ns`'s procs from its methods, and neither does Tcl.
   Code in the class body itself (`common c [g]`) runs in `::itcl::parser`, so it
-  sees global procs only, and a `proc` defined inside a method belongs to the class.
+  sees global procs only, and a `proc` or `itcl::class` defined inside a method belongs to the class.
 - **Find-references** on a method lists the bare calls in method bodies that
   resolve to it, the same way goto-definition does. `$obj method` calls are
   not listed.
