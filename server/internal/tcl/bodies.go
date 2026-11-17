@@ -25,6 +25,39 @@ type bodyScope struct {
 	// Wrapped marks a custom command's body inside a proc or method: it keeps the
 	// frame, but it may be deferred or run elsewhere (`after`, `uplevel`).
 	Wrapped bool
+	// InClassNS says whether commands in the body are looked up from Class's
+	// namespace; walkAll resolves classNSInherit against the enclosing body.
+	InClassNS classNSMode
+}
+
+// classNSMode says whether a body's commands run in its Itcl class's namespace.
+// A method, constructor, destructor, itcl::body and class proc body does (tclsh
+// 8.6 and 9.0, Itcl 4.3; research/experiments/08_itcl_class_namespace.tcl). A
+// `namespace eval` or a qualified proc inside one runs in the namespace it names,
+// which for an absolute name is known. A relative name inside a method qualifies
+// against the class or the object namespace at run time, not the lexical one the
+// walker uses (a known wrong answer, docs/BACKLOG.md).
+// An unqualified proc defined inside one is created in the class namespace, and a
+// control-flow body runs where its command does, so both inherit.
+type classNSMode int
+
+const (
+	classNSInherit classNSMode = iota
+	classNSOn
+	classNSOff
+)
+
+// procClassNS returns the class-namespace mode of a proc body: a class proc runs
+// in the class namespace, a qualified name in its own, and an unqualified proc
+// nested in a method in the namespace it is created in, the method's.
+func procClassNS(name string, frame FrameKind) classNSMode {
+	switch {
+	case strings.Contains(name, "::"):
+		return classNSOff
+	case frame == FrameClass:
+		return classNSOn
+	}
+	return classNSInherit
 }
 
 // memberWords strips a leading Itcl access modifier (`public`/`protected`/
@@ -121,18 +154,18 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		// Body is the last word (Tcl's `namespace eval name script` form; for
 		// multi-arg scripts Tcl concatenates, and we recurse the final braced word).
 		inner, innerBase := bracedInner(w[len(w)-1], base)
-		return []bodyScope{{Inner: inner, Base: innerBase, NS: qualifyNamespace(w[2].Text, ns), Frame: FrameNamespace, Scope: 0, Class: class}}
+		return []bodyScope{{Inner: inner, Base: innerBase, NS: qualifyNamespace(w[2].Text, ns), Frame: FrameNamespace, Scope: 0, Class: class, InClassNS: classNSOff}}
 	case isCmd(w, "proc") && len(w) >= 4 && w[len(w)-1].Kind == WordBraced:
 		// The proc body runs in the namespace where the proc is DEFINED: for a
 		// qualified name (proc ::a::b {} {...}) that is ::a -- the name's own
 		// namespace -- not the lexically enclosing one. This is what makes
 		// `variable cfg` inside proc ::a::b link to ::a::cfg.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
-		return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(w[1].Text, ns), Frame: FrameProc, Scope: innerBase, Class: class}}
+		return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(w[1].Text, ns), Frame: FrameProc, Scope: innerBase, Class: class, InClassNS: procClassNS(w[1].Text, frame)}}
 	case (isCmd(w, "itcl::class") || isCmd(w, "::itcl::class")) && len(w) >= 3 && w[len(w)-1].Kind == WordBraced:
 		// itcl::class NAME BODY — the body is a member-declaration scope.
 		inner, innerBase := bracedInner(w[len(w)-1], base)
-		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameClass, Scope: 0, Class: qualifyName(w[1].Text, ns)}}
+		return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameClass, Scope: 0, Class: qualifyName(w[1].Text, ns), InClassNS: classNSOn}}
 	case frame == FrameClass && (isCmd(w, "method") || isCmd(w, "constructor") || isCmd(w, "destructor")) && w[len(w)-1].Kind == WordBraced:
 		// method/constructor/destructor inside a class body — each runs as a proc
 		// frame carrying the enclosing class name.
@@ -148,13 +181,13 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 			return nil
 		}
 		inner, innerBase := bracedInner(w[len(w)-1], base)
-		out := []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class}}
+		out := []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: class, InClassNS: classNSOn}}
 		// A constructor may carry an optional init block before the body
 		// (`constructor args {Base::constructor …} {body}`) that chains the base
 		// class; walk it too so the chained call is found as a reference.
 		if isCmd(w, "constructor") && len(w) >= 4 && w[len(w)-2].Kind == WordBraced {
 			initInner, initBase := bracedInner(w[len(w)-2], base)
-			out = append(out, bodyScope{Inner: initInner, Base: initBase, NS: ns, Frame: FrameProc, Scope: initBase, Class: class})
+			out = append(out, bodyScope{Inner: initInner, Base: initBase, NS: ns, Frame: FrameProc, Scope: initBase, Class: class, InClassNS: classNSOn})
 		}
 		return out
 	case (isCmd(w, "itcl::body") || isCmd(w, "::itcl::body")) && len(w) >= 4 && w[len(w)-1].Kind == WordBraced:
@@ -165,7 +198,7 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		if i := strings.LastIndex(full, "::"); i > 0 {
 			classFQ := qualifyName(full[:i], ns)
 			inner, innerBase := bracedInner(w[len(w)-1], base)
-			return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: classFQ}}
+			return []bodyScope{{Inner: inner, Base: innerBase, NS: ns, Frame: FrameProc, Scope: innerBase, Class: classFQ, InClassNS: classNSOn}}
 		}
 		return nil
 	default:
@@ -174,7 +207,7 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 		// namespace rule).
 		if name, _, body, ok := decoratedProcDef(w); ok {
 			inner, innerBase := bracedInner(body, base)
-			return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(name.Text, ns), Frame: FrameProc, Scope: innerBase, Class: class}}
+			return []bodyScope{{Inner: inner, Base: innerBase, NS: procBodyNS(name.Text, ns), Frame: FrameProc, Scope: innerBase, Class: class, InClassNS: procClassNS(name.Text, frame)}}
 		}
 		// Control-flow bodies (if/while/for/foreach/catch/try/switch/...) run in the
 		// enclosing namespace and frame. A custom command's trailing brace is walked for calls,

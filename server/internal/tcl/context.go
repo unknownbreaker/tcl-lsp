@@ -25,13 +25,16 @@ type ContextRef struct {
 	// Wrapped: the ref is in a custom command's body inside a proc or method, so
 	// it may run in another frame or namespace (`after`, `uplevel`, a wrapper).
 	Wrapped bool
+	// InClassNS: the ref's commands run in Class's namespace, not Namespace: it is
+	// in a method, constructor, destructor, itcl::body or class proc body.
+	InClassNS bool
 }
 
 // FileRefs parses src and returns every reference with its namespace and frame
 // context, recursing into namespace eval and proc bodies.
 func FileRefs(src string) []ContextRef {
 	var out []ContextRef
-	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", false, collectors{refs: &out})
+	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", false, false, collectors{refs: &out})
 	return out
 }
 

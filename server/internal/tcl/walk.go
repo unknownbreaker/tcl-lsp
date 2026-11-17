@@ -33,8 +33,9 @@ type collectors struct {
 // collectors descend exactly the same bodies and cannot drift. base offsets a
 // re-parsed braced body's defs/refs back to absolute source coordinates.
 // wrapped says the commands are inside a custom command's body in this proc frame
-// (see bodyScope.Wrapped); bodies that keep the frame inherit it.
-func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, wrapped bool, c collectors) {
+// (see bodyScope.Wrapped); bodies that keep the frame inherit it. classNS says the
+// commands are looked up from class's namespace (see bodyScope.InClassNS).
+func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, wrapped, inClassNS bool, c collectors) {
 	for _, cmd := range cmds {
 		w := cmd.Words
 		bodies := childBodies(cmd, base, ns, frame, scope, class)
@@ -59,7 +60,7 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 			for _, r := range CommandRefs(cmd) {
 				r.Start += base
 				r.End += base
-				*c.refs = append(*c.refs, ContextRef{Ref: r, Namespace: ns, Frame: frame, Scope: scope, Class: class, Wrapped: wrapped})
+				*c.refs = append(*c.refs, ContextRef{Ref: r, Namespace: ns, Frame: frame, Scope: scope, Class: class, Wrapped: wrapped, InClassNS: inClassNS})
 			}
 		}
 
@@ -73,7 +74,11 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 
 		for _, b := range bodies {
 			inherit := wrapped && b.Frame == frame && b.Scope == scope
-			walkAll(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, b.Class, b.Wrapped || inherit, c)
+			bodyInClassNS := inClassNS
+			if b.InClassNS != classNSInherit {
+				bodyInClassNS = b.InClassNS == classNSOn
+			}
+			walkAll(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, b.Class, b.Wrapped || inherit, bodyInClassNS, c)
 		}
 	}
 }
@@ -86,7 +91,7 @@ func FileAll(src string) FileIndex {
 		Namespaces: map[string]*NamespaceInfo{},
 		Classes:    map[string][]string{},
 	}
-	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", false, collectors{
+	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", false, false, collectors{
 		defs:    &fi.Defs,
 		refs:    &fi.Refs,
 		ns:      fi.Namespaces,

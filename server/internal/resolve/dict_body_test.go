@@ -46,6 +46,15 @@ func TestDictBodyCallsResolve(t *testing.T) {
 				}
 			}
 			for _, call := range []string{"helper with", "helper update", "helper inproc", "helper top"} {
+				// In a page, the proc is ::request::helper and K is ::request::K. A
+				// method runs in its class namespace, then global, so Tcl never finds
+				// the page's proc from one (research/experiments/08_itcl_class_namespace.tcl).
+				if file == "p.rvt" && (call == "helper with" || call == "helper update") {
+					if d := r.Definition(file, src, at(call)); len(d) != 0 {
+						t.Errorf("Definition(%q) = %v, want silence: ::request::helper is not on a method's lookup", call, d)
+					}
+					continue
+				}
 				if d := r.Definition(file, src, at(call)); len(d) != 1 || d[0].NameStart != helper.start {
 					t.Errorf("Definition(%q) = %v, want ::helper at %d", call, d, helper.start)
 				}
