@@ -50,6 +50,14 @@ type Index struct {
 	classes          map[string]*ClassInfo                    // classFQ -> aggregated class info
 	fileClassKeys    map[string][]string                      // file -> class FQs it contributed to
 	fileClassInherit map[string]map[string][]string           // file -> classFQ -> inherit edges from that file
+	// fallbacks maps a class FQ to the fallback class keys (tcl.FallbackClass)
+	// that may name it, as their local or global candidate, so Class can merge
+	// the members an `itcl::body` recorded under such a key.
+	fallbacks map[string]map[string]bool
+	// maybeCmds counts, per FQ command name, the files whose fallback bodies may
+	// define it (tcl.FileIndex.MaybeCommands); fileMaybe lists each file's names.
+	maybeCmds map[string]int
+	fileMaybe map[string][]string
 }
 
 // nsMerged is the merged namespace-path and import set for one namespace, cached
@@ -72,6 +80,9 @@ func New() *Index {
 		classes:          map[string]*ClassInfo{},
 		fileClassKeys:    map[string][]string{},
 		fileClassInherit: map[string]map[string][]string{},
+		fallbacks:        map[string]map[string]bool{},
+		maybeCmds:        map[string]int{},
+		fileMaybe:        map[string][]string{},
 	}
 }
 
@@ -114,6 +125,17 @@ func (ix *Index) storeUnit(path, content string, unit tcl.FileIndex) {
 	// namespace state); only the parse is hoisted.
 	if len(unit.Refs) > 0 {
 		ix.fileRefs[path] = unit.Refs
+	}
+
+	if len(unit.MaybeCommands) > 0 {
+		seen := map[string]bool{}
+		for _, name := range unit.MaybeCommands {
+			if !seen[name] {
+				seen[name] = true
+				ix.maybeCmds[name]++
+				ix.fileMaybe[path] = append(ix.fileMaybe[path], name)
+			}
+		}
 	}
 
 	// Track which class FQs this file touches (for RemoveFile bookkeeping).
@@ -179,6 +201,14 @@ func (ix *Index) storeUnit(path, content string, unit tcl.FileIndex) {
 // ensureClass returns the ClassInfo for fq, creating it if absent.
 func (ix *Index) ensureClass(fq string) *ClassInfo {
 	if ix.classes[fq] == nil {
+		if local, global, ok := tcl.FallbackClass(fq); ok {
+			for _, c := range []string{local, global} {
+				if ix.fallbacks[c] == nil {
+					ix.fallbacks[c] = map[string]bool{}
+				}
+				ix.fallbacks[c][fq] = true
+			}
+		}
 		ix.classes[fq] = &ClassInfo{
 			Methods: map[string][]Location{},
 			Ivars:   map[string][]Location{},
@@ -236,6 +266,12 @@ func (ix *Index) RemoveFile(path string) {
 		}
 	}
 	delete(ix.fileDefs, path)
+	for _, name := range ix.fileMaybe[path] {
+		if ix.maybeCmds[name]--; ix.maybeCmds[name] <= 0 {
+			delete(ix.maybeCmds, name)
+		}
+	}
+	delete(ix.fileMaybe, path)
 
 	// Remove this file's class contributions (DefSites, Methods, Ivars, Inherit).
 	// Drop the file's raw inherit assertions FIRST so rebuildInherit below
@@ -271,6 +307,14 @@ func (ix *Index) RemoveFile(path string) {
 		// Drop class entry entirely when no contributions remain.
 		if len(ci.DefSites) == 0 && len(ci.Methods) == 0 && len(ci.Ivars) == 0 && len(ci.Inherit) == 0 {
 			delete(ix.classes, fq)
+			if local, global, ok := tcl.FallbackClass(fq); ok {
+				for _, c := range []string{local, global} {
+					delete(ix.fallbacks[c], fq)
+					if len(ix.fallbacks[c]) == 0 {
+						delete(ix.fallbacks, c)
+					}
+				}
+			}
 		}
 	}
 	delete(ix.fileClassKeys, path)
@@ -297,10 +341,96 @@ func filterLocs(locs []Location, excludeFile string) []Location {
 	return kept
 }
 
-// Class returns the aggregated ClassInfo for a fully-qualified class name, or
-// nil if the class has not been indexed.
+// Class returns the aggregated ClassInfo for a fully-qualified class name or a
+// fallback class key (resolved by CanonicalClass), or nil if the class has not
+// been indexed. It includes the members recorded under every fallback key that
+// resolves to the class, and its Inherit names canonical classes; the result is
+// then a fresh copy. Callers must not mutate it. It only reads the index, so a
+// parallel scan may call it.
 func (ix *Index) Class(fq string) *ClassInfo {
-	return ix.classes[fq]
+	fq = ix.CanonicalClass(fq)
+	ci := ix.classes[fq]
+	var keys []string
+	for key := range ix.fallbacks[fq] {
+		if ix.CanonicalClass(key) == fq {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		if ci == nil || !ix.hasFallbackBase(ci) {
+			return ci
+		}
+		cp := *ci
+		cp.Inherit = ix.canonicalBases(ci.Inherit)
+		return &cp
+	}
+	sort.Strings(keys)
+	merged := &ClassInfo{Methods: map[string][]Location{}, Ivars: map[string][]Location{}}
+	if ci != nil {
+		keys = append([]string{fq}, keys...)
+		merged.DefSites = ci.DefSites
+		merged.Inherit = ix.canonicalBases(ci.Inherit)
+	}
+	for _, key := range keys {
+		part := ix.classes[key]
+		for name, locs := range part.Methods {
+			merged.Methods[name] = append(merged.Methods[name], locs...)
+		}
+		for name, locs := range part.Ivars {
+			merged.Ivars[name] = append(merged.Ivars[name], locs...)
+		}
+	}
+	return merged
+}
+
+// hasFallbackBase reports whether any of ci's inherit edges is a fallback key.
+func (ix *Index) hasFallbackBase(ci *ClassInfo) bool {
+	for _, b := range ci.Inherit {
+		if _, _, ok := tcl.FallbackClass(b); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// canonicalBases returns bases with each fallback key resolved (CanonicalClass),
+// dropping a base that repeats one already listed. bases is not modified.
+func (ix *Index) canonicalBases(bases []string) []string {
+	out := make([]string, 0, len(bases))
+	seen := map[string]bool{}
+	for _, b := range bases {
+		b = ix.CanonicalClass(b)
+		if !seen[b] {
+			seen[b] = true
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// CanonicalClass returns the class a key names. A fallback class key, from a
+// relative class name outside the global namespace (`itcl::body G::run` or
+// `inherit G` in ::ns), names ::ns::G when that class is declared, else ::G when
+// that one is, else ::ns::G, as Itcl looks it up (tclsh 8.6 and 9.0, Itcl 4.3;
+// research/experiments/08_itcl_class_fallback.tcl). Any other key is returned
+// unchanged.
+func (ix *Index) CanonicalClass(key string) string {
+	return tcl.CanonicalClass(key, func(c string) bool {
+		ci := ix.classes[c]
+		return ci != nil && len(ci.DefSites) > 0
+	})
+}
+
+// MaybeCommand reports whether a proc or class defined in an `itcl::body` whose
+// class is a fallback key may create the command fq: the parser cannot tell
+// which class namespace it lands in, so it defines nothing there.
+func (ix *Index) MaybeCommand(fq string) bool {
+	return ix.maybeCmds[fq] > 0
+}
+
+// HasMaybeCommands reports whether any MaybeCommand is true.
+func (ix *Index) HasMaybeCommands() bool {
+	return len(ix.maybeCmds) > 0
 }
 
 // FileRefs returns the precomputed reference sites for path (nil if the file is
@@ -459,7 +589,7 @@ func (ix *Index) AllSymbols() []SymbolEntry {
 					File:      loc.File,
 					NameStart: loc.NameStart,
 					NameEnd:   loc.NameEnd,
-					Container: classFQ,
+					Container: ix.CanonicalClass(classFQ),
 				})
 			}
 		}
@@ -471,7 +601,7 @@ func (ix *Index) AllSymbols() []SymbolEntry {
 					File:      loc.File,
 					NameStart: loc.NameStart,
 					NameEnd:   loc.NameEnd,
-					Container: classFQ,
+					Container: ix.CanonicalClass(classFQ),
 				})
 			}
 		}

@@ -21,7 +21,7 @@ type ContextRef struct {
 	Namespace string // e.g. "::" or "::app"
 	Frame     FrameKind
 	Scope     int
-	Class     string // fully-qualified itcl class name, or "" when not inside a class
+	Class     string // fully-qualified itcl class name or class key (index.CanonicalClass resolves it), or "" when not inside a class
 	// Wrapped: the ref is in a custom command's body inside a proc or method, so
 	// it may run in another frame or namespace (`after`, `uplevel`, a wrapper).
 	Wrapped bool

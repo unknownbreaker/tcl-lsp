@@ -271,3 +271,46 @@ func TestSymbolKind(t *testing.T) {
 		}
 	}
 }
+
+// `itcl::body G::run` in ::other names ::other::G when the workspace declares it,
+// else ::G (research/experiments/08_itcl_class_fallback.tcl); the body's method
+// nests under that class, and under no class when it is declared in another file.
+func TestBuildDocumentSymbolsBodyInOtherNamespaceNestsUnderItsClass(t *testing.T) {
+	for _, tc := range []struct{ src, other, class string }{
+		{"itcl::class ::G { method run {} }\nnamespace eval other {\n  itcl::body G::run {} {}\n}", "", "::G"},
+		{"itcl::class ::G {}\nnamespace eval other {\n  itcl::class G { method run {} }\n  itcl::body G::run {} {}\n}", "", "G"},
+		{"itcl::class ::G { method run {} }\nnamespace eval other {\n  itcl::body G::run {} {}\n}", "namespace eval other { itcl::class G { method run {} } }", ""},
+	} {
+		ix := index.New()
+		ix.IndexFile("/w/a.tcl", tc.src)
+		if tc.other != "" {
+			ix.IndexFile("/w/b.tcl", tc.other)
+		}
+		syms := buildDocumentSymbolsIn(tcl.FileDefs(tc.src), tc.src, false, ix.CanonicalClass)
+		if tc.class == "" {
+			if n := countNamed(syms, "run"); n != 1 {
+				t.Errorf("%q: %d run symbols, want only ::G's own", tc.src, n)
+			}
+			if cls := findSym(syms, "::G"); cls == nil || len(cls.Children) != 1 {
+				t.Errorf("%q: ::G children = %v, want only its declaration", tc.src, cls)
+			}
+			continue
+		}
+		var find func([]DocumentSymbol) *DocumentSymbol
+		find = func(ss []DocumentSymbol) *DocumentSymbol {
+			for i := range ss {
+				if ss[i].Name == tc.class && len(ss[i].Children) > 0 {
+					return &ss[i]
+				}
+				if f := find(ss[i].Children); f != nil {
+					return f
+				}
+			}
+			return nil
+		}
+		cls := find(syms)
+		if cls == nil || len(cls.Children) != 2 {
+			t.Errorf("%q: class %s children = %v, want the declaration and the body", tc.src, tc.class, cls)
+		}
+	}
+}

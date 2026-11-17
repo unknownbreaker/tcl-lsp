@@ -17,6 +17,9 @@ type FileIndex struct {
 	Refs       []ContextRef
 	Namespaces map[string]*NamespaceInfo
 	Classes    map[string][]string
+	// MaybeCommands names the commands a proc or class defined in an
+	// `itcl::body` with a fallback class key may create (fallbackNestedNames).
+	MaybeCommands []string
 }
 
 // collectors holds the optional output sinks for a walkAll traversal. A nil sink
@@ -26,6 +29,7 @@ type collectors struct {
 	refs    *[]ContextRef             // contextual references
 	ns      map[string]*NamespaceInfo // namespace declarations (non-nil to collect)
 	classes map[string][]string       // class inherit edges (non-nil to collect)
+	maybe   *[]string                 // commands a fallback body may define
 }
 
 // walkAll visits every command in cmds once, runs each enabled collector, and
@@ -55,6 +59,10 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 				// Parameters belong to the main body, which is listed first.
 				emitProcParams(args, base, ns, bodies[0].Base, bodies[0].Class, c.defs)
 			}
+		}
+
+		if c.maybe != nil {
+			*c.maybe = append(*c.maybe, fallbackNestedNames(cmd, frame, class, wrapped, inClassNS)...)
 		}
 
 		if c.refs != nil {
@@ -122,6 +130,7 @@ func FileAll(src string) FileIndex {
 		refs:    &fi.Refs,
 		ns:      fi.Namespaces,
 		classes: fi.Classes,
+		maybe:   &fi.MaybeCommands,
 	})
 	fi.Defs = promoteLinkedAssignments(fi.Defs)
 	return fi
