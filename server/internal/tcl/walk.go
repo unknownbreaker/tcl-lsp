@@ -70,15 +70,36 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 		}
 
 		if c.classes != nil && frame == FrameClass && class != "" {
-			recordInherit(cmd, ns, class, c.classes)
+			recordInherit(cmd, class, c.classes)
+		}
+
+		// An itcl::class body's class is the name its definition takes. When that
+		// is not certain (a wrapper's body in a method), its body is wrapped and
+		// keyed by unknownClassKey, so no name lookup or `inherit` reaches it.
+		if isItclClassCmd(w) && len(bodies) > 0 {
+			name, ok := nestedDefName(w[1].Text, ns, frame, class, wrapped, inClassNS)
+			for i := range bodies {
+				if bodies[i].Frame != FrameClass {
+					continue
+				}
+				if ok {
+					bodies[i].Class = name
+				} else {
+					bodies[i].Class = unknownClassKey(bodies[i].Class, bodies[i].Base)
+					bodies[i].Wrapped = true
+				}
+			}
 		}
 
 		for _, b := range bodies {
 			// A body keeping the frame inherits wrapped. So does an unqualified proc
 			// defined in a wrapper's body in a class-namespace frame: Tcl creates it
-			// wherever the wrapper runs it, so its body's namespace is not known either.
+			// wherever the wrapper runs it, so its body's namespace is not known
+			// either. A wrapped class body (only an itcl::class a wrapper defines in
+			// a method) passes it to every member body: its namespace is unknown.
 			inherit := wrapped && ((b.Frame == frame && b.Scope == scope) ||
-				(inClassNS && b.Frame == FrameProc && b.InClassNS == classNSInherit))
+				(inClassNS && b.Frame == FrameProc && b.InClassNS == classNSInherit) ||
+				frame == FrameClass)
 			bodyInClassNS := inClassNS
 			if b.InClassNS != classNSInherit {
 				bodyInClassNS = b.InClassNS == classNSOn

@@ -111,11 +111,15 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   `namespace eval ns` names `::ns::Base`, where Tcl finds the global `::G` or `::Base` (tclsh 8.6 and
   9.0, Itcl 4.3.7). Calls in those methods then miss the class's methods and its namespace's procs,
   and answer a same-named global proc. Same on v0.6.8; since v0.6.17 they look up from the misnamed
-  class's namespace, not from `::other`.
+  class's namespace, not from `::other`. Since v0.6.19 `inherit` names resolve in the namespace that
+  holds the class (`::ns::sub` for `itcl::class sub::X`, `::ns::K` for a class defined in K's
+  method), but the global fallback is still missed.
 - **Itcl method-body namespace neighbours.** Since v0.6.17 calls in a method body look up from the
   class namespace, then global, and since v0.6.18 class-body code (`common c [g]`) looks up from
   `::itcl::parser`, then global, and an unqualified `proc inner` in a method is indexed as
-  `::ns::K::inner`. Some neighbours are still wrong (tclsh 8.6 and 9.0, Itcl 4.3). A substituted
+  `::ns::K::inner`, and since v0.6.19 so is an unqualified `itcl::class Inner` (`::ns::K::Inner`;
+  one a wrapper defines there is not indexed). Some neighbours are still wrong (tclsh 8.6 and 9.0,
+  Itcl 4.3). A substituted
   `namespace path` (`namespace path [list {*}[namespace path] ::lib]`, the form an Itcl class
   namespace needs, as a plain one replaces Itcl's own path) is recorded as one literal entry, so the
   class's path is silent. A wrapper's body in a method answers only when the class-namespace and
@@ -126,9 +130,12 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   wrapper's body there (`after`, `uplevel 1`) a relative `proc sub::d` is still indexed as `::ns::sub::d`,
   though Tcl creates it under the namespace the wrapper runs it in. A
   `variable v` in a method links `::ns::K::v` in Tcl, yet resolves against `::ns`. Same on v0.6.16.
-  An unqualified `itcl::class Inner` defined in a method is indexed as `::ns::Inner`, though Tcl
-  creates `::ns::K::Inner`, and one in an `uplevel 1` body is indexed though its namespace is the
-  caller's. Same on v0.6.17.
+  A class a wrapper defines in a method is not indexed under any name, so in its methods only
+  absolute calls, `$this` calls, and its own ivars answer; bare calls are silent. Since v0.6.19.
+- **Semantic tokens skip the intra-class check.** `CommandRefKind` resolves a bare call in a method
+  as an ordinary command, so a call to a method that a same-named global proc shadows
+  (`proc ::m {}`, `method w {} { after 0 {m} }; method m {} {}`) is colored as the proc, though
+  goto-definition answers the method, or nothing in a wrapper's body. Same on v0.6.18.
 - **Itcl method calls Tcl rejects.** A bare call to a base class's `private` method, to an instance
   method from a class `proc`, or from a nested `proc` inside a method errors in Tcl, yet resolves to
   the method and is listed as its reference. Same on v0.6.8 for goto-definition.

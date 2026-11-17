@@ -17,7 +17,7 @@
 # Run: tclsh8.6 08_itcl_class_body.tcl; env -u TCLLIBPATH tclsh9.0 08_itcl_class_body.tcl
 # Pinned by server/internal/resolve/itcl_class_namespace_test.go; the lookup is
 # commandNamespace in server/internal/resolve/resolve.go and the definition
-# name is procDefName in server/internal/tcl/defs.go.
+# name is nestedDefName in server/internal/tcl/defs.go.
 package require itcl
 puts "tcl [info patchlevel] itcl [package require itcl]"
 proc ::g {} { return ::g }

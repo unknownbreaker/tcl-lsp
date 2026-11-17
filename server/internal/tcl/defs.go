@@ -82,7 +82,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		return // class-body declarations handled; skip namespace/proc rules below
 	}
 	if isCmd(w, "proc") && len(w) >= 2 && isPlainName(w[1]) {
-		if name, ok := procDefName(w[1].Text, ns, frame, class, wrapped, inClassNS); ok {
+		if name, ok := nestedDefName(w[1].Text, ns, frame, class, wrapped, inClassNS); ok {
 			*out = append(*out, Definition{
 				Kind:      DefProc,
 				Name:      name,
@@ -98,7 +98,7 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 	}
 	// A proc defined through a decorator macro (`CACHE_PROC proc name args body`).
 	if nameWord, _, _, ok := decoratedProcDef(w); ok {
-		if name, ok := procDefName(nameWord.Text, ns, frame, class, wrapped, inClassNS); ok {
+		if name, ok := nestedDefName(nameWord.Text, ns, frame, class, wrapped, inClassNS); ok {
 			*out = append(*out, Definition{
 				Kind:      DefProc,
 				Name:      name,
@@ -202,18 +202,20 @@ func emitDefs(c Command, base int, ns string, frame FrameKind, scope int, class 
 		}
 	}
 	// w[0]=itcl::class  w[1]=ClassName  w[2]=class body (required, hence len >= 3)
-	if (isCmd(w, "itcl::class") || isCmd(w, "::itcl::class")) && len(w) >= 3 && isPlainName(w[1]) {
-		*out = append(*out, Definition{
-			Kind:      DefClass,
-			Name:      qualifyName(w[1].Text, ns),
-			Namespace: ns,
-			NameStart: base + w[1].Start,
-			NameEnd:   base + w[1].End,
-			FullStart: cmdStart,
-			FullEnd:   cmdEnd,
-			Scope:     scope,
-			Class:     class,
-		})
+	if isItclClassCmd(w) && len(w) >= 3 && isPlainName(w[1]) {
+		if name, ok := nestedDefName(w[1].Text, ns, frame, class, wrapped, inClassNS); ok {
+			*out = append(*out, Definition{
+				Kind:      DefClass,
+				Name:      name,
+				Namespace: ns,
+				NameStart: base + w[1].Start,
+				NameEnd:   base + w[1].End,
+				FullStart: cmdStart,
+				FullEnd:   cmdEnd,
+				Scope:     scope,
+				Class:     class,
+			})
+		}
 	}
 	// w[0]=itcl::body  w[1]=::Class::method  w[2]=args  w[3]=body
 	// External method body definitions: `itcl::body ::C::m {args} {body}`.
@@ -808,14 +810,15 @@ func emitVarListNames(vw Word, base int, ns string, scope int, class string, out
 	}
 }
 
-// procDefName returns the FQ name a `proc NAME` command defines, or false when it
-// is not certain. An unqualified proc defined in a method, constructor, destructor,
-// class proc or itcl::body is created in the class namespace (::ns::K::inner),
-// not the one that lexically holds the class. In a wrapper's body there it is
-// created wherever the wrapper runs it (`after`: ::, `uplevel 1`: the caller's
-// namespace), so it defines nothing (tclsh 8.6 and 9.0, Itcl 4.3;
-// research/experiments/08_itcl_class_body.tcl).
-func procDefName(name, ns string, frame FrameKind, class string, wrapped, inClassNS bool) (string, bool) {
+// nestedDefName returns the FQ name a `proc NAME` or `itcl::class NAME` command
+// defines, or false when it is not certain. An unqualified one defined in a method,
+// constructor, destructor, class proc or itcl::body is created in the class
+// namespace (::ns::K::inner), not the one that lexically holds the class. In a
+// wrapper's body there it is created wherever the wrapper runs it (`after`: ::,
+// `uplevel 1`: the caller's namespace), so it defines nothing (tclsh 8.6 and 9.0,
+// Itcl 4.3; research/experiments/08_itcl_class_body.tcl and
+// 08_itcl_inner_class.tcl).
+func nestedDefName(name, ns string, frame FrameKind, class string, wrapped, inClassNS bool) (string, bool) {
 	if frame != FrameProc || !inClassNS || class == "" || strings.Contains(name, "::") {
 		return qualifyName(name, ns), true
 	}
