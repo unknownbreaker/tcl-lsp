@@ -56,13 +56,9 @@ func parseExprTree(text string, base int) (*exprTern, bool) {
 }
 
 func (p *exprParser) space() {
-	for p.i < len(p.text) && isSpace(p.text[p.i]) {
+	for p.i < len(p.text) && isListSpace(p.text[p.i]) {
 		p.i++
 	}
-}
-
-func isSpace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
 }
 
 // at reports whether the lazy operator or delimiter op starts at the cursor.
@@ -120,7 +116,7 @@ func (p *exprParser) seq() exprSeq {
 	for p.ok && p.i < len(p.text) {
 		c := p.text[p.i]
 		switch {
-		case isSpace(c):
+		case isListSpace(c):
 			p.i++
 			continue
 		case c == ')' || c == ',' || c == '?':
@@ -274,31 +270,40 @@ func (s exprSeq) visit(onVar func(VarRef), onScript scriptFunc, conditional bool
 }
 
 // bracesHideBrackets reports whether a script's span may have ended at the wrong
-// `]`: skipBracketSpan does not know braces, so a span whose braces do not balance,
-// or whose braces hold unbalanced brackets (`[string map {] x} $s]`), is not
-// trusted.
+// `]`: skipBracketSpan knows neither braces nor quotes, so a span whose braces or
+// quotes do not balance, or whose braced or quoted text holds unbalanced brackets
+// (`[string map {] x} $s]`, `[string length "]"; set x 1]`), is not trusted. A
+// nested quote inside a quoted bracket also counts as unbalanced, which only
+// costs silence.
 func bracesHideBrackets(script string) bool {
-	braces, brackets := 0, 0 // brackets counts only those inside braces
+	braces, brackets := 0, 0 // brackets counts only those inside braces or quotes
+	quoted := false
 	for i := 0; i < len(script); i++ {
-		switch c := script[i]; {
+		c := script[i]
+		switch {
 		case c == '\\':
 			i++
-		case c == '{':
+		case c == '"' && braces == 0:
+			if quoted && brackets != 0 {
+				return true
+			}
+			quoted = !quoted
+		case c == '{' && !quoted:
 			braces++
-		case c == '}':
+		case c == '}' && !quoted:
 			if braces--; braces < 0 {
 				return true
 			}
 			if braces == 0 && brackets != 0 {
 				return true
 			}
-		case braces > 0 && c == '[':
+		case (braces > 0 || quoted) && c == '[':
 			brackets++
-		case braces > 0 && c == ']':
+		case (braces > 0 || quoted) && c == ']':
 			if brackets--; brackets < 0 {
 				return true
 			}
 		}
 	}
-	return braces != 0
+	return braces != 0 || quoted
 }

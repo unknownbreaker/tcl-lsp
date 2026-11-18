@@ -54,29 +54,34 @@ func TestReachingExpressionLiteralsAndDeadBrackets(t *testing.T) {
 	})
 }
 
+// Expression text the parser does not model falls back to the flat scan, which is
+// silent on these uses. Tcl decides what is right: 9.0 reads `#` as a comment to
+// end of line (8.6 rejects it), and a `]` inside braces or quotes in a script does
+// not end the script.
+func TestReachingExpressionUnmodeledIsSilent(t *testing.T) {
+	for _, c := range []struct{ name, src, mark string }{
+		{"a Tcl 9 comment", "proc f {c} {\n  set x 0\n  if {$c # && [set x 1]\n    && $x} {}\n}", "$x}"},
+		{"a bracket inside braces in a script", "proc f {c s} {\n  set x 0\n  if {$c && [string map {] [set x 1]} $s] ne {} && $x} {}\n}", "$x}"},
+		{"a bracket inside quotes in a script", "proc f {c} {\n  set x 0\n  if {$c || [string length \"]\"; set x 1] && $x ne {\"}} {}\n}", "$x ne"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			off := strings.Index(c.src, c.mark)
+			if off < 0 {
+				t.Fatalf("mark %q not in source", c.mark)
+			}
+			if defs, ok := ReachingAt(c.src, off); ok {
+				t.Errorf("ReachingAt(%s) = %+v, want silent\nsource:\n%s", c.mark, defs, c.src)
+			}
+		})
+	}
+}
+
 // expr runs an operand after && only when the earlier operands of its chain ran
 // true, one after || only when they ran false, and a ternary arm only after its
 // condition; a paren closes what is conditional. So a use sees exactly the
 // operands that ran before it, and an if or loop body sees the condition's true
 // paths. Each answer was checked against tclsh 8.6 and 9.0
 // (research/experiments/08_and_chain_reaching.tcl).
-// Expression text the parser does not model falls back to the flat scan, which
-// stays silent on a use later in the same expression. Tcl decides what is right:
-// 9.0 reads `#` as a comment to end of line (8.6 rejects it), and a `]` inside
-// braces in a script does not end the script. Neither runs [set x 1].
-func TestReachingExpressionUnmodeledIsSilent(t *testing.T) {
-	for name, src := range map[string]string{
-		"a Tcl 9 comment":                     "proc f {c} {\n  set x 0\n  if {$c # && [set x 1]\n    && $x} {}\n}",
-		"a bracket inside braces in a script": "proc f {c s} {\n  set x 0\n  if {$c && [string map {] [set x 1]} $s] ne {} && $x} {}\n}",
-	} {
-		t.Run(name, func(t *testing.T) {
-			if defs, ok := ReachingAt(src, strings.Index(src, "$x}")); ok {
-				t.Errorf("ReachingAt($x) = %+v, want silent\nsource:\n%s", defs, src)
-			}
-		})
-	}
-}
-
 func TestReachingExpressionStructure(t *testing.T) {
 	runReachCases(t, []reachCase{
 		{"an if body after an && chain", "proc f {c} {\n  set x 0\n  if {$c && [set x 1]} {\n    puts $x\n  }\n}", "$x", []int{3}},

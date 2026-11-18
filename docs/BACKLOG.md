@@ -104,9 +104,13 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   paths. A false result is not tracked apart from the whole, so a set after one may over-include:
   `if {$c || [set x 1]} {} else { puts $x }` answers `set x 0` too, though Tcl reaches the else
   only through `set x 1`, and so does a body under `!(...)` or a function call (`abs($c && [set x 1])`).
+  The same holds for a ternary as a whole: `if {$c ? [set x 1] : 0} { puts $x }` answers `set x 0`
+  too. A braced keyword (`if {...} {then} {body}`) is read as a body, so the real body over-includes.
   Several `expr` words (`expr {$c} && {[set x 1]}`) and text the parse cannot read (an unbalanced
-  paren) keep the flat scan: a bracket after `&&`, `||` or `?` joins with the set before it, and a
-  bare `$x` after one is silent.
+  paren, a Tcl 9 `#` comment, a bracket script whose `]` may sit in braces or quotes) keep the flat
+  scan: a bracket after `&&`, `||` or `?` joins with the set before it, and a bare `$x` after one is
+  silent. The flat scan itself ends a bracket at a quoted `]`: `if {[string length "]"; set x 1] &&
+  $x ne {"}} {}` answers `set x 0`, though Tcl reads `x` as 1.
 - **Itcl class names under the global fallback.** Since v0.6.21 a relative class name in
   `itcl::body` or `inherit` outside the global namespace names the local class when the workspace
   declares it, else the global one (`::G` for `itcl::body G::run` in `::other` or a template), as
