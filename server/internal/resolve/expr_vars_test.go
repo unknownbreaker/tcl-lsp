@@ -76,6 +76,29 @@ func TestGotoDefFollowsExpressionStructure(t *testing.T) {
 	}
 }
 
+// Tcl's else keyword is optional, so a last body with no condition before it
+// runs when the condition is false: it sees the condition's false paths too.
+func TestGotoDefImplicitElseSeesFalsePaths(t *testing.T) {
+	for _, tc := range []struct{ file, src string }{
+		{"/w/a.tcl", "proc f {c} {\n  set x 0\n  if {$c && [set x 1]} {} {puts $x}\n}\n"},
+		{"/w/a.rvt", "<html>\n<?\nproc f {c} {\n  set x 0\n  if {$c && [set x 1]} {} {puts $x}\n}\n?>\n</html>\n"},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			ix := index.New()
+			ix.IndexFile(tc.file, tc.src)
+			locs := New(ix).Definition(tc.file, tc.src, strings.Index(tc.src, "puts $x")+6)
+			var got []int
+			for _, l := range locs {
+				got = append(got, l.NameStart)
+			}
+			x0, x1 := strings.Index(tc.src, "x 0"), strings.Index(tc.src, "x 1")
+			if len(got) != 2 || !containsInt(got, x0) || !containsInt(got, x1) {
+				t.Fatalf("goto-def on $x = %v, want %d and %d", got, x0, x1)
+			}
+		})
+	}
+}
+
 func containsInt(xs []int, x int) bool {
 	for _, v := range xs {
 		if v == x {

@@ -149,6 +149,10 @@ func (p *exprParser) seq() exprSeq {
 		case c == '$' || c == '[':
 			s.items = p.substOne(s.items)
 			text = true
+		case c == '#':
+			// Tcl 9.0 reads a comment to end of line here, and 8.6 an error. Neither
+			// is modeled: the flat scan answers instead.
+			p.ok = false
 		case c == '\\' && p.i+1 < len(p.text):
 			p.i += 2
 			text = true
@@ -219,7 +223,7 @@ func (p *exprParser) subst(items []exprItem, end byte) []exprItem {
 func (p *exprParser) substOne(items []exprItem) []exprItem {
 	if p.text[p.i] == '[' {
 		end := skipBracketSpan(p.text, p.i)
-		if p.text[end-1] != ']' || end == p.i+1 {
+		if p.text[end-1] != ']' || end == p.i+1 || bracesHideBrackets(p.text[p.i+1:end-1]) {
 			p.ok = false
 			return items
 		}
@@ -267,4 +271,34 @@ func (s exprSeq) visit(onVar func(VarRef), onScript scriptFunc, conditional bool
 			}
 		}
 	}
+}
+
+// bracesHideBrackets reports whether a script's span may have ended at the wrong
+// `]`: skipBracketSpan does not know braces, so a span whose braces do not balance,
+// or whose braces hold unbalanced brackets (`[string map {] x} $s]`), is not
+// trusted.
+func bracesHideBrackets(script string) bool {
+	braces, brackets := 0, 0 // brackets counts only those inside braces
+	for i := 0; i < len(script); i++ {
+		switch c := script[i]; {
+		case c == '\\':
+			i++
+		case c == '{':
+			braces++
+		case c == '}':
+			if braces--; braces < 0 {
+				return true
+			}
+			if braces == 0 && brackets != 0 {
+				return true
+			}
+		case braces > 0 && c == '[':
+			brackets++
+		case braces > 0 && c == ']':
+			if brackets--; brackets < 0 {
+				return true
+			}
+		}
+	}
+	return braces != 0
 }

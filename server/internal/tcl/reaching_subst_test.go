@@ -1,6 +1,9 @@
 package tcl
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A [command substitution] is a script that runs in this frame, left to right with
 // the command's other substitutions, before the command itself. Expected answers
@@ -57,6 +60,23 @@ func TestReachingExpressionLiteralsAndDeadBrackets(t *testing.T) {
 // operands that ran before it, and an if or loop body sees the condition's true
 // paths. Each answer was checked against tclsh 8.6 and 9.0
 // (research/experiments/08_and_chain_reaching.tcl).
+// Expression text the parser does not model falls back to the flat scan, which
+// stays silent on a use later in the same expression. Tcl decides what is right:
+// 9.0 reads `#` as a comment to end of line (8.6 rejects it), and a `]` inside
+// braces in a script does not end the script. Neither runs [set x 1].
+func TestReachingExpressionUnmodeledIsSilent(t *testing.T) {
+	for name, src := range map[string]string{
+		"a Tcl 9 comment":                     "proc f {c} {\n  set x 0\n  if {$c # && [set x 1]\n    && $x} {}\n}",
+		"a bracket inside braces in a script": "proc f {c s} {\n  set x 0\n  if {$c && [string map {] [set x 1]} $s] ne {} && $x} {}\n}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if defs, ok := ReachingAt(src, strings.Index(src, "$x}")); ok {
+				t.Errorf("ReachingAt($x) = %+v, want silent\nsource:\n%s", defs, src)
+			}
+		})
+	}
+}
+
 func TestReachingExpressionStructure(t *testing.T) {
 	runReachCases(t, []reachCase{
 		{"an if body after an && chain", "proc f {c} {\n  set x 0\n  if {$c && [set x 1]} {\n    puts $x\n  }\n}", "$x", []int{3}},
@@ -81,6 +101,9 @@ func TestReachingExpressionStructure(t *testing.T) {
 		{"nested three deep", "proc f {a b c} {\n  set x 0\n  if {$a || ($b && ($c ? [set x 1] && [set y $x] : 0))} {}\n}", "$x]", []int{3}},
 		{"a for body after an && chain", "proc f {c} {\n  set x 0\n  for {} {$c && [set x 1]} {} {\n    puts $x\n  }\n}", "$x", []int{3}},
 		{"a bracket that returns ends only its path", "proc f {c} {\n  set x 0\n  if {$c && [return]} {\n    set x 1\n  }\n  puts $x\n}", "$x", []int{2}},
+		{"an else body without the else keyword", "proc f {c} {\n  set x 0\n  if {$c && [set x 1]} {} {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
+		{"an elseif body after an unbraced condition", "proc f {c d} {\n  set x 0\n  if {$c && [set x 1]} {} elseif $d {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
+		{"an else body without the keyword after then", "proc f {c d} {\n  set x 0\n  if {$d} then {} elseif {$c && [set x 1]} then {} {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
 		{"an unbalanced paren falls back to the flat scan", "proc f {c} {\n  set x 0\n  if {($c && [set x 1]} {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
 	})
 }

@@ -626,9 +626,14 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 	anyLive := false
 	// bodyIn is where the next body starts: the last condition's true paths, or
 	// cur for else. A condition that cannot end true leaves its body unreached.
+	// afterCond is true while the next body belongs to a condition. A body with no
+	// condition before it is an else body (Tcl's else keyword is optional), so it
+	// starts from cur.
 	bodyIn := condOut{set: cur, live: true}
+	afterCond := false
 	for i := 1; i < len(w); i++ {
 		if braceCond(i) {
+			afterCond = true
 			if all, whenTrue, ok := a.evalExprWord(c, exprWords, i, base, cur); ok {
 				if !all.live {
 					return joinAll(liveOuts), anyLive
@@ -644,14 +649,21 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 			bodyIn = condOut{set: cur, live: true}
 			continue
 		}
-		if w[i].Kind != WordBraced || isIfCondition(w, i) {
-			if w[i].Kind == WordBare && w[i].Text == "else" {
-				bodyIn = condOut{set: cur, live: true}
-			}
-			continue // then, else, an unbraced body, or an unbraced condition
-		}
-		if !bodyIn.live {
+		if isIfCondition(w, i) {
+			// An unbraced condition was substituted up front; its truth is unknown.
+			afterCond = true
+			bodyIn = condOut{set: cur, live: true}
 			continue
+		}
+		if w[i].Kind == WordBare && (w[i].Text == "then" || w[i].Text == "else") {
+			continue
+		}
+		if !afterCond {
+			bodyIn = condOut{set: cur, live: true}
+		}
+		afterCond = false
+		if w[i].Kind != WordBraced || !bodyIn.live {
+			continue // an unbraced body, or a body no path reaches
 		}
 		inner, ibase := bracedInner(w[i], base)
 		out, bodyLive := a.seq(Parse(inner), ibase, bodyIn.set.clone())
