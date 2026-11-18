@@ -98,14 +98,19 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. Both are
   the same on `main@26f8ab2`. (A `for` whose body cannot complete no longer runs `next`, since v0.6.7.) So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which
   answers both lines though Tcl says the first arm cannot reach: a `switch` exit joins every arm.
-- **Reaching, after a conditional bracket.** A bracket after `&&`, `||` or `?` joins its bindings
-  with the set before it, which is right after the whole expression but over-includes inside it.
-  `$c || [set x 1] && [puts $x]` and `if {$c && [set x 1]} { puts $x }` both answer `set x 0`
-  too, though Tcl reaches the use only through `set x 1`. A bare `$x` after such a bracket in the
-  same expression is silent (v0.6.7); a use inside a later bracket or the `if` body is not.
-  The scan also over-reads what is conditional: a `?` that a paren already closed
-  (`expr {($c ? 1 : 2) + [set x 1]}`) and an operator or `"` inside an array index (`$a(?)`) both
-  make a later bracket conditional, so `return $x` also answers `set x 0`. Same on v0.6.6.
+- **Reaching, after a conditional bracket.** Since v0.6.22 a single braced expression follows
+  expr's `?:`, `||` and `&&` structure and its parens (research/experiments/08_and_chain_reaching.tcl):
+  a use sees the operands that ran before it, and an if or loop body sees the condition's true
+  paths. A false result is not tracked apart from the whole, so a set after one may over-include:
+  `if {$c || [set x 1]} {} else { puts $x }` answers `set x 0` too, though Tcl reaches the else
+  only through `set x 1`, and so does a body under `!(...)` or a function call (`abs($c && [set x 1])`).
+  The same holds for a ternary as a whole: `if {$c ? [set x 1] : 0} { puts $x }` answers `set x 0`
+  too. A braced keyword (`if {...} {then} {body}`) is read as a body, so the real body over-includes.
+  Several `expr` words (`expr {$c} && {[set x 1]}`) and text the parse cannot read (an unbalanced
+  paren, a Tcl 9 `#` comment, a bracket script whose `]` may sit in braces or quotes) keep the flat
+  scan: a bracket after `&&`, `||` or `?` joins with the set before it, and a bare `$x` after one is
+  silent. The flat scan itself ends a bracket at a quoted `]`: `if {[string length "]"; set x 1] &&
+  $x ne {"}} {}` answers `set x 0`, though Tcl reads `x` as 1.
 - **Itcl class names under the global fallback.** Since v0.6.21 a relative class name in
   `itcl::body` or `inherit` outside the global namespace names the local class when the workspace
   declares it, else the global one (`::G` for `itcl::body G::run` in `::other` or a template), as

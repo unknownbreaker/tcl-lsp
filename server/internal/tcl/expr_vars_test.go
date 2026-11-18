@@ -36,6 +36,10 @@ func TestCommandRefsFindVarsInBracedExpressions(t *testing.T) {
 		{"braced name", "expr {${x} + 1}", "${x}"},
 		{"after an unconditional bracket", "expr {[set x 1] && $x}", "$x}"},
 		{"after && with no bracket", "expr {$c && $x}", "$x"},
+		{"ternary false arm after a bracket", "expr {$c ? [set x 1] : $x}", "$x"},
+		{"after a bracket that follows ||", "expr {$c || [set x 1] && $x}", "$x"},
+		{"after a conditional bracket in an if condition", "if {$c && [set x 1] && $x} {}", "$x"},
+		{"an operator in an array index", "expr {$a(?) && [set x 1] && $x}", "$x}"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -55,16 +59,13 @@ func TestCommandRefsFindVarsInBracedExpressions(t *testing.T) {
 	}
 }
 
-// Uses that are not references: a braced literal operand, and a use after a
-// bracket that runs only on some paths. Which bindings reach such a use depends on
-// which operands ran, so the use stays silent rather than risk a binding that
-// cannot reach it (`$c ? [set x 1] : $x` reads the value from before the bracket).
+// Uses that are not references: a braced literal operand, and, across several
+// expr words (which the structure parse does not read), a use after a bracket that
+// runs only on some paths. Which bindings reach it depends on which operands ran,
+// so it stays silent.
 func TestCommandRefsSilentInBracedExpressions(t *testing.T) {
 	cases := []struct{ name, src string }{
 		{"braced literal operand", "expr {{$x} eq \"y\"}"},
-		{"ternary false arm after a bracket", "expr {$c ? [set x 1] : $x}"},
-		{"after a bracket that follows ||", "expr {$c || [set x 1] && $x}"},
-		{"after a conditional bracket in an if condition", "if {$c && [set x 1] && $x} {}"},
 		{"carried across expr words", "expr {$c} && {[set x 1]} || {$x}"},
 	}
 	for _, c := range cases {
