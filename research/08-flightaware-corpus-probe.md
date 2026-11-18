@@ -208,6 +208,9 @@ requests stack depends on what the client sends. This is one generated data file
    references, and reaching answers them where the expression reads them. A `{braced}` operand
    stays a literal, and a `$var` after a `[script]` that follows `&&`, `||` or `?` in the same
    expression stays silent, because which bindings reach it depends on which operands ran.
+   **Since v0.6.22** a single braced expression is parsed into its `?:`, `||`, `&&` and paren
+   structure, so such a `$var` answers with the operands that ran before it; only several `expr`
+   words, or text the parse cannot read, keep the silence.
 3. **Unrecognised bindings.** **Reproduced:** `gets`, `binary scan`, `try … on`, `regexp`.
    **Harness count,** where it is the only binding form: gets 87, regexp 77, binary scan 40, try-on
    23. These overlap with item 2, so do not add them up. `catch` result variables too:
@@ -245,7 +248,8 @@ requests stack depends on what the client sends. This is one generated data file
    **Reproduced:** even when opened, tcltest `-setup`/`-body` and old-style bodies do not resolve. A
    braced `-result {x}` as last word is walked as code (**code reading**).
 6. **`dict with` / `dict update` bodies are not walked** (`bodies.go:216-220`, **code reading**, not
-   run; **harness count:** 46 rows tagged `dict-with`).
+   run; **harness count:** 46 rows tagged `dict-with`). **Fixed in v0.6.14:** both bodies run in
+   place; see the BACKLOG's "`dict with` keys bind nothing" for what still binds nothing.
 7. **Callbacks.** **Reproduced:** `after idle animate`, `-command animate`, `trace … animate` → nothing.
    `bind . <Key> {animate}` **does** resolve via the trailing-brace rule. **Harness count:** 77 rows.
    These scripts run in the global namespace, so lexical resolution is not safe.
