@@ -8,9 +8,12 @@ import "strings"
 // expr argument), whose $vars and [scripts] are substituted by expr itself when the
 // expression is evaluated. Inside an expression a {braced} operand is a literal, a
 // "quoted" one is substituted, and a script after &&, || or ? runs only on some
-// paths. A $var after such a script is not reported: which bindings reach it
-// depends on which operands ran (`$c ? [set x 1] : $x` reads the value from before
-// the script), so it stays silent. CommandRefs (refs) and the reaching analyzer
+// paths. A single braced expression is parsed into that structure
+// (exprtree.go), so every $var in it is reported. The flat scan here is the
+// fallback, for several expr words or text the parse cannot read: there a $var
+// after such a script is not reported, because which bindings reach it depends on
+// which operands ran (`$c ? [set x 1] : $x` reads the value from before the
+// script), so it stays silent. CommandRefs (refs) and the reaching analyzer
 // (reaching_subst.go) both walk words through here, so they agree on what is
 // substituted.
 
@@ -120,8 +123,23 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 	if !exprWords[w.Start] {
 		return flow
 	}
+	if t, ok := exprTreeOf(c, w, base); ok {
+		t.visit(onVar, onScript, flow >= flowConditional)
+		return flow
+	}
 	inner, innerBase := bracedInner(w, base)
 	return walkSubst(inner, innerBase, true, flow, onVar, onScript)
+}
+
+// exprTreeOf parses the braced expression word w of c (see exprtree.go). It is
+// false for an expression it cannot read, and for one of several expr words,
+// which form one expression only once joined.
+func exprTreeOf(c Command, w Word, base int) (*exprTern, bool) {
+	if isCmd(c.Words, "expr") && len(c.Words) != 2 {
+		return nil, false
+	}
+	inner, innerBase := bracedInner(w, base)
+	return parseExprTree(inner, innerBase)
 }
 
 // carryFlow returns the flow that word w of c passes to c's next word. The words of

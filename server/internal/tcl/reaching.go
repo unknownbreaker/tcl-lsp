@@ -245,16 +245,26 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	// A test script that ends the path is rare; the loop treats it as live, which
 	// only adds bindings.
 	exprWords := exprWordStarts(c)
-	afterTest := func(header reachSet) reachSet {
+	// afterTest returns the sets after the test (where the loop exits) and on its
+	// true paths (where the body starts). A test that cannot end true leaves the
+	// body with no bindings.
+	afterTest := func(header reachSet) (reachSet, reachSet) {
 		if test < 0 {
-			return header
+			return header, header
+		}
+		if all, whenTrue, ok := a.evalExprWord(c, exprWords, test, base, header); ok {
+			if !all.live {
+				return header, reachSet{}
+			}
+			return all.set, whenTrue.set
 		}
 		live := true
 		out, _ := a.substituteWord(c, exprWords, test, base, header, flowAlways, &live)
-		return out
+		return out, out
 	}
 	for iter := 0; iter < maxLoopIters; iter++ {
-		passEntry := afterTest(cur).clone()
+		_, passEntry := afterTest(cur)
+		passEntry = passEntry.clone()
 		for _, d := range loopVars {
 			passEntry[d.Name] = []Definition{d}
 		}
@@ -280,7 +290,8 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	// cur is the fixpoint set at the loop header: it subsumes the entry set and
 	// every back-edge contribution, so after the test it covers every path that
 	// may reach post-loop. acc.brk adds paths that exited via `break`.
-	return joinAll([]reachSet{afterTest(cur), acc.brk}), true
+	exit, _ := afterTest(cur)
+	return joinAll([]reachSet{exit, acc.brk}), true
 }
 
 // reachEqual reports whether two reachSets contain the same bindings (by
@@ -613,20 +624,37 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 	exprWords := exprWordStarts(c)
 	var liveOuts []reachSet
 	anyLive := false
+	// bodyIn is where the next body starts: the last condition's true paths, or
+	// cur for else. A condition that cannot end true leaves its body unreached.
+	bodyIn := condOut{set: cur, live: true}
 	for i := 1; i < len(w); i++ {
 		if braceCond(i) {
+			if all, whenTrue, ok := a.evalExprWord(c, exprWords, i, base, cur); ok {
+				if !all.live {
+					return joinAll(liveOuts), anyLive
+				}
+				cur, bodyIn = all.set, whenTrue
+				continue
+			}
 			cur, _ = a.substituteWord(c, exprWords, i, base, cur, flowAlways, &live)
 			if !live {
 				// No later condition or body runs, and neither does the fall-through.
 				return joinAll(liveOuts), anyLive
 			}
+			bodyIn = condOut{set: cur, live: true}
 			continue
 		}
 		if w[i].Kind != WordBraced || isIfCondition(w, i) {
+			if w[i].Kind == WordBare && w[i].Text == "else" {
+				bodyIn = condOut{set: cur, live: true}
+			}
 			continue // then, else, an unbraced body, or an unbraced condition
 		}
+		if !bodyIn.live {
+			continue
+		}
 		inner, ibase := bracedInner(w[i], base)
-		out, bodyLive := a.seq(Parse(inner), ibase, cur.clone())
+		out, bodyLive := a.seq(Parse(inner), ibase, bodyIn.set.clone())
 		if bodyLive {
 			liveOuts = append(liveOuts, out)
 			anyLive = true

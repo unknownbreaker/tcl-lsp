@@ -45,15 +45,34 @@ func TestGotoDefVarInBracedExpression(t *testing.T) {
 	}
 }
 
-// A use after a bracket that runs on only some paths stays silent: in
-// `$c ? [set x 1] : $x` the false arm reads the value from before the bracket.
-func TestGotoDefSilentAfterConditionalBracketInExpression(t *testing.T) {
-	src := "proc f {c} {\n  set x 0\n  return [expr {$c ? [set x 1] : $x}]\n}\n"
-	ix := index.New()
-	ix.IndexFile("a.tcl", src)
-	use := strings.LastIndex(src, "$x") + 1
-	if locs := New(ix).Definition("a.tcl", src, use); len(locs) != 0 {
-		t.Fatalf("goto-def on $x after a conditional bracket = %#v, want none", locs)
+// An expression's structure decides which bindings reach a use, in a proc in a
+// .tcl file and in an .rvt page alike: the ternary's false arm reads the value from
+// before the bracket, and an if body after an && chain only the chain's bracket.
+// tclsh 8.6 and 9.0 (research/experiments/08_and_chain_reaching.tcl).
+func TestGotoDefFollowsExpressionStructure(t *testing.T) {
+	wrap := map[string]func(string) string{
+		"a.tcl": func(body string) string { return "proc f {c} {\n" + body + "}\n" },
+		"p.rvt": func(body string) string { return "<h1>x</h1>\n<?\nproc f {c} {\n" + body + "}\n?>\n" },
+	}
+	cases := []struct{ name, body, use, def string }{
+		{"ternary false arm", "  set x 0\n  return [expr {$c ? [set x 1] : $x}]\n", "$x}", "x 0"},
+		{"if body after an && chain", "  set x 0\n  if {$c && [set x 1]} {\n    puts $x\n  }\n", "$x\n", "x 1"},
+		{"a later && operand", "  set x 0\n  if {$c && [set x 1] && $x} {}\n", "$x}", "x 1"},
+	}
+	for file, w := range wrap {
+		for _, c := range cases {
+			t.Run(file+"/"+c.name, func(t *testing.T) {
+				src := w(c.body)
+				ix := index.New()
+				ix.IndexFile(file, src)
+				use := strings.LastIndex(src, c.use) + 1
+				want := strings.Index(src, c.def)
+				locs := New(ix).Definition(file, src, use)
+				if len(locs) != 1 || locs[0].NameStart != want {
+					t.Fatalf("goto-def on %s = %#v, want one location at offset %d", c.use, locs, want)
+				}
+			})
+		}
 	}
 }
 
