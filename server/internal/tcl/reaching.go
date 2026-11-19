@@ -30,7 +30,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 			entry = entry.with(d.Name, defsOf(d))
 		}
 	}
-	a.seq(Parse(inner), innerBase, entry) //nolint:errcheck — result unused; a.found/a.answer carry the answer
+	a.seq(a.parse(inner), innerBase, entry) //nolint:errcheck — result unused; a.found/a.answer carry the answer
 	if a.overBudget {
 		return nil, false
 	}
@@ -147,6 +147,9 @@ type analyzer struct {
 	visits     int
 	sites      map[int]struct{}
 	overBudget bool
+	// ends remembers the script ends found in src, so nested [scripts] are not
+	// re-scanned at every level (scriptends.go).
+	ends scriptEnds
 }
 
 const (
@@ -274,7 +277,7 @@ func (a *analyzer) runScript(script *Word, base int, in reachSet) (reachSet, boo
 		return in, true
 	}
 	inner, innerBase := bracedInner(*script, base)
-	out, live := a.seq(Parse(inner), innerBase, in)
+	out, live := a.seq(a.parse(inner), innerBase, in)
 	if !live {
 		return reachSet{}, false
 	}
@@ -453,7 +456,7 @@ type conservativeBody struct {
 func (a *analyzer) bindingsIn(script Word, base int) reachSet {
 	gens := reachSet{}
 	inner, innerBase := bracedInner(script, base)
-	a.collectBindings(Parse(inner), innerBase, &gens, bodiesRunHere)
+	a.collectBindings(a.parse(inner), innerBase, &gens, bodiesRunHere)
 	return gens
 }
 
@@ -514,7 +517,7 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 	gens := reachSet{}
 	for _, script := range bodyScripts {
 		inner, innerBase := bracedInner(script, base)
-		a.collectBindings(Parse(inner), innerBase, &gens, bodiesRunHere)
+		a.collectBindings(a.parse(inner), innerBase, &gens, bodiesRunHere)
 	}
 	var bodies []conservativeBody
 	if isCmd(c.Words, "try") {
@@ -553,7 +556,7 @@ func (a *analyzer) collectBindings(cmds []Command, base int, into *reachSet, fol
 			continue
 		}
 		for _, b := range a.sameScopeBodies(c, base) {
-			a.collectBindings(Parse(b.Inner), b.Base, into, follow)
+			a.collectBindings(a.parse(b.Inner), b.Base, into, follow)
 		}
 	}
 }
@@ -569,7 +572,7 @@ func (a *analyzer) visitBodyHoldingUse(c Command, base int, in reachSet) {
 		}
 		loops, returned := a.loopStack, a.ret
 		a.loopStack = nil
-		a.seq(Parse(b.Inner), b.Base, in) //nolint:errcheck — a.found/a.answer carry the answer
+		a.seq(a.parse(b.Inner), b.Base, in) //nolint:errcheck — a.found/a.answer carry the answer
 		a.loopStack, a.ret = loops, returned
 	}
 }
@@ -579,7 +582,7 @@ func (a *analyzer) visitBodyHoldingUse(c Command, base int, in reachSet) {
 func (a *analyzer) recordSkipped(c Command, base int) {
 	everyBody := func(Command) bool { return true }
 	for _, b := range a.sameScopeBodies(c, base) {
-		a.collectBindings(Parse(b.Inner), b.Base, &a.skipped, everyBody)
+		a.collectBindings(a.parse(b.Inner), b.Base, &a.skipped, everyBody)
 	}
 }
 
@@ -719,7 +722,7 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 			continue // an unbraced body, or a body no path reaches
 		}
 		inner, ibase := bracedInner(w[i], base)
-		out, bodyLive := a.seq(Parse(inner), ibase, bodyIn.set)
+		out, bodyLive := a.seq(a.parse(inner), ibase, bodyIn.set)
 		if bodyLive {
 			liveOuts = append(liveOuts, out)
 			anyLive = true
@@ -881,4 +884,9 @@ func isArraySet(w []Word) bool {
 // (incr, append, or lappend).
 func isRMW(c Command) bool {
 	return isCmd(c.Words, "incr") || isCmd(c.Words, "append") || isCmd(c.Words, "lappend")
+}
+
+// parse parses a script of src, finding script ends through a.ends.
+func (a *analyzer) parse(script string) []Command {
+	return parseWith(script, &a.ends)
 }

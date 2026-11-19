@@ -8,7 +8,8 @@ import "strings"
 // index does not. The depth count in skipBracketSpan ignores all of that. The
 // scanner and the command-word substitution walk use scriptClose; only where it
 // fails does the scanner fall back to a trusted depth-count span, and the walk
-// then stays silent about what the script binds.
+// then stays silent about what the script binds. scriptends.go remembers the
+// ends found, so nested scripts are read once.
 
 // scriptClose returns the offset of the `]` that closes the command substitution
 // whose interior starts at i, read as Tcl 8.6 and 9.0 read it. ok is false when
@@ -16,6 +17,23 @@ import "strings"
 // disagree: a `${name}` holding `{` or `\`, which 9.0 nests and 8.6 does not.
 // An index holding `"` is read as 8.6 reads it; 9.0 rejects it.
 func scriptClose(s string, i int) (end int, ok bool) {
+	var m *scriptEnds
+	return m.scriptClose(s, i)
+}
+
+// scriptClose is scriptClose, remembering each end it finds in m (scriptends.go).
+func (m *scriptEnds) scriptClose(s string, i int) (end int, ok bool) {
+	if end, found, hit := m.lookup(s, i); hit {
+		return end, found
+	}
+	end, ok = m.scanScriptClose(s, i)
+	m.store(s, i, end, ok)
+	return end, ok
+}
+
+// scanScriptClose is scriptClose without the lookup: it reads the interior from
+// i, finding the ends of the scripts nested in it through m.
+func (m *scriptEnds) scanScriptClose(s string, i int) (end int, ok bool) {
 	atWord, atCmd := true, true
 	for i < len(s) {
 		c := s[i]
@@ -39,7 +57,7 @@ func scriptClose(s string, i int) (end int, ok bool) {
 		case c == ']':
 			return i, true
 		case c == '[':
-			j, ok := scriptClose(s, i+1)
+			j, ok := m.scriptClose(s, i+1)
 			if !ok {
 				return 0, false
 			}
@@ -57,14 +75,14 @@ func scriptClose(s string, i int) (end int, ok bool) {
 			i = j + 1
 			continue
 		case c == '"' && wasWord:
-			j, ok := quoteClose(s, i+1)
+			j, ok := m.quoteClose(s, i+1)
 			if !ok {
 				return 0, false
 			}
 			i = j + 1
 			continue
 		case c == '$':
-			j, ok := varEnd(s, i)
+			j, ok := m.varEnd(s, i)
 			if !ok {
 				return 0, false
 			}
@@ -125,7 +143,7 @@ func braceClose(s string, i int) (int, bool) {
 
 // quoteClose returns the offset of the `"` that closes a quoted word whose text
 // starts at i. Its [scripts] and `$name(` indexes may hold a `"` of their own.
-func quoteClose(s string, i int) (int, bool) {
+func (m *scriptEnds) quoteClose(s string, i int) (int, bool) {
 	for i < len(s) {
 		switch s[i] {
 		case '\\':
@@ -133,13 +151,13 @@ func quoteClose(s string, i int) (int, bool) {
 		case '"':
 			return i, true
 		case '[':
-			j, ok := scriptClose(s, i+1)
+			j, ok := m.scriptClose(s, i+1)
 			if !ok {
 				return 0, false
 			}
 			i = j + 1
 		case '$':
-			j, ok := varEnd(s, i)
+			j, ok := m.varEnd(s, i)
 			if !ok {
 				return 0, false
 			}
@@ -154,7 +172,7 @@ func quoteClose(s string, i int) (int, bool) {
 // varEnd returns the offset just past the variable substitution at the `$` at i,
 // or i+1 when the `$` is literal. A `$name(` index runs to its `)`: only `\`, `$`
 // and `[` mean anything in it, so it hides a `]` or `"`.
-func varEnd(s string, i int) (int, bool) {
+func (m *scriptEnds) varEnd(s string, i int) (int, bool) {
 	j := i + 1
 	if j < len(s) && s[j] == '{' {
 		for k := j + 1; k < len(s); k++ {
@@ -178,13 +196,13 @@ func varEnd(s string, i int) (int, bool) {
 		case ')':
 			return j + 1, true
 		case '[':
-			k, ok := scriptClose(s, j+1)
+			k, ok := m.scriptClose(s, j+1)
 			if !ok {
 				return 0, false
 			}
 			j = k + 1
 		case '$':
-			k, ok := varEnd(s, j)
+			k, ok := m.varEnd(s, j)
 			if !ok {
 				return 0, false
 			}

@@ -47,7 +47,7 @@ type Definition struct {
 // namespace eval and proc bodies.
 func FileDefs(src string) []Definition {
 	var out []Definition
-	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", false, false, collectors{defs: &out})
+	walkFile(src, collectors{defs: &out})
 	return promoteLinkedAssignments(out)
 }
 

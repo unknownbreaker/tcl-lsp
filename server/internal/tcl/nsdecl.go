@@ -16,7 +16,7 @@ type NamespaceInfo struct {
 // appear in the map.
 func FileNamespaces(src string) map[string]*NamespaceInfo {
 	m := map[string]*NamespaceInfo{}
-	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", false, false, collectors{ns: m})
+	walkFile(src, collectors{ns: m})
 	return m
 }
 

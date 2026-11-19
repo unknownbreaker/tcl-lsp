@@ -21,7 +21,8 @@ func ClassOf(src string, receiverUseOff int) []string {
 	if !found {
 		return nil
 	}
-	cmds := Parse(inner)
+	var ends scriptEnds // script ends found once (scriptends.go)
+	cmds := parseWith(inner, &ends)
 
 	// Build a map from (NameStart, NameEnd) -> true for quick lookup.
 	// We want to find the command that performed each reaching binding.
@@ -57,12 +58,12 @@ func ClassOf(src string, receiverUseOff int) []string {
 			// Recurse into child script bodies (if/foreach/while/etc.) and into the
 			// [scripts] in the command's words, where the analyzer finds bindings too.
 			for _, b := range childBodies(c, base, "::", FrameProc, base, "") {
-				walkCmds(Parse(b.Inner), b.Base)
+				walkCmds(parseWith(b.Inner, &ends), b.Base)
 			}
 			exprWords := exprWordStarts(c)
 			for idx := range c.Words {
-				walkWordSubst(c, exprWords, idx, base, flowAlways, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
-					walkCmds(Parse(inner), innerBase)
+				walkWordSubst(c, exprWords, idx, base, flowAlways, &ends, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
+					walkCmds(parseWith(inner, &ends), innerBase)
 				})
 			}
 		}

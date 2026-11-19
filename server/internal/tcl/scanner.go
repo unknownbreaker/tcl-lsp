@@ -21,7 +21,12 @@ type Token struct {
 
 // Scan tokenizes src into a slice of tokens always terminated by KindEOF.
 func Scan(src string) []Token {
-	s := &scanner{src: src, atCommandStart: true}
+	return scanWith(src, nil)
+}
+
+// scanWith is Scan, finding script ends through ends (scriptends.go).
+func scanWith(src string, ends *scriptEnds) []Token {
+	s := &scanner{src: src, atCommandStart: true, ends: ends}
 	return s.scan()
 }
 
@@ -30,6 +35,7 @@ type scanner struct {
 	pos            int
 	atCommandStart bool
 	toks           []Token
+	ends           *scriptEnds
 }
 
 func (s *scanner) emit(k Kind, start, end int) {
@@ -161,7 +167,7 @@ func (s *scanner) scanBare() {
 // span runs to the end of the input, so no text after a misread `]` is read as
 // words or commands.
 func (s *scanner) scanBracket() {
-	if end, ok := scriptClose(s.src, s.pos+1); ok {
+	if end, ok := s.ends.scriptClose(s.src, s.pos+1); ok {
 		s.pos = end + 1
 		return
 	}

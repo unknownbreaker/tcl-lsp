@@ -57,10 +57,10 @@ func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base i
 		return all.set, flow
 	}
 	cur := in
-	flow = walkWordSubst(c, exprWords, idx, base, flow,
+	flow = walkWordSubst(c, exprWords, idx, base, flow, &a.ends,
 		func(r VarRef) { a.recordUseAt(r.Name, r.Start, r.End, cur) },
 		func(inner string, innerBase int, mayNotRun bool) {
-			out, scriptLive := a.seq(Parse(inner), innerBase, cur)
+			out, scriptLive := a.seq(a.parse(inner), innerBase, cur)
 			switch {
 			case mayNotRun && scriptLive:
 				cur = joinSets([]reachSet{cur, out})
@@ -89,8 +89,8 @@ func (a *analyzer) recordUseAt(name string, start, end int, in reachSet) {
 func (a *analyzer) collectSubstBindings(c Command, base int, into *reachSet, follow func(Command) bool) {
 	exprWords := exprWordStarts(c)
 	for idx := range c.Words {
-		flow := walkWordSubst(c, exprWords, idx, base, flowAlways, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
-			a.collectBindings(Parse(inner), innerBase, into, follow)
+		flow := walkWordSubst(c, exprWords, idx, base, flowAlways, &a.ends, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
+			a.collectBindings(a.parse(inner), innerBase, into, follow)
 		})
 		a.distrust(base+c.Words[idx].Start, flow)
 	}
@@ -187,7 +187,7 @@ func (a *analyzer) evalSeq(s exprSeq, in condOut) (all, whenTrue condOut) {
 		case it.isVar:
 			a.recordUseAt(it.ref.Name, it.ref.Start, it.ref.End, cur)
 		case it.isScript:
-			out, live := a.seq(Parse(it.inner), it.innerBase, cur)
+			out, live := a.seq(a.parse(it.inner), it.innerBase, cur)
 			if !live {
 				dead := condOut{set: reachSet{}}
 				return dead, dead

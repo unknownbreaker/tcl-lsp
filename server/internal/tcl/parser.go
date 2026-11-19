@@ -26,7 +26,12 @@ type Command struct {
 // discarded; newline and semicolon separate commands; empty commands (from
 // blank lines or runs of separators) are omitted.
 func Parse(src string) []Command {
-	toks := Scan(src)
+	return parseWith(src, nil)
+}
+
+// parseWith is Parse, finding script ends through ends (scriptends.go).
+func parseWith(src string, ends *scriptEnds) []Command {
+	toks := scanWith(src, ends)
 	var cmds []Command
 	var cur []Word
 	flush := func() {
