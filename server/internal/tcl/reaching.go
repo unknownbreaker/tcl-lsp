@@ -460,7 +460,7 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 		if isCatch {
 			out = out.with(d.Name, []Definition{d}) // catch always writes its variables
 		} else {
-			out = out.with(d.Name, appendDedup(out.get(d.Name), d))
+			out = out.withAdded(d)
 		}
 	}
 	return out, true
@@ -474,7 +474,7 @@ func (a *analyzer) collectBindings(cmds []Command, base int, into *reachSet, fol
 	for _, c := range cmds {
 		a.collectSubstBindings(c, base, into, follow)
 		for _, d := range localBindings(c, base, a.ns, a.frame) {
-			*into = into.with(d.Name, appendDedup(into.get(d.Name), d))
+			*into = into.withAdded(d)
 		}
 		if !follow(c) {
 			continue
@@ -487,8 +487,8 @@ func (a *analyzer) collectBindings(cmds []Command, base int, into *reachSet, fol
 
 // visitBodyHoldingUse walks the same-scope body of a passed-over command that holds
 // the use, if any, entering with what reaches the command. Whether that body runs here
-// is unknown, but the use is only meaningful if it does. The walk gets its own set and
-// no enclosing loop, so the body's bindings do not leave it, even by break or continue.
+// is unknown, but the use is only meaningful if it does. The walk has no enclosing loop,
+// and its result is dropped, so the body's bindings do not leave it, even by break or continue.
 func (a *analyzer) visitBodyHoldingUse(c Command, base int, in reachSet) {
 	for _, b := range a.sameScopeBodies(c, base) {
 		if a.useOff < b.Base || a.useOff >= b.Base+len(b.Inner) {
@@ -587,7 +587,7 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 	for _, d := range binds {
 		if isArraySet(c.Words) || mayWrite {
 			// array set merges into the array; a possible write (resultVarWords) joins
-			out = out.with(d.Name, appendDedup(out.get(d.Name), d))
+			out = out.withAdded(d)
 		} else {
 			out = out.with(d.Name, []Definition{d}) // straight-line: reassign kills+gens
 		}

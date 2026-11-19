@@ -67,6 +67,11 @@ func (s reachSet) with(name string, defs []Definition) reachSet {
 	return reachSet{upsert(s.root, e, 0, func(_ []Definition, _ bool) []Definition { return defs })}
 }
 
+// withAdded returns s with d joined to the bindings of its name.
+func (s reachSet) withAdded(d Definition) reachSet {
+	return s.with(d.Name, appendDedup(s.get(d.Name), d))
+}
+
 // each calls f for every name in s, in no particular order.
 func (s reachSet) each(f func(name string, defs []Definition)) {
 	var walk func(n *reachNode)
@@ -141,7 +146,7 @@ func joinSets(sets []reachSet) reachSet {
 }
 
 // joinNodes unions a and b at depth d, a's bindings first. It returns a when b
-// adds nothing to it, and b when a is a prefix of it.
+// adds nothing to it, and b when the union equals b.
 func joinNodes(a, b *reachNode, d int) *reachNode {
 	switch {
 	case a == b || b == nil:
@@ -191,7 +196,8 @@ func joinNodes(a, b *reachNode, d int) *reachNode {
 	return &out
 }
 
-type defKey struct{ s, e int }
+// defKey identifies a binding site by its name's range.
+type defKey struct{ start, end int }
 
 // unionDefs returns x followed by the bindings of y not in x. It returns x itself
 // when y adds nothing, and y itself when x is a prefix of y.
