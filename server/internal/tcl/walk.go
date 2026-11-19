@@ -30,6 +30,9 @@ type collectors struct {
 	ns      map[string]*NamespaceInfo // namespace declarations (non-nil to collect)
 	classes map[string][]string       // class inherit edges (non-nil to collect)
 	maybe   *[]string                 // commands a fallback body may define
+	// ends serves the whole walk, so script ends found while parsing a body are
+	// not found again for its references (scriptends.go). nil remembers nothing.
+	ends *scriptEnds
 }
 
 // walkAll visits every command in cmds once, runs each enabled collector, and
@@ -41,6 +44,7 @@ type collectors struct {
 // body of an unqualified proc a wrapper defines in a class-namespace frame. classNS says the
 // commands are looked up from class's namespace (see bodyScope.InClassNS).
 func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, wrapped, inClassNS bool, c collectors) {
+	var refs []Reference
 	for _, cmd := range cmds {
 		w := cmd.Words
 		bodies := childBodies(cmd, base, ns, frame, scope, class)
@@ -66,9 +70,9 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 		}
 
 		if c.refs != nil {
-			for _, r := range CommandRefs(cmd) {
-				r.Start += base
-				r.End += base
+			refs = refs[:0]
+			commandRefs(cmd, base, c.ends, &refs)
+			for _, r := range refs {
 				*c.refs = append(*c.refs, ContextRef{Ref: r, Namespace: ns, Frame: frame, Scope: scope, Class: class, Wrapped: wrapped, InClassNS: inClassNS})
 			}
 		}
@@ -112,7 +116,7 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 			if b.InClassNS != classNSInherit {
 				bodyInClassNS = b.InClassNS == classNSOn
 			}
-			walkAll(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, b.Class, b.Wrapped || inherit, bodyInClassNS, c)
+			walkAll(parseWith(b.Inner, c.ends), b.Base, b.NS, b.Frame, b.Scope, b.Class, b.Wrapped || inherit, bodyInClassNS, c)
 		}
 	}
 }
@@ -125,7 +129,9 @@ func FileAll(src string) FileIndex {
 		Namespaces: map[string]*NamespaceInfo{},
 		Classes:    map[string][]string{},
 	}
-	walkAll(Parse(src), 0, "::", FrameNamespace, 0, "", false, false, collectors{
+	ends := &scriptEnds{}
+	walkAll(parseWith(src, ends), 0, "::", FrameNamespace, 0, "", false, false, collectors{
+		ends:    ends,
 		defs:    &fi.Defs,
 		refs:    &fi.Refs,
 		ns:      fi.Namespaces,
