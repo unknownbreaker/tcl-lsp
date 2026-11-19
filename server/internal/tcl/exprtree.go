@@ -308,9 +308,10 @@ func bracesHideBrackets(script string) bool {
 		case bare && isListSpace(c):
 			wordStart, cmdStart = true, atCmd
 		case bare && c == '$' && i+1 < len(script) && script[i+1] == '{':
-			// `${name}` runs to the first `}` and takes no index.
+			// `${name}` runs to the first `}` and takes no index; a bracket in the
+			// name is literal, so it hides one from the span.
 			end := strings.IndexByte(script[i+2:], '}')
-			if end < 0 {
+			if end < 0 || strings.ContainsAny(script[i+2:i+2+end], "[]") {
 				return true
 			}
 			i += 2 + end

@@ -100,3 +100,16 @@ proc midWordBrace {} {
 }
 indexQuote
 midWordBrace
+# A braced variable name runs to the first `}`, and a bracket in it is literal.
+proc bracedName {} {
+  set x 0; set {a]} 1
+  if {[list ${a]}; set x 1] ne {}} {}
+  puts "bracedName: x=$x"
+}
+# `${a}(` takes no index, and `a{b}` is literal: both scripts balance.
+proc bracedNameNoIndex {} {
+  set x 0; set a 1
+  if {[list ${a}( a{b}] ne {} && $x == 0} {puts "bracedNameNoIndex: x=$x"}
+}
+bracedName
+bracedNameNoIndex
