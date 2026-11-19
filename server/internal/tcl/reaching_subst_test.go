@@ -92,6 +92,8 @@ func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 		{"a backslash-newline starts a word", "proc f {} {\n  set x 0\n  if {[list a\\\n\"]\"; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"an array index", "proc f {} {\n  set x 0; array set a {] 5}\n  if {[list $a(]); set x 1] ne {} && $x} {}\n}", "$x}"},
 		{"the next command after an array index", "proc f {} {\n  set x 0; array set a {] 5}\n  if {[list $a(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"an empty-named array index", "proc f {} {\n  set x 0; set (]) 5\n  if {[list $(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a qualified array index", "proc f {} {\n  set x 0; array set ::a {] 5}\n  if {[list $::a(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"an unclosed array index", "proc f {} {\n  set x 0\n  if {[list $a(] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"a comment in the script", "proc f {} {\n  set x 0\n  if {[list a;# x]\n       set x 1] ne {} && $x} {}\n}", "$x}"},
 	} {

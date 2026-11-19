@@ -347,14 +347,14 @@ func bracesHideBrackets(script string) bool {
 }
 
 // arrayIndexAt returns the offset of the `(` that opens an array index when a
-// variable name (letters, digits, `_`, `::`) starts at i and is followed by one,
-// and 0 otherwise.
+// variable name (letters, digits, `_`, `::`; possibly empty, as `$(k)` reads the
+// array named "") starts at i and is followed by one, and 0 otherwise.
 func arrayIndexAt(s string, i int) int {
 	j := i
 	for j < len(s) && (isNameByte(s[j]) || s[j] == ':') {
 		j++
 	}
-	if j > i && j < len(s) && s[j] == '(' {
+	if j < len(s) && s[j] == '(' {
 		return j
 	}
 	return 0

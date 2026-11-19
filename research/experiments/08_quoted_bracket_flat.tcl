@@ -67,3 +67,16 @@ proc arrayIndexNested {} {
 }
 arrayIndex
 arrayIndexNested
+# `$(` indexes the empty-named array, and a qualified name takes an index too.
+proc emptyName {} {
+  set x 0; set (]) 5
+  if {[list $(]); set x 1] ne {}} {}
+  puts "emptyName: x=$x"
+}
+proc qualifiedName {} {
+  set x 0; array set ::a {] 5}
+  if {[list $::a(]); set x 1] ne {}} {}
+  puts "qualifiedName: x=$x"
+}
+emptyName
+qualifiedName
