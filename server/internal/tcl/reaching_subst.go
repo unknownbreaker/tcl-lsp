@@ -52,7 +52,7 @@ func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base i
 			return in, flow // the path that runs the expression ends; one that skips it goes on
 		}
 		if flow >= flowConditional {
-			return joinAll([]reachSet{in, all.set}), flow
+			return joinSets([]reachSet{in, all.set}), flow
 		}
 		return all.set, flow
 	}
@@ -63,7 +63,7 @@ func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base i
 			out, scriptLive := a.seq(Parse(inner), innerBase, cur)
 			switch {
 			case mayNotRun && scriptLive:
-				cur = joinAll([]reachSet{cur, out})
+				cur = joinSets([]reachSet{cur, out})
 			case mayNotRun:
 				// The path that runs the script ends; the one that skips it goes on.
 			case !scriptLive:
@@ -80,13 +80,13 @@ func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base i
 // reference [start, end).
 func (a *analyzer) recordUseAt(name string, start, end int, in reachSet) {
 	if a.useOff >= start && a.useOff < end {
-		a.recordAnswer(name, in[name])
+		a.recordAnswer(name, in.get(name))
 	}
 }
 
 // collectSubstBindings unions the bindings made in every [script] substituted in
 // c's words, including expression words, which may be evaluated.
-func (a *analyzer) collectSubstBindings(c Command, base int, into reachSet, follow func(Command) bool) {
+func (a *analyzer) collectSubstBindings(c Command, base int, into *reachSet, follow func(Command) bool) {
 	exprWords := exprWordStarts(c)
 	for idx := range c.Words {
 		flow := walkWordSubst(c, exprWords, idx, base, flowAlways, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
@@ -113,7 +113,7 @@ func joinOuts(outs ...condOut) condOut {
 	if len(sets) == 0 {
 		return condOut{set: reachSet{}}
 	}
-	return condOut{set: joinAll(sets), live: true}
+	return condOut{set: joinSets(sets), live: true}
 }
 
 // evalExprWord threads in through word idx of c when it is a braced expression

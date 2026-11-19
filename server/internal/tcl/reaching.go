@@ -26,7 +26,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 		var paramDefs []Definition
 		emitProcParams(argsWord, argsBase, "::", innerBase, "", &paramDefs)
 		for _, d := range paramDefs {
-			entry[d.Name] = []Definition{d}
+			entry = entry.with(d.Name, []Definition{d})
 		}
 	}
 	a.seq(Parse(inner), innerBase, entry) //nolint:errcheck — result unused; a.found/a.answer carry the answer
@@ -46,7 +46,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 // the use.
 func (a *analyzer) skippedAboveUse() []Definition {
 	var above []Definition
-	for _, d := range a.skipped[a.useName] {
+	for _, d := range a.skipped.get(a.useName) {
 		if d.NameStart < a.useOff {
 			above = append(above, d)
 		}
@@ -100,20 +100,6 @@ func procArgsWord(c Command, base int, frame FrameKind) (Word, int) {
 		return args, base
 	}
 	return Word{}, base
-}
-
-// reachSet maps a local variable name to the bindings that may currently reach
-// this program point.
-type reachSet map[string][]Definition
-
-func (s reachSet) clone() reachSet {
-	out := make(reachSet, len(s))
-	for k, v := range s {
-		cp := make([]Definition, len(v))
-		copy(cp, v)
-		out[k] = cp
-	}
-	return out
 }
 
 // frameAcc collects a loop's break and continue exits. contLive records that a
@@ -267,7 +253,7 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	start, body, next := loopScripts(c.Words)
 	test := loopTest(c)
 	loopVars := localBindings(c, base, a.ns, a.frame)
-	cur, live := a.runScript(start, base, in.clone())
+	cur, live := a.runScript(start, base, in)
 	if !live {
 		return cur, false
 	}
@@ -293,9 +279,8 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	}
 	for iter := 0; iter < maxLoopIters; iter++ {
 		_, passEntry := afterTest(cur)
-		passEntry = passEntry.clone()
 		for _, d := range loopVars {
-			passEntry[d.Name] = []Definition{d}
+			passEntry = passEntry.with(d.Name, []Definition{d})
 		}
 		normalEnd, bodyLive := a.runScript(body, base, passEntry)
 		// next runs only after a pass that completes or continues.
@@ -308,9 +293,9 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 		}
 		backEdge := reachSet{}
 		if len(nextIn) > 0 {
-			backEdge, _ = a.runScript(next, base, joinAll(nextIn))
+			backEdge, _ = a.runScript(next, base, joinSets(nextIn))
 		}
-		merged := joinAll([]reachSet{cur, backEdge})
+		merged := joinSets([]reachSet{cur, backEdge})
 		if reachEqual(merged, cur) {
 			break
 		}
@@ -320,31 +305,7 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	// every back-edge contribution, so after the test it covers every path that
 	// may reach post-loop. acc.brk adds paths that exited via `break`.
 	exit, _ := afterTest(cur)
-	return joinAll([]reachSet{exit, acc.brk}), true
-}
-
-// reachEqual reports whether two reachSets contain the same bindings (by
-// variable name and NameStart/NameEnd identity).
-func reachEqual(a, b reachSet) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for name, da := range a {
-		db, ok := b[name]
-		if !ok || len(da) != len(db) {
-			return false
-		}
-		seen := map[[2]int]bool{}
-		for _, d := range da {
-			seen[[2]int{d.NameStart, d.NameEnd}] = true
-		}
-		for _, d := range db {
-			if !seen[[2]int{d.NameStart, d.NameEnd}] {
-				return false
-			}
-		}
-	}
-	return true
+	return joinSets([]reachSet{exit, acc.brk}), true
 }
 
 // conservativeHead reports whether command c requires conservative may-reach
@@ -419,7 +380,7 @@ type conservativeBody struct {
 func (a *analyzer) bindingsIn(script Word, base int) reachSet {
 	gens := reachSet{}
 	inner, innerBase := bracedInner(script, base)
-	a.collectBindings(Parse(inner), innerBase, gens, bodiesRunHere)
+	a.collectBindings(Parse(inner), innerBase, &gens, bodiesRunHere)
 	return gens
 }
 
@@ -436,32 +397,31 @@ func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBod
 	handlerEntry := in
 	if main != nil {
 		bodies = append(bodies, conservativeBody{*main, in})
-		handlerEntry = joinAll([]reachSet{in, a.bindingsIn(*main, base)})
+		handlerEntry = joinSets([]reachSet{in, a.bindingsIn(*main, base)})
 	}
 	finallyEntry := handlerEntry
 	var paths []reachSet // entry paths of the clauses that fall through to the next body
 	for _, handler := range handlers {
 		own := handlerEntry
 		if vars := tryVarNames(handler, base); len(vars) > 0 {
-			own = handlerEntry.clone()
 			for _, p := range vars {
-				own[p.Name] = []Definition{localDef(p, "", 0, "")}
+				own = own.with(p.Name, []Definition{localDef(p, "", 0, "")})
 			}
 		}
 		paths = append(paths, own)
 		if handler.fallsThrough {
 			continue
 		}
-		entry := joinAll(paths)
+		entry := joinSets(paths)
 		paths = nil
-		finallyEntry = joinAll([]reachSet{finallyEntry, entry})
+		finallyEntry = joinSets([]reachSet{finallyEntry, entry})
 		if handler.body != nil {
 			bodies = append(bodies, conservativeBody{*handler.body, entry})
-			finallyEntry = joinAll([]reachSet{finallyEntry, a.bindingsIn(*handler.body, base)})
+			finallyEntry = joinSets([]reachSet{finallyEntry, a.bindingsIn(*handler.body, base)})
 		}
 	}
 	if len(paths) > 0 { // a trailing `-` clause has no body to fall to; Tcl rejects it
-		finallyEntry = joinAll(append(paths, finallyEntry))
+		finallyEntry = joinSets(append(paths, finallyEntry))
 	}
 	if finally != nil {
 		bodies = append(bodies, conservativeBody{*finally, finallyEntry})
@@ -481,7 +441,7 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 	gens := reachSet{}
 	for _, script := range bodyScripts {
 		inner, innerBase := bracedInner(script, base)
-		a.collectBindings(Parse(inner), innerBase, gens, bodiesRunHere)
+		a.collectBindings(Parse(inner), innerBase, &gens, bodiesRunHere)
 	}
 	var bodies []conservativeBody
 	if isCmd(c.Words, "try") {
@@ -492,15 +452,15 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 		}
 	}
 	for _, body := range bodies {
-		a.runScript(&body.script, base, body.entry.clone())
+		a.runScript(&body.script, base, body.entry)
 	}
-	out := joinAll([]reachSet{in, gens})
+	out := joinSets([]reachSet{in, gens})
 	isCatch := isCmd(c.Words, "catch")
 	for _, d := range localBindings(c, base, a.ns, a.frame) {
 		if isCatch {
-			out[d.Name] = []Definition{d} // catch always writes its variables
+			out = out.with(d.Name, []Definition{d}) // catch always writes its variables
 		} else {
-			out[d.Name] = appendDedup(out[d.Name], d)
+			out = out.withAdded(d)
 		}
 	}
 	return out, true
@@ -510,11 +470,11 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 // same-scope bodies of each command that follow accepts. Bindings inherit the
 // analyzer's scope context (a.ns/a.frame): the whole analyzed body is treated as one
 // frame.
-func (a *analyzer) collectBindings(cmds []Command, base int, into reachSet, follow func(Command) bool) {
+func (a *analyzer) collectBindings(cmds []Command, base int, into *reachSet, follow func(Command) bool) {
 	for _, c := range cmds {
 		a.collectSubstBindings(c, base, into, follow)
 		for _, d := range localBindings(c, base, a.ns, a.frame) {
-			into[d.Name] = appendDedup(into[d.Name], d)
+			*into = into.withAdded(d)
 		}
 		if !follow(c) {
 			continue
@@ -527,8 +487,8 @@ func (a *analyzer) collectBindings(cmds []Command, base int, into reachSet, foll
 
 // visitBodyHoldingUse walks the same-scope body of a passed-over command that holds
 // the use, if any, entering with what reaches the command. Whether that body runs here
-// is unknown, but the use is only meaningful if it does. The walk gets its own set and
-// no enclosing loop, so the body's bindings do not leave it, even by break or continue.
+// is unknown, but the use is only meaningful if it does. The walk has no enclosing loop,
+// and its result is dropped, so the body's bindings do not leave it, even by break or continue.
 func (a *analyzer) visitBodyHoldingUse(c Command, base int, in reachSet) {
 	for _, b := range a.sameScopeBodies(c, base) {
 		if a.useOff < b.Base || a.useOff >= b.Base+len(b.Inner) {
@@ -536,7 +496,7 @@ func (a *analyzer) visitBodyHoldingUse(c Command, base int, in reachSet) {
 		}
 		loops, returned := a.loopStack, a.ret
 		a.loopStack = nil
-		a.seq(Parse(b.Inner), b.Base, in.clone()) //nolint:errcheck — a.found/a.answer carry the answer
+		a.seq(Parse(b.Inner), b.Base, in) //nolint:errcheck — a.found/a.answer carry the answer
 		a.loopStack, a.ret = loops, returned
 	}
 }
@@ -546,7 +506,7 @@ func (a *analyzer) visitBodyHoldingUse(c Command, base int, in reachSet) {
 func (a *analyzer) recordSkipped(c Command, base int) {
 	everyBody := func(Command) bool { return true }
 	for _, b := range a.sameScopeBodies(c, base) {
-		a.collectBindings(Parse(b.Inner), b.Base, a.skipped, everyBody)
+		a.collectBindings(Parse(b.Inner), b.Base, &a.skipped, everyBody)
 	}
 }
 
@@ -558,7 +518,7 @@ func appendDedup(list []Definition, d Definition) []Definition {
 			return list
 		}
 	}
-	return append(list, d)
+	return append(list[:len(list):len(list)], d) // never write a shared slice's spare capacity
 }
 
 // command applies one command: thread the set through its substitutions, recording
@@ -585,26 +545,25 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		// keys, so they bind nothing.
 		out := in
 		if binds := localBindings(c, base, a.ns, a.frame); len(binds) > 0 {
-			out = in.clone()
 			for _, d := range binds {
-				out[d.Name] = []Definition{d}
+				out = out.with(d.Name, []Definition{d})
 			}
 		}
 		body := c.Words[len(c.Words)-1]
 		return a.runScript(&body, base, out)
 	case isCmd(c.Words, "return"):
-		a.ret = joinAll([]reachSet{nonNil(a.ret), in})
+		a.ret = joinSets([]reachSet{a.ret, in})
 		return in, false
 	case isCmd(c.Words, "break"):
 		if n := len(a.loopStack); n > 0 {
 			top := a.loopStack[n-1]
-			top.brk = joinAll([]reachSet{nonNil(top.brk), in})
+			top.brk = joinSets([]reachSet{top.brk, in})
 		}
 		return in, false
 	case isCmd(c.Words, "continue"):
 		if n := len(a.loopStack); n > 0 {
 			top := a.loopStack[n-1]
-			top.cont = joinAll([]reachSet{nonNil(top.cont), in})
+			top.cont = joinSets([]reachSet{top.cont, in})
 			top.contLive = true
 		}
 		return in, false
@@ -615,22 +574,22 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 	if isRMW(c) {
 		for _, d := range binds {
 			if a.useOff >= d.NameStart && a.useOff < d.NameEnd {
-				a.recordAnswer(d.Name, in[d.Name])
+				a.recordAnswer(d.Name, in.get(d.Name))
 			}
 		}
 	}
 	if len(binds) == 0 {
 		return in, true
 	}
-	out := in.clone()
+	out := in
 	resultWords, certain := resultVarWords(c.Words)
 	mayWrite := len(resultWords) > 0 && !certain
 	for _, d := range binds {
 		if isArraySet(c.Words) || mayWrite {
 			// array set merges into the array; a possible write (resultVarWords) joins
-			out[d.Name] = appendDedup(out[d.Name], d)
+			out = out.withAdded(d)
 		} else {
-			out[d.Name] = []Definition{d} // straight-line: reassign kills+gens
+			out = out.with(d.Name, []Definition{d}) // straight-line: reassign kills+gens
 		}
 	}
 	return out, true
@@ -665,7 +624,7 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 			afterCond = true
 			if all, whenTrue, ok := a.evalExprWord(c, exprWords, i, base, cur); ok {
 				if !all.live {
-					return joinAll(liveOuts), anyLive
+					return joinSets(liveOuts), anyLive
 				}
 				cur, bodyIn = all.set, whenTrue
 				continue
@@ -673,7 +632,7 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 			cur, _ = a.substituteWord(c, exprWords, i, base, cur, flowAlways, &live)
 			if !live {
 				// No later condition or body runs, and neither does the fall-through.
-				return joinAll(liveOuts), anyLive
+				return joinSets(liveOuts), anyLive
 			}
 			bodyIn = condOut{set: cur, live: true}
 			continue
@@ -695,7 +654,7 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 			continue // an unbraced body, or a body no path reaches
 		}
 		inner, ibase := bracedInner(w[i], base)
-		out, bodyLive := a.seq(Parse(inner), ibase, bodyIn.set.clone())
+		out, bodyLive := a.seq(Parse(inner), ibase, bodyIn.set)
 		if bodyLive {
 			liveOuts = append(liveOuts, out)
 			anyLive = true
@@ -705,7 +664,7 @@ func (a *analyzer) analyzeIf(c Command, base int, in reachSet) (reachSet, bool) 
 		liveOuts = append(liveOuts, cur) // no branch taken: fall-through path
 		anyLive = true
 	}
-	return joinAll(liveOuts), anyLive
+	return joinSets(liveOuts), anyLive
 }
 
 // hasElse reports whether the if command words include an else keyword.
@@ -716,39 +675,6 @@ func hasElse(w []Word) bool {
 		}
 	}
 	return false
-}
-
-// joinAll unions reaching sets per variable, deduplicating bindings by
-// name-range (NameStart/NameEnd pair).
-func joinAll(sets []reachSet) reachSet {
-	out := reachSet{}
-	type key struct{ s, e int }
-	seen := map[string]map[key]bool{}
-	for _, s := range sets {
-		for name, defs := range s {
-			if seen[name] == nil {
-				seen[name] = map[key]bool{}
-			}
-			for _, d := range defs {
-				k := key{d.NameStart, d.NameEnd}
-				if seen[name][k] {
-					continue
-				}
-				seen[name][k] = true
-				out[name] = append(out[name], d)
-			}
-		}
-	}
-	return out
-}
-
-// nonNil returns s unchanged if non-nil, or an empty reachSet if s is nil.
-// Used to safely merge an accumulator that has not been written yet.
-func nonNil(s reachSet) reachSet {
-	if s == nil {
-		return reachSet{}
-	}
-	return s
 }
 
 // recordAnswer unions defs into the answer for the use of name at useOff. A use is
