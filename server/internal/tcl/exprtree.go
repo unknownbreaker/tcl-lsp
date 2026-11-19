@@ -272,22 +272,43 @@ func (s exprSeq) visit(onVar func(VarRef), onScript scriptFunc, conditional bool
 // bracesHideBrackets reports whether a script's span may have ended at the wrong
 // `]`: skipBracketSpan knows neither braces nor quotes, so a span whose braces or
 // quotes do not balance, or whose braced or quoted text holds unbalanced brackets
-// (`[string map {] x} $s]`, `[string length "]"; set x 1]`), is not trusted. A
-// nested quote inside a quoted bracket also counts as unbalanced, which only
-// costs silence.
+// (`[string map {] x} $s]`, `[string length "]"; set x 1]`), is not trusted. As in
+// Tcl, only a `"` that starts a word opens a quote (`a"b` is literal), and a
+// backslash-newline or a nested `[` starts a word. A `#` where a command starts
+// begins a comment, which may hide a `]`, so it is not trusted either. A nested
+// quote inside a quoted bracket also counts as unbalanced, which only costs silence.
 func bracesHideBrackets(script string) bool {
 	braces, brackets := 0, 0 // brackets counts only those inside braces or quotes
 	quoted := false
+	wordStart, cmdStart := true, true
 	for i := 0; i < len(script); i++ {
 		c := script[i]
+		atWord, atCmd := wordStart, cmdStart
+		wordStart, cmdStart = false, false
+		bare := braces == 0 && !quoted
 		switch {
 		case c == '\\':
-			i++
-		case c == '"' && braces == 0:
-			if quoted && brackets != 0 {
-				return true
+			if i+1 < len(script) && script[i+1] == '\n' && bare {
+				wordStart, cmdStart = true, atCmd
 			}
-			quoted = !quoted
+			i++
+		case bare && (c == ';' || c == '\n'):
+			wordStart, cmdStart = true, true
+		case bare && isListSpace(c):
+			wordStart, cmdStart = true, atCmd
+		case bare && c == '[':
+			wordStart, cmdStart = true, true
+		case bare && c == '#' && atCmd:
+			return true
+		case c == '"' && braces == 0:
+			if quoted {
+				if brackets != 0 {
+					return true
+				}
+				quoted = false
+			} else if atWord {
+				quoted = true
+			}
 		case c == '{' && !quoted:
 			braces++
 		case c == '}' && !quoted:

@@ -99,6 +99,24 @@ func TestGotoDefImplicitElseSeesFalsePaths(t *testing.T) {
 	}
 }
 
+// A `]` inside quotes in a bracket script does not end it, so Tcl runs `set x 1`
+// before the use. The flat scan cannot tell where the script ends, so goto-def
+// stays silent rather than answer `set x 0` alone. Checked against tclsh 8.6 and 9.0.
+func TestGotoDefSilentAfterHiddenBracket(t *testing.T) {
+	for _, tc := range []struct{ file, src string }{
+		{"/w/a.tcl", "proc f {} {\n  set x 0\n  if {[string length \"]\"; set x 1]} {}\n  puts $x\n}\n"},
+		{"/w/a.rvt", "<html>\n<?\nproc f {} {\n  set x 0\n  if {[string length \"]\"; set x 1]} {}\n  puts $x\n}\n?>\n</html>\n"},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			ix := index.New()
+			ix.IndexFile(tc.file, tc.src)
+			if locs := New(ix).Definition(tc.file, tc.src, strings.Index(tc.src, "puts $x")+6); len(locs) > 0 {
+				t.Fatalf("goto-def on $x = %+v, want silent", locs)
+			}
+		})
+	}
+}
+
 func containsInt(xs []int, x int) bool {
 	for _, v := range xs {
 		if v == x {

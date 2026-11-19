@@ -5,7 +5,8 @@ package tcl
 // NameStart/NameEnd on the binding's name token and Origin for links). ok is false
 // when the analyzer has no answer: the scope is oversized or useOff is not on a use
 // it visited. ok with no defs means the analyzer visited the use and nothing reaches
-// it. When nothing else reaches a visited use, a binding above it in an unknown
+// it, or that a bracket script it cannot read (flowDistrusted) may bind it, so callers
+// stay silent rather than guess. When nothing else reaches a visited use, a binding above it in an unknown
 // command's body answers, because that body may or may not run here. Intraprocedural
 // and may-reach. Also supports namespace-level variables (used by RVT templates).
 func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
@@ -17,7 +18,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	if len(inner) > maxReachingBytes {
 		return nil, false // oversized: caller falls back to first-binding
 	}
-	a := &analyzer{useOff: useOff, ns: ns, frame: frame, skipped: reachSet{}}
+	a := &analyzer{useOff: useOff, ns: ns, frame: frame, skipped: reachSet{}, distrustFrom: -1}
 	entry := reachSet{}
 	// Seed entry set with proc params (namespace-level code has no params).
 	if frame == FrameProc {
@@ -28,6 +29,9 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 		}
 	}
 	a.seq(Parse(inner), innerBase, entry) //nolint:errcheck — result unused; a.found/a.answer carry the answer
+	if a.distrustFrom >= 0 && (!a.found || useOff >= a.distrustFrom) {
+		return nil, true
+	}
 	if !a.found {
 		return nil, false
 	}
@@ -135,6 +139,26 @@ type analyzer struct {
 	// mirroring emitDefs. See the localBindings doc comment.
 	ns    string
 	frame FrameKind
+	// distrustFrom is the start of the first word holding a bracket script whose end
+	// the flat scan cannot find (flowDistrusted), or -1. Its bindings are unknown, so
+	// no use at or after it is answered. In a loop it is the outermost loop's start
+	// (loopStarts[0]), since a back edge may carry them to an earlier use in the loop.
+	distrustFrom int
+	loopStarts   []int
+}
+
+// distrust records a word at offset start holding a bracket script that flow
+// reports unreadable.
+func (a *analyzer) distrust(start int, flow exprFlow) {
+	if flow != flowDistrusted {
+		return
+	}
+	if len(a.loopStarts) > 0 {
+		start = a.loopStarts[0]
+	}
+	if a.distrustFrom < 0 || start < a.distrustFrom {
+		a.distrustFrom = start
+	}
 }
 
 // seq threads the reaching set left-to-right through a command sequence.
@@ -233,7 +257,11 @@ func (a *analyzer) runScript(script *Word, base int, in reachSet) (reachSet, boo
 func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool) {
 	acc := &frameAcc{brk: reachSet{}, cont: reachSet{}}
 	a.loopStack = append(a.loopStack, acc)
-	defer func() { a.loopStack = a.loopStack[:len(a.loopStack)-1] }()
+	a.loopStarts = append(a.loopStarts, base+c.Words[0].Start)
+	defer func() {
+		a.loopStack = a.loopStack[:len(a.loopStack)-1]
+		a.loopStarts = a.loopStarts[:len(a.loopStarts)-1]
+	}()
 
 	start, body, next := loopScripts(c.Words)
 	test := loopTest(c)
