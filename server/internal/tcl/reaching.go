@@ -141,7 +141,7 @@ type analyzer struct {
 	ns    string
 	frame FrameKind
 	// distrustFrom is the start of the first word holding a bracket script whose end
-	// the flat scan cannot find (flowDistrusted), or -1. Its bindings are unknown, so
+	// the substitution walk cannot trust (flowDistrusted), or -1. Its bindings are unknown, so
 	// no use at or after it is answered. In a loop it is the outermost loop's start
 	// (loopStarts[0]), since a back edge may carry them to an earlier use in the loop.
 	distrustFrom int

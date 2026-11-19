@@ -128,6 +128,54 @@ func TestGotoDefSilentAfterHiddenBracket(t *testing.T) {
 	}
 }
 
+// A command substitution in a command word ends where Tcl ends it, not at a `]`
+// in its braces or quotes, so goto-def on a use after it reaches the bindings the
+// script ran, and stays silent where Tcl 8.6 and 9.0 may read its end differently.
+// Checked in research/experiments/08_quoted_bracket_command.tcl.
+func TestGotoDefAfterHiddenBracketInCommandWord(t *testing.T) {
+	bodies := []struct {
+		name, body, mark, want string // want: the text the answer starts at, or "" for silent
+	}{
+		{"quoted word", "  set x 0\n  set r \"[list {]}; set x 1]\"\n  puts $x\n", "$x\n", "x 1]"},
+		{"bare word", "  set x 0\n  puts [string length \"]\"; set x 1]\n  puts $x\n", "$x\n", "x 1]"},
+		{"quoted if", "  set x 0\n  if \"[list {]}; set x 1] ne {} && \\$x\" {puts $x}\n", "$x}", "x 1]"},
+		{"expanded word", "  set x 0\n  set r \"[list {*}{]} ; set x 1]\"\n  puts $x\n", "$x\n", "x 1]"},
+		{"lone open bracket", "  set x 0\n  set i [string first {[} $s]\n  set x 2\n  puts $x\n", "$x\n", "x 2"},
+		{"balanced", "  set x 0\n  set r \"[string length \"[set x 1]\"]\"\n  puts $x\n", "$x\n", "x 1]"},
+		{"versions disagree", "  set x 0\n  set r \"[list ${a\\}] ; set x 1]\"\n  puts $x\n", "$x\n", ""},
+	}
+	for _, b := range bodies {
+		proc := "proc f {s} {\n" + b.body + "}\n"
+		for _, tc := range []struct{ file, src string }{
+			{"/w/a.tcl", proc},
+			{"/w/a.rvt", "<html>\n<?\n" + proc + "?>\n</html>\n"},
+		} {
+			t.Run(b.name+" "+tc.file, func(t *testing.T) {
+				ix := index.New()
+				ix.IndexFile(tc.file, tc.src)
+				off := strings.Index(tc.src, b.mark)
+				if off < 0 {
+					t.Fatalf("mark %q not in source", b.mark)
+				}
+				locs := New(ix).Definition(tc.file, tc.src, off+1)
+				if b.want == "" {
+					if len(locs) > 0 {
+						t.Fatalf("goto-def on $x = %+v, want silent", locs)
+					}
+					return
+				}
+				wantOff := strings.Index(tc.src, b.want)
+				if wantOff < 0 {
+					t.Fatalf("answer mark %q not in source", b.want)
+				}
+				if len(locs) != 1 || locs[0].NameStart != wantOff {
+					t.Fatalf("goto-def on $x = %+v, want one answer at %d (%q)", locs, wantOff, b.want)
+				}
+			})
+		}
+	}
+}
+
 func containsInt(xs []int, x int) bool {
 	for _, v := range xs {
 		if v == x {

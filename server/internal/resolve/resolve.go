@@ -80,8 +80,9 @@ func localBindingAt(file, src, name string, scope, offset int) []index.Location 
 // only when nothing else reaches, and it does not model targets such as `regexp`'s or
 // `gets`'s, so a use bound only by one of those goes silent. A use inside an unknown
 // command's body is answered from what reaches that command, then through the body. A
-// bracket script the flat expression scan cannot read makes the reaching answer empty
-// for the uses it may bind (see ReachingAt), so those stay silent. When
+// bracket script whose end is unknown (a `]` an expression's braces or quotes may hide,
+// or a command word's script that 8.6 and 9.0 may end differently) makes the reaching
+// answer empty for the uses it may bind (see ReachingAt), so those stay silent. When
 // the analyzer has no answer at all (oversized proc, array element access, or a use it
 // did not find), the earliest binding at or before offset answers, so a loop-carried use
 // on those paths stays silent.

@@ -113,8 +113,13 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   braces or an array index (`[string length "]"; set x 1]`, `[list $a(]); set x 1]`), and reaching
   answers no use at or after that word, nor from the outermost enclosing loop's start when the
   script sits in a loop (research/experiments/08_quoted_bracket_flat.tcl). In Tcl 8.6 an index in a
-  quoted word may still hide one (#81). Command words still end a substitution at such a `]`:
-  `set r "[list {]}; set x 1]"; puts $x` answers `set x 0` (#78).
+  quoted word may still hide one (#81). Since v0.6.24 a command word's substitution ends where
+  Tcl ends it (scriptclose.go: word-start braces and quotes, `{*}`, comments, `$name(` indexes),
+  in the scanner, references and reaching, so `set r "[list {]}; set x 1]"; puts $x` answers
+  `set x 1` (research/experiments/08_quoted_bracket_command.tcl). Where no `]` closes it, or
+  8.6 and 9.0 may read its end differently (a `${name}` holding `{` or `\`), the uses after it
+  stay silent, and unless the depth count's span is trusted the rest of the input is one word. Braced expressions keep the silent guard
+  above; they could end their scripts the same way.
 - **Itcl class names under the global fallback.** Since v0.6.21 a relative class name in
   `itcl::body` or `inherit` outside the global namespace names the local class when the workspace
   declares it, else the global one (`::G` for `itcl::body G::run` in `::other` or a template), as

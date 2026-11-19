@@ -13,9 +13,12 @@ import "strings"
 // fallback, for several expr words or text the parse cannot read: there a $var
 // after such a script is not reported, because which bindings reach it depends on
 // which operands ran (`$c ? [set x 1] : $x` reads the value from before the
-// script), so it stays silent. The flat scan stops at a bracket script whose `]`
-// may sit in its quotes or braces (bracesHideBrackets), since the rest of the text
-// cannot be read, and reports flowDistrusted. CommandRefs (refs) and the reaching
+// script), so it stays silent. A command word's [script] ends where Tcl ends it
+// (scriptclose.go), as the scanner first tries. An expression's ends at the depth
+// count, and the flat scan stops at one whose `]` may sit in its quotes or braces
+// (bracesHideBrackets). Either scan stops at a script whose end is unknown, since
+// the rest of the text cannot be read, and reports flowDistrusted, which silences
+// the uses after it. CommandRefs (refs) and the reaching
 // analyzer (reaching_subst.go) both walk words through here, so they agree on what
 // is substituted.
 
@@ -62,17 +65,11 @@ func walkSubst(text string, base int, expr bool, flow exprFlow, onVar func(VarRe
 			}
 			i = next
 		case c == '[':
-			end := skipBracketSpan(text, i) // index just past the matching ']'
-			innerEnd := end
-			// Strip the closing ']' if present; on unterminated input
-			// skipBracketSpan returns len(text) and there is no ']' to remove.
-			if end > i+1 && text[end-1] == ']' {
-				innerEnd = end - 1
-				if expr && bracesHideBrackets(text[i+1:innerEnd]) {
-					return flowDistrusted
-				}
+			end, ok := substEnd(text, i, expr)
+			if !ok {
+				return flowDistrusted
 			}
-			onScript(text[i+1:innerEnd], base+i+1, flow >= flowConditional)
+			onScript(text[i+1:end-1], base+i+1, flow >= flowConditional)
 			if flow == flowConditional {
 				flow = flowAfterCondScript
 			}
@@ -114,17 +111,31 @@ func exprWordStarts(c Command) map[int]bool {
 	return starts
 }
 
+// substEnd returns the offset just past the `]` that closes the [script] at i.
+// A command word's script ends where Tcl ends it (scriptClose). An expression's
+// keeps the depth count, distrusted when its braces or quotes may hide the `]`.
+// ok is false when the end is unknown or distrusted.
+func substEnd(text string, i int, expr bool) (int, bool) {
+	if !expr {
+		end, ok := scriptClose(text, i+1)
+		return end + 1, ok
+	}
+	return trustedDepthSpan(text, i)
+}
+
 // walkWordSubst walks word idx of c as Tcl substitutes it. A literal command name
 // and a braced script or data word have nothing to substitute. exprWords is
-// exprWordStarts(c). flow and the result are as for walkSubst; they carry only
-// through expression text.
+// exprWordStarts(c). flow and the result are as for walkSubst; flow carries only
+// through expression text, but any unbraced word may return flowDistrusted.
 func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFlow, onVar func(VarRef), onScript scriptFunc) exprFlow {
 	w := c.Words[idx]
 	if idx == 0 && isLiteralName(w) {
 		return flow
 	}
 	if w.Kind != WordBraced {
-		walkSubst(w.Text, base+w.Start, false, flowAlways, onVar, onScript)
+		if walkSubst(w.Text, base+w.Start, false, flowAlways, onVar, onScript) == flowDistrusted {
+			return flowDistrusted
+		}
 		return flow
 	}
 	if !exprWords[w.Start] {
