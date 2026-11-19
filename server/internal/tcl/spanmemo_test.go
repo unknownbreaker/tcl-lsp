@@ -127,7 +127,7 @@ func refSkipBraceSpan(text string, i int) int {
 }
 
 // spanAlphabet favours the bytes the scans react to.
-const spanAlphabet = "[[]]{{}}\"\"$$\\\\ \n;#()a(k):*x"
+const spanAlphabet = "[[]]{{}}\"\"$$\\\\ \n;#()a(k):*x}{]["
 
 func randSpanText(r *rand.Rand, n int) string {
 	var b strings.Builder
@@ -135,6 +135,33 @@ func randSpanText(r *rand.Rand, n int) string {
 		b.WriteByte(spanAlphabet[r.Intn(len(spanAlphabet))])
 	}
 	return b.String()
+}
+
+// checkSpanMemo compares every span answer in s, through m, with the plain scans.
+func checkSpanMemo(t *testing.T, m *scriptEnds, s string) {
+	t.Helper()
+	for i := range len(s) {
+		switch s[i] {
+		case '[':
+			we, wok := refTrustedDepthSpan(s, i)
+			if e, ok := m.trustedDepthSpan(s, i); e != we || ok != wok {
+				t.Fatalf("trustedDepthSpan(%q, %d) = %d, %v; want %d, %v", s, i, e, ok, we, wok)
+			}
+			if e, _ := m.depthSpan(s, i); e != skipBracketSpan(s, i) {
+				t.Fatalf("depthSpan(%q, %d) = %d; want %d", s, i, e, skipBracketSpan(s, i))
+			}
+			if e, ok := m.closedTrustedSpan(s, i); ok && (!wok || e != we) {
+				t.Fatalf("closedTrustedSpan(%q, %d) = %d, true; want %d, %v", s, i, e, we, wok)
+			}
+		case '{':
+			if e, w := m.skipBraceSpan(s, i), refSkipBraceSpan(s, i); e != w {
+				t.Fatalf("skipBraceSpan(%q, %d) = %d; want %d", s, i, e, w)
+			}
+		}
+		if got, want := m.bracesHideBrackets(s[i:]), refBracesHideBrackets(s[i:]); got != want {
+			t.Fatalf("bracesHideBrackets(%q) = %v; want %v", s[i:], got, want)
+		}
+	}
 }
 
 // TestSpanMemoMatchesPlainScans compares every span answer, through one memo per
@@ -145,77 +172,22 @@ func TestSpanMemoMatchesPlainScans(t *testing.T) {
 		full := randSpanText(r, 1+r.Intn(40))
 		m := &scriptEnds{}
 		for _, cut := range r.Perm(len(full) + 1) {
-			s := full[:cut]
-			for i := range len(s) {
-				switch s[i] {
-				case '[':
-					we, wok := refTrustedDepthSpan(s, i)
-					if e, ok := m.trustedDepthSpan(s, i); e != we || ok != wok {
-						t.Fatalf("trustedDepthSpan(%q, %d) = %d, %v; want %d, %v", s, i, e, ok, we, wok)
-					}
-					if e, _ := m.depthSpan(s, i); e != skipBracketSpan(s, i) {
-						t.Fatalf("depthSpan(%q, %d) = %d; want %d", s, i, e, skipBracketSpan(s, i))
-					}
-				case '{':
-					if e, w := m.skipBraceSpan(s, i), refSkipBraceSpan(s, i); e != w {
-						t.Fatalf("skipBraceSpan(%q, %d) = %d; want %d", s, i, e, w)
-					}
-				}
-				if got, want := m.bracesHideBrackets(s[i:]), refBracesHideBrackets(s[i:]); got != want {
-					t.Fatalf("bracesHideBrackets(%q) = %v; want %v", s[i:], got, want)
-				}
-			}
+			checkSpanMemo(t, m, full[:cut])
 		}
 	}
 }
 
-// TestSpanMemoSubstrings compares the answers over random substrings of one
-// text, which share its memory and one memo, in random order.
+// TestSpanMemoSubstrings does the same over random substrings of one text,
+// which share its memory and one memo, in random order.
 func TestSpanMemoSubstrings(t *testing.T) {
 	r := rand.New(rand.NewSource(1234))
-	alpha := "[[]]{{}}\"\"$$\\\\ \n;#()a(k):*x}{][\\"
-	for it := 0; it < 6000; it++ {
-		n := 1 + r.Intn(60)
-		bs := make([]byte, n)
-		for i := range bs {
-			if r.Intn(4) == 0 {
-				bs[i] = "$(){}[]\\\" "[r.Intn(10)]
-			} else {
-				bs[i] = alpha[r.Intn(len(alpha))]
-			}
-		}
-		full := string(bs)
+	for range 6000 {
+		full := randSpanText(r, 1+r.Intn(60))
 		m := &scriptEnds{}
-		for q := 0; q < 40; q++ {
+		for range 40 {
 			a := r.Intn(len(full) + 1)
 			b := a + r.Intn(len(full)-a+1)
-			s := full[a:b]
-			for i := range len(s) {
-				switch s[i] {
-				case '[':
-					we, wok := refTrustedDepthSpan(s, i)
-					if e, ok := m.trustedDepthSpan(s, i); e != we || ok != wok {
-						t.Fatalf("trusted(%q,%d)=%d,%v want %d,%v (full %q)", s, i, e, ok, we, wok, full)
-					}
-					if e, _ := m.depthSpan(s, i); e != skipBracketSpan(s, i) {
-						t.Fatalf("depth(%q,%d)", s, i)
-					}
-					we2, wok2 := refTrustedDepthSpan(s, i)
-					if e, ok := m.closedTrustedSpan(s, i); ok && (!wok2 || e != we2) {
-						t.Fatalf("closedTrusted(%q,%d)=%d,%v ref %d,%v", s, i, e, ok, we2, wok2)
-					}
-				case '{':
-					if e, w := m.skipBraceSpan(s, i), refSkipBraceSpan(s, i); e != w {
-						t.Fatalf("brace(%q,%d)=%d want %d", s, i, e, w)
-					}
-				}
-				if got, want := m.bracesHideBrackets(s[i:]), refBracesHideBrackets(s[i:]); got != want {
-					t.Fatalf("hide(%q)=%v want %v (full %q)", s[i:], got, want, full)
-				}
-			}
-			if got, want := m.bracesHideBrackets(s), refBracesHideBrackets(s); got != want {
-				t.Fatalf("hide(%q)=%v want %v", s, got, want)
-			}
+			checkSpanMemo(t, m, full[a:b])
 		}
 	}
 }

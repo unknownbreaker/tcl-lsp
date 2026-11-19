@@ -292,7 +292,7 @@ func bracesHideBrackets(script string) bool {
 	return m.bracesHideBrackets(script)
 }
 
-// bracesHideBrackets is bracesHideBrackets, jumping over each [script] nested at
+// bracesHideBrackets is the plain scan above, jumping over each [script] nested at
 // the top level that closes and is trusted (scriptends.go). Reading such a span
 // byte by byte starts and ends in the same state (bare, no index open, no word
 // or command starting after its `]`) and returns nothing on the way, so the

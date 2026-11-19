@@ -8,8 +8,8 @@ import "unsafe"
 // A scriptEnds remembers each end it finds, so a walk that threads one through
 // the scanner and the substitution walk reads each byte a bounded number of times.
 //
-// An entry is keyed by the address of the script's first interior byte, not by an
-// offset, so it can never answer for different text: Go strings are immutable,
+// An end is keyed by the address of the script's first interior byte, and a span
+// (below) by the address of its opening `[` or `{`, not by an offset, so it can never answer for different text: Go strings are immutable,
 // and the entry keeps the string it was found in alive, so that memory is not
 // reused while the memo lives. A memo serves one walk on one goroutine and is
 // dropped with it. A nil *scriptEnds remembers nothing; a zero one is ready.
@@ -96,7 +96,7 @@ type spanEnd struct {
 	trust int8 // a [script] span's trust: 0 unknown, 1 trusted, -1 not
 	// A [script] span's braces between its `[` and `]`: the net count of `{`
 	// over `}`, and the lowest running count, as bracesHideBrackets counts them
-	// inside braces.
+	// inside braces. trust and these are unused for a {braced} span.
 	braceNet, braceLow int
 }
 
@@ -119,19 +119,29 @@ func spanLookup(tab map[uintptr]spanEnd, s string, i int) (e spanEnd, end int, c
 	return e, 0, false, false // a shorter text stayed open; s may close it
 }
 
-// spanStore remembers that the span opening at s[i] closes at s[end-1], or
-// stays open in s when end is 0.
-func spanStore(tab *map[uintptr]spanEnd, s string, i, end int, e spanEnd) {
+// spanMemo answers the span opening at s[i] from tab when an entry applies, and
+// otherwise runs scan and remembers its answer: that the span closes at
+// s[end-1], or stays open in s. A nil m runs scan alone.
+func (m *scriptEnds) spanMemo(tab *map[uintptr]spanEnd, s string, i int, scan func() (spanEnd, int, bool)) (e spanEnd, end int, closed bool) {
+	if m == nil {
+		return scan()
+	}
+	if e, end, closed, hit := spanLookup(*tab, s, i); hit {
+		return e, end, closed
+	}
+	e, end, closed = scan()
 	if *tab == nil {
 		*tab = map[uintptr]spanEnd{}
 	}
-	e.keep = s
-	if end == 0 {
-		e.open, e.at = true, addr(s, 0)+uintptr(len(s))
+	stored := e
+	stored.keep = s
+	if closed {
+		stored.at = addr(s, end-1)
 	} else {
-		e.at = addr(s, end-1)
+		stored.open, stored.at = true, addr(s, 0)+uintptr(len(s))
 	}
-	(*tab)[addr(s, i)] = e
+	(*tab)[addr(s, i)] = stored
+	return e, end, closed
 }
 
 // depthSpan is skipBracketSpan(s, i) for the `[` at i, and whether the span
@@ -145,20 +155,11 @@ func (m *scriptEnds) depthSpan(s string, i int) (end int, closed bool) {
 // span is jumped over: the depth count returns to this level exactly where that
 // span's own count closes.
 func (m *scriptEnds) depthScan(s string, i int) (e spanEnd, end int, closed bool) {
+	var tab *map[uintptr]spanEnd
 	if m != nil {
-		if e, end, closed, hit := spanLookup(m.depths, s, i); hit {
-			return e, end, closed
-		}
+		tab = &m.depths
 	}
-	e, end, closed = m.scanDepth(s, i)
-	if m != nil {
-		at := end
-		if !closed {
-			at = 0
-		}
-		spanStore(&m.depths, s, i, at, e)
-	}
-	return e, end, closed
+	return m.spanMemo(tab, s, i, func() (spanEnd, int, bool) { return m.scanDepth(s, i) })
 }
 
 // scanDepth is depthScan without the memo for the span at i itself.
@@ -169,13 +170,13 @@ func (m *scriptEnds) scanDepth(s string, i int) (e spanEnd, end int, closed bool
 		case c == '\\' && j+1 < len(s):
 			j += 2
 		case c == '[':
-			n, e, ok := m.depthScan(s, j)
+			inner, innerEnd, ok := m.depthScan(s, j)
 			if !ok {
 				return spanEnd{}, len(s), false
 			}
-			low = min(low, net+n.braceLow)
-			net += n.braceNet
-			j = e
+			low = min(low, net+inner.braceLow)
+			net += inner.braceNet
+			j = innerEnd
 		case c == ']':
 			return spanEnd{braceNet: net, braceLow: low}, j + 1, true
 		case c == '{':
@@ -239,19 +240,14 @@ func (m *scriptEnds) skipBraceSpan(s string, i int) int {
 // braceSpan is skipBraceSpan for the `{` at i, and whether the span closes in
 // s. A nested span is jumped over, as in depthSpan.
 func (m *scriptEnds) braceSpan(s string, i int) (end int, closed bool) {
+	var tab *map[uintptr]spanEnd
 	if m != nil {
-		if _, end, closed, hit := spanLookup(m.braces, s, i); hit {
-			return end, closed
-		}
+		tab = &m.braces
 	}
-	end, closed = m.scanBrace(s, i)
-	if m != nil {
-		at := end
-		if !closed {
-			at = 0
-		}
-		spanStore(&m.braces, s, i, at, spanEnd{})
-	}
+	_, end, closed = m.spanMemo(tab, s, i, func() (spanEnd, int, bool) {
+		end, closed := m.scanBrace(s, i)
+		return spanEnd{}, end, closed
+	})
 	return end, closed
 }
 
