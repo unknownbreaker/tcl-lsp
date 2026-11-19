@@ -81,6 +81,15 @@ func TestReachingExpressionUnmodeledIsSilent(t *testing.T) {
 // reach get no answer: those after it, and all of them when it is in a loop. A
 // use before it keeps its answer, and so does a script whose quotes and brackets
 // balance. Tcl's answers are in research/experiments/08_quoted_bracket_flat.tcl.
+// A `{` inside a word is literal, so it cannot hide the `;` and `#` that start a
+// comment holding the `]`. Pinned on the guard, since reaching happens to answer
+// right here (the naive tail reads as a later command).
+func TestBracesHideBracketsMidWordBrace(t *testing.T) {
+	if !bracesHideBrackets("list a{;# }") {
+		t.Error(`bracesHideBrackets("list a{;# }") = false, want true`)
+	}
+}
+
 func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 	for _, c := range []struct{ name, src, mark string }{
 		{"a later operand", "proc f {} {\n  set x 0\n  if {[string length \"]\"; set x 1] && $x ne {\"}} {}\n}", "$x ne"},
@@ -94,6 +103,8 @@ func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 		{"the next command after an array index", "proc f {} {\n  set x 0; array set a {] 5}\n  if {[list $a(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"an empty-named array index", "proc f {} {\n  set x 0; set (]) 5\n  if {[list $(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"a qualified array index", "proc f {} {\n  set x 0; array set ::a {] 5}\n  if {[list $::a(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a quote and a nested index in an index", "proc f {} {\n  set x 0\n  if {[list $::a(x \"$::a(x \" ) ] ) ; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a brace and a nested index in an index", "proc f {} {\n  set x 0\n  if {[list $::a(x {$::a(y } ) ] ) ; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"an unclosed array index", "proc f {} {\n  set x 0\n  if {[list $a(] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"a comment in the script", "proc f {} {\n  set x 0\n  if {[list a;# x]\n       set x 1] ne {} && $x} {}\n}", "$x}"},
 	} {

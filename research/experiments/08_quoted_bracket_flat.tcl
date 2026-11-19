@@ -80,3 +80,23 @@ proc qualifiedName {} {
 }
 emptyName
 qualifiedName
+# In an index, quotes, braces and spaces are literal: the nested index closes at
+# the first `)`, the outer one swallows `] ` and closes at the second, so `set`
+# runs. Tcl 8.6 prints x=1; Tcl 9.0 rejects the `"` ("invalid character in array
+# index") and prints x=0, so only the 8.6 answer exercises the parse.
+set ::a(x\ \"\ ) V
+set ::a(x\ \"V\ \]\ ) 1
+proc indexQuote {} {
+  set x 0
+  catch {if {[list $::a(x "$::a(x " ) ] ) ; set x 1] ne {}} {}}
+  puts "indexQuote: x=$x"
+}
+# A `{` inside a word is literal, so `;# }` is a comment that hides the `]`.
+proc midWordBrace {} {
+  set x 0
+  if {[list a{;# }
+   set x 1] ne {}} {}
+  puts "midWordBrace: x=$x"
+}
+indexQuote
+midWordBrace
