@@ -6,7 +6,7 @@ import "testing"
 // found in a longer text is "none" for a prefix that stops before it, and a
 // failure in a short text does not answer a longer one. No caller reaches these
 // today, since nested texts are interiors of the scripts that found their ends,
-// so only this test notices if the guards go. From the #85 adversarial tester.
+// so only this test notices if the guards go.
 func TestScriptEndsTruncation(t *testing.T) {
 	full := "[list [set x 1]] tail"
 	m := &scriptEnds{}

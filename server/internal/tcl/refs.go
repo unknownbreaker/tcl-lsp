@@ -33,9 +33,9 @@ func CommandRefs(c Command) []Reference {
 }
 
 // commandRefs appends CommandRefs(c) to refs, shifted by base, finding script
-// ends through m. Every nested script appends to the one slice at its absolute
+// ends through ends. Every nested script appends to the one slice at its absolute
 // offset, so a reference is not copied once per enclosing level.
-func commandRefs(c Command, base int, m *scriptEnds, refs *[]Reference) {
+func commandRefs(c Command, base int, ends *scriptEnds, refs *[]Reference) {
 	if len(c.Words) > 0 && isLiteralName(c.Words[0]) {
 		w := c.Words[0]
 		*refs = append(*refs, Reference{Kind: RefCommand, Name: w.Text, Start: base + w.Start, End: base + w.End})
@@ -43,10 +43,10 @@ func commandRefs(c Command, base int, m *scriptEnds, refs *[]Reference) {
 	// Braced expression words (expr args, if/while/for conditions) yield their
 	// $vars and the references inside their [command substitutions]; see subst.go.
 	exprWords := exprWordStarts(c)
-	onVar, onScript := refCollector(refs, m)
+	onVar, onScript := refCollector(refs, ends)
 	flow := flowAlways
 	for idx, w := range c.Words {
-		flow = carryFlow(c, w, walkWordSubst(c, exprWords, idx, base, flow, m, onVar, onScript))
+		flow = carryFlow(c, w, walkWordSubst(c, exprWords, idx, base, flow, ends, onVar, onScript))
 	}
 	for _, r := range nameArgRefs(c) {
 		r.Start += base
@@ -57,12 +57,12 @@ func commandRefs(c Command, base int, m *scriptEnds, refs *[]Reference) {
 
 // refCollector returns walkSubst callbacks that append a word's references to
 // refs: its $vars, and the references inside each [command substitution].
-func refCollector(refs *[]Reference, m *scriptEnds) (func(VarRef), scriptFunc) {
+func refCollector(refs *[]Reference, ends *scriptEnds) (func(VarRef), scriptFunc) {
 	onVar := func(r VarRef) {
 		*refs = append(*refs, Reference{Kind: RefVariable, Name: r.Name, Start: r.Start, End: r.End, Element: r.Element})
 	}
 	onScript := func(inner string, innerBase int, _ bool) {
-		substRefs(inner, innerBase, m, refs)
+		substRefs(inner, innerBase, ends, refs)
 	}
 	return onVar, onScript
 }
@@ -164,9 +164,9 @@ func wordRefs(w Word) []Reference {
 // names found inside those spans.
 func scanRefs(text string, base int) []Reference {
 	var refs []Reference
-	m := &scriptEnds{}
-	onVar, onScript := refCollector(&refs, m)
-	walkSubst(text, base, false, flowAlways, m, onVar, onScript)
+	ends := &scriptEnds{}
+	onVar, onScript := refCollector(&refs, ends)
+	walkSubst(text, base, false, flowAlways, ends, onVar, onScript)
 	return refs
 }
 
@@ -174,9 +174,9 @@ func scanRefs(text string, base int) []Reference {
 // to refs. innerBase is the absolute offset of the interior's first byte. The
 // interior is itself a script, so it is parsed and each command recursed into;
 // offsets are absolute.
-func substRefs(inner string, innerBase int, m *scriptEnds, refs *[]Reference) {
-	for _, c := range parseWith(inner, m) {
-		commandRefs(c, innerBase, m, refs)
+func substRefs(inner string, innerBase int, ends *scriptEnds, refs *[]Reference) {
+	for _, c := range parseWith(inner, ends) {
+		commandRefs(c, innerBase, ends, refs)
 		// CommandRefs scans a command's words and the [substitutions] within them,
 		// but does NOT enter a command's braced SCRIPT body (catch/foreach/if/eval/…
 		// bodies) -- those are descended by walkAll via childBodies. When such a body
@@ -194,7 +194,7 @@ func substRefs(inner string, innerBase int, m *scriptEnds, refs *[]Reference) {
 		// `set r [with_lock { puts $y }]`.
 		for _, b := range childBodies(c, innerBase, "::", FrameNamespace, 0, "") {
 			from := len(*refs)
-			substRefs(b.Inner, b.Base, m, refs)
+			substRefs(b.Inner, b.Base, ends, refs)
 			if b.Frame == FrameProc || b.Frame == FrameClass {
 				*refs = append((*refs)[:from], commandsAndAbsoluteVariables((*refs)[from:])...)
 			}

@@ -8,7 +8,8 @@ import "strings"
 // index does not. The depth count in skipBracketSpan ignores all of that. The
 // scanner and the command-word substitution walk use scriptClose; only where it
 // fails does the scanner fall back to a trusted depth-count span, and the walk
-// then stays silent about what the script binds.
+// then stays silent about what the script binds. scriptends.go remembers the
+// ends found, so nested scripts are read once.
 
 // scriptClose returns the offset of the `]` that closes the command substitution
 // whose interior starts at i, read as Tcl 8.6 and 9.0 read it. ok is false when
@@ -30,6 +31,8 @@ func (m *scriptEnds) scriptClose(s string, i int) (end int, ok bool) {
 	return end, ok
 }
 
+// scanScriptClose is scriptClose without the lookup: it reads the interior from
+// i, finding the ends of the scripts nested in it through m.
 func (m *scriptEnds) scanScriptClose(s string, i int) (end int, ok bool) {
 	atWord, atCmd := true, true
 	for i < len(s) {

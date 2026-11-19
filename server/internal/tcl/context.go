@@ -34,8 +34,7 @@ type ContextRef struct {
 // context, recursing into namespace eval and proc bodies.
 func FileRefs(src string) []ContextRef {
 	var out []ContextRef
-	ends := &scriptEnds{}
-	walkAll(parseWith(src, ends), 0, "::", FrameNamespace, 0, "", false, false, collectors{refs: &out, ends: ends})
+	walkFile(src, collectors{refs: &out})
 	return out
 }
 

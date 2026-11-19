@@ -42,7 +42,7 @@ type scriptFunc func(inner string, innerBase int, conditional bool)
 // byte. expr is true for the text of an expression. flow is how the same
 // expression ran before text; the result is how it has run by text's end, or
 // flowDistrusted when the scan stopped at a script it cannot read.
-func walkSubst(text string, base int, expr bool, flow exprFlow, m *scriptEnds, onVar func(VarRef), onScript scriptFunc) exprFlow {
+func walkSubst(text string, base int, expr bool, flow exprFlow, ends *scriptEnds, onVar func(VarRef), onScript scriptFunc) exprFlow {
 	inQuote := false
 	i := 0
 	for i < len(text) {
@@ -65,7 +65,7 @@ func walkSubst(text string, base int, expr bool, flow exprFlow, m *scriptEnds, o
 			}
 			i = next
 		case c == '[':
-			end, ok := m.substEnd(text, i, expr)
+			end, ok := ends.substEnd(text, i, expr)
 			if !ok {
 				return flowDistrusted
 			}
@@ -124,17 +124,17 @@ func (m *scriptEnds) substEnd(text string, i int, expr bool) (int, bool) {
 }
 
 // walkWordSubst walks word idx of c as Tcl substitutes it, finding script ends
-// through m (scriptends.go). A literal command name
+// through ends (scriptends.go). A literal command name
 // and a braced script or data word have nothing to substitute. exprWords is
 // exprWordStarts(c). flow and the result are as for walkSubst; flow carries only
 // through expression text, but any unbraced word may return flowDistrusted.
-func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFlow, m *scriptEnds, onVar func(VarRef), onScript scriptFunc) exprFlow {
+func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFlow, ends *scriptEnds, onVar func(VarRef), onScript scriptFunc) exprFlow {
 	w := c.Words[idx]
 	if idx == 0 && isLiteralName(w) {
 		return flow
 	}
 	if w.Kind != WordBraced {
-		if walkSubst(w.Text, base+w.Start, false, flowAlways, m, onVar, onScript) == flowDistrusted {
+		if walkSubst(w.Text, base+w.Start, false, flowAlways, ends, onVar, onScript) == flowDistrusted {
 			return flowDistrusted
 		}
 		return flow
@@ -147,7 +147,7 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 		return flow
 	}
 	inner, innerBase := bracedInner(w, base)
-	return walkSubst(inner, innerBase, true, flow, m, onVar, onScript)
+	return walkSubst(inner, innerBase, true, flow, ends, onVar, onScript)
 }
 
 // exprTreeOf parses the braced expression word w of c (see exprtree.go). It is

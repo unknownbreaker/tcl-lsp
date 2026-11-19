@@ -29,9 +29,9 @@ func Parse(src string) []Command {
 	return parseWith(src, nil)
 }
 
-// parseWith is Parse, finding script ends through m (scriptends.go).
-func parseWith(src string, m *scriptEnds) []Command {
-	toks := scanWith(src, m)
+// parseWith is Parse, finding script ends through ends (scriptends.go).
+func parseWith(src string, ends *scriptEnds) []Command {
+	toks := scanWith(src, ends)
 	var cmds []Command
 	var cur []Word
 	flush := func() {

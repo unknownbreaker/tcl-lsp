@@ -15,8 +15,7 @@ func nestedSubstSource(n int) (src string, inner, after int) {
 }
 
 // TestNestedSubstScalesLinearly bounds FileRefs (Parse + CommandRefs) and
-// ReachingAt over a command substitution nested 20,000 deep (#84). Each level used
-// to re-scan the span below it: FileRefs took about 34 s and ReachingAt over 10 s.
+// ReachingAt over a command substitution nested 20,000 deep (#84).
 // The bound is loose enough for a loaded machine.
 func TestNestedSubstScalesLinearly(t *testing.T) {
 	const depth = 20000
@@ -43,6 +42,18 @@ func TestNestedSubstScalesLinearly(t *testing.T) {
 	}
 	if len(xs) != 2 || xs[0] != inner-1 || xs[1] != after-1 {
 		t.Errorf("FileRefs found $x at %v, want [%d %d]", xs, inner-1, after-1)
+	}
+
+	start = time.Now()
+	var n int
+	for _, c := range Parse(src) {
+		n += len(CommandRefs(c))
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("Parse + CommandRefs took %v, want well under 2s", took)
+	}
+	if n == 0 {
+		t.Error("Parse + CommandRefs found no references")
 	}
 
 	for _, off := range []int{inner, after} {

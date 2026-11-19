@@ -35,6 +35,13 @@ type collectors struct {
 	ends *scriptEnds
 }
 
+// walkFile walks the whole of src with the collectors in c, giving the walk one
+// memo of script ends (scriptends.go). It is the entry point of every File*.
+func walkFile(src string, c collectors) {
+	c.ends = &scriptEnds{}
+	walkAll(parseWith(src, c.ends), 0, "::", FrameNamespace, 0, "", false, false, c)
+}
+
 // walkAll visits every command in cmds once, runs each enabled collector, and
 // recurses into the command's script bodies via the shared childBodies so all
 // collectors descend exactly the same bodies and cannot drift. base offsets a
@@ -129,9 +136,7 @@ func FileAll(src string) FileIndex {
 		Namespaces: map[string]*NamespaceInfo{},
 		Classes:    map[string][]string{},
 	}
-	ends := &scriptEnds{}
-	walkAll(parseWith(src, ends), 0, "::", FrameNamespace, 0, "", false, false, collectors{
-		ends:    ends,
+	walkFile(src, collectors{
 		defs:    &fi.Defs,
 		refs:    &fi.Refs,
 		ns:      fi.Namespaces,

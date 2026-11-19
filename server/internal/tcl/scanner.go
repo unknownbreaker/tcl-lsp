@@ -24,9 +24,9 @@ func Scan(src string) []Token {
 	return scanWith(src, nil)
 }
 
-// scanWith is Scan, finding script ends through m (scriptends.go).
-func scanWith(src string, m *scriptEnds) []Token {
-	s := &scanner{src: src, atCommandStart: true, ends: m}
+// scanWith is Scan, finding script ends through ends (scriptends.go).
+func scanWith(src string, ends *scriptEnds) []Token {
+	s := &scanner{src: src, atCommandStart: true, ends: ends}
 	return s.scan()
 }
 
