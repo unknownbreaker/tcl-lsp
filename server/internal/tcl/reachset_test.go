@@ -37,7 +37,7 @@ func refJoin(sets []refSet) refSet {
 
 func toRef(s reachSet) refSet {
 	out := refSet{}
-	s.each(func(name string, defs []Definition) { out[name] = defs })
+	s.each(func(name string, defs defList) { out[name] = defs.slice() })
 	return out
 }
 
@@ -88,14 +88,14 @@ func TestReachSetMatchesFlatMap(t *testing.T) {
 					nr[k] = v
 				}
 				nr[name] = []Definition{d}
-				sets, refs = append(sets, s.with(name, []Definition{d})), append(refs, nr)
+				sets, refs = append(sets, s.with(name, defsOf(d))), append(refs, nr)
 			case 1: // may-write
 				nr := refSet{}
 				for k, v := range r {
 					nr[k] = v
 				}
-				nr[name] = appendDedup(append([]Definition(nil), r[name]...), d)
-				sets, refs = append(sets, s.with(name, appendDedup(s.get(name), d))), append(refs, nr)
+				nr[name] = refJoin([]refSet{{name: r[name]}, {name: {d}}})[name]
+				sets, refs = append(sets, s.withAdded(d)), append(refs, nr)
 			default: // join with one to three others
 				pick := []int{i}
 				for k := rng.Intn(3); k >= 0; k-- {
@@ -126,18 +126,6 @@ func TestReachSetMatchesFlatMap(t *testing.T) {
 	}
 }
 
-// TestAppendDedupLeavesSharedSliceAlone pins that appending to a stored slice
-// with spare capacity never overwrites what another set sees there.
-func TestAppendDedupLeavesSharedSliceAlone(t *testing.T) {
-	base := make([]Definition, 1, 4)
-	base[0] = Definition{NameStart: 1, NameEnd: 2}
-	a := appendDedup(base, Definition{NameStart: 3, NameEnd: 4})
-	b := appendDedup(base, Definition{NameStart: 5, NameEnd: 6})
-	if a[1].NameStart != 3 || b[1].NameStart != 5 {
-		t.Fatalf("appends to one base share storage: a=%v b=%v", a, b)
-	}
-}
-
 // deepExprShapes are generated sources whose reaching analysis must stay close
 // to linear in n: deep ternaries and && chains, plain and with a binding in every
 // operand, and straight-line binds, each inside a loop so the fixpoint runs.
@@ -165,6 +153,24 @@ func deepExprSource(shape string, n int) (string, int) {
 	return src, strings.LastIndex(src, "$x") + 1
 }
 
+// sameNameTernarySource sets x in every arm of a deep ternary, so n+1 bindings
+// of the one name reach the body's use.
+func sameNameTernarySource(n int) (string, int) {
+	src := "proc p {c} {\n set x 1\n while {" + strings.Repeat("$c ? [set x 2] : ", n) + "0} { puts $x }\n}\n"
+	return src, strings.LastIndex(src, "$x") + 1
+}
+
+// sameNameSwitchSource sets x in every arm of a switch inside a loop; the use
+// after it sees every arm and the fall-through.
+func sameNameSwitchSource(n int) (string, int) {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "  a%d {set x %d}\n", i, i)
+	}
+	src := "proc p {c} {\n set x 1\n while {$c} {\n switch $c {\n" + b.String() + " }\n puts $x }\n}\n"
+	return src, strings.LastIndex(src, "$x") + 1
+}
+
 func straightSource(n int) (string, int) {
 	var b strings.Builder
 	for i := 0; i < n; i++ {
@@ -177,15 +183,15 @@ func straightSource(n int) (string, int) {
 // reachingCost runs ReachingAt once and returns the bytes it allocated and the
 // time it took. Bytes are deterministic, and the flat map grew them by a full
 // copy of the set per binding, so they show the scaling where time is noise.
-func reachingCost(t *testing.T, src string, off int) (uint64, time.Duration) {
+func reachingCost(t *testing.T, src string, off, want int) (uint64, time.Duration) {
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	start := time.Now()
 	defs, ok := ReachingAt(src, off)
 	took := time.Since(start)
 	runtime.ReadMemStats(&after)
-	if !ok || len(defs) != 1 {
-		t.Fatalf("ReachingAt = %v, %v; want the one binding of x", defs, ok)
+	if !ok || len(defs) != want {
+		t.Fatalf("ReachingAt = %d bindings, %v; want %d", len(defs), ok, want)
 	}
 	return after.TotalAlloc - before.TotalAlloc, took
 }
@@ -195,9 +201,19 @@ func reachingCost(t *testing.T, src string, off int) (uint64, time.Duration) {
 // written); the flat map these sets replaced allocated 16x, with 59 GB for the
 // ternary binding shape at 4000. The wall-time bound is loose.
 func TestReachingScalesLinearlyInDepth(t *testing.T) {
-	sources := map[string]func(n int) (string, int){"straight-line binds": straightSource}
+	type source struct {
+		gen  func(n int) (string, int)
+		uses func(n int) int // bindings that reach the use
+	}
+	one := func(int) int { return 1 }
+	all := func(n int) int { return n + 1 }
+	sources := map[string]source{
+		"straight-line binds": {straightSource, one},
+		"same-name ternary":   {sameNameTernarySource, all},
+		"same-name switch":    {sameNameSwitchSource, all},
+	}
 	for shape := range deepExprShapes {
-		sources[shape] = func(n int) (string, int) { return deepExprSource(shape, n) }
+		sources[shape] = source{func(n int) (string, int) { return deepExprSource(shape, n) }, one}
 	}
 	var names []string
 	for name := range sources {
@@ -205,10 +221,11 @@ func TestReachingScalesLinearlyInDepth(t *testing.T) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		smallSrc, smallOff := sources[name](1000)
-		largeSrc, largeOff := sources[name](4000)
-		small, _ := reachingCost(t, smallSrc, smallOff)
-		large, took := reachingCost(t, largeSrc, largeOff)
+		s := sources[name]
+		smallSrc, smallOff := s.gen(1000)
+		largeSrc, largeOff := s.gen(4000)
+		small, _ := reachingCost(t, smallSrc, smallOff, s.uses(1000))
+		large, took := reachingCost(t, largeSrc, largeOff, s.uses(4000))
 		if ratio := float64(large) / float64(small); ratio > 8 {
 			t.Errorf("%s: depth 1000 allocated %d bytes, 4000 allocated %d (%.1fx), want about 4x", name, small, large, ratio)
 		}

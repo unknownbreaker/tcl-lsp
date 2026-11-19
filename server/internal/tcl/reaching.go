@@ -26,7 +26,7 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 		var paramDefs []Definition
 		emitProcParams(argsWord, argsBase, "::", innerBase, "", &paramDefs)
 		for _, d := range paramDefs {
-			entry = entry.with(d.Name, []Definition{d})
+			entry = entry.with(d.Name, defsOf(d))
 		}
 	}
 	a.seq(Parse(inner), innerBase, entry) //nolint:errcheck — result unused; a.found/a.answer carry the answer
@@ -36,17 +36,17 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	if !a.found {
 		return nil, false
 	}
-	if len(a.answer) == 0 {
+	if a.answer.len() == 0 {
 		return a.skippedAboveUse(), true
 	}
-	return a.answer, true
+	return append([]Definition(nil), a.answer.slice()...), true
 }
 
 // skippedAboveUse returns the skipped bindings of the used name that start before
 // the use.
 func (a *analyzer) skippedAboveUse() []Definition {
 	var above []Definition
-	for _, d := range a.skipped.get(a.useName) {
+	for _, d := range a.skipped.get(a.useName).slice() {
 		if d.NameStart < a.useOff {
 			above = append(above, d)
 		}
@@ -112,7 +112,7 @@ type frameAcc struct {
 type analyzer struct {
 	useOff    int
 	useName   string // the variable named at useOff, once found
-	answer    []Definition
+	answer    defList
 	found     bool
 	loopStack []*frameAcc
 	ret       reachSet
@@ -280,7 +280,7 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	for iter := 0; iter < maxLoopIters; iter++ {
 		_, passEntry := afterTest(cur)
 		for _, d := range loopVars {
-			passEntry = passEntry.with(d.Name, []Definition{d})
+			passEntry = passEntry.with(d.Name, defsOf(d))
 		}
 		normalEnd, bodyLive := a.runScript(body, base, passEntry)
 		// next runs only after a pass that completes or continues.
@@ -405,7 +405,7 @@ func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBod
 		own := handlerEntry
 		if vars := tryVarNames(handler, base); len(vars) > 0 {
 			for _, p := range vars {
-				own = own.with(p.Name, []Definition{localDef(p, "", 0, "")})
+				own = own.with(p.Name, defsOf(localDef(p, "", 0, "")))
 			}
 		}
 		paths = append(paths, own)
@@ -458,7 +458,7 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 	isCatch := isCmd(c.Words, "catch")
 	for _, d := range localBindings(c, base, a.ns, a.frame) {
 		if isCatch {
-			out = out.with(d.Name, []Definition{d}) // catch always writes its variables
+			out = out.with(d.Name, defsOf(d)) // catch always writes its variables
 		} else {
 			out = out.withAdded(d)
 		}
@@ -510,17 +510,6 @@ func (a *analyzer) recordSkipped(c Command, base int) {
 	}
 }
 
-// appendDedup appends d to list only if no existing element has the same
-// NameStart/NameEnd range (identity by binding site).
-func appendDedup(list []Definition, d Definition) []Definition {
-	for _, x := range list {
-		if x.NameStart == d.NameStart && x.NameEnd == d.NameEnd {
-			return list
-		}
-	}
-	return append(list[:len(list):len(list)], d) // never write a shared slice's spare capacity
-}
-
 // command applies one command: thread the set through its substitutions, recording
 // any variable use at useOff, then apply this command's bindings (kill prior, gen
 // new). Returns (out set, live). live is false for non-local exits
@@ -546,7 +535,7 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		out := in
 		if binds := localBindings(c, base, a.ns, a.frame); len(binds) > 0 {
 			for _, d := range binds {
-				out = out.with(d.Name, []Definition{d})
+				out = out.with(d.Name, defsOf(d))
 			}
 		}
 		body := c.Words[len(c.Words)-1]
@@ -589,7 +578,7 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 			// array set merges into the array; a possible write (resultVarWords) joins
 			out = out.withAdded(d)
 		} else {
-			out = out.with(d.Name, []Definition{d}) // straight-line: reassign kills+gens
+			out = out.with(d.Name, defsOf(d)) // straight-line: reassign kills+gens
 		}
 	}
 	return out, true
@@ -680,12 +669,10 @@ func hasElse(w []Word) bool {
 // recordAnswer unions defs into the answer for the use of name at useOff. A use is
 // visited once per loop pass, and reaching sets only grow across passes, so the union
 // over every visit is the set at the fixpoint.
-func (a *analyzer) recordAnswer(name string, defs []Definition) {
+func (a *analyzer) recordAnswer(name string, defs defList) {
 	a.found = true
 	a.useName = name
-	for _, d := range defs {
-		a.answer = appendDedup(a.answer, d)
-	}
+	a.answer = unionDefs(a.answer, defs)
 }
 
 // localBindings returns the variable bindings introduced by a single command c,

@@ -7,10 +7,9 @@ import "hash/fnv"
 // never change their inputs, sharing every subtree they leave alone, so a binding
 // costs one path of the trie, not a copy of the set. The zero value is empty.
 // A join that adds nothing to one side returns that side itself, so the loop
-// fixpoint usually sees convergence as pointer equality.
-//
-// A defs slice in a set is never written after it is stored; appendDedup and
-// unionDefs always allocate when they add.
+// fixpoint usually sees convergence as pointer equality. A name's bindings are a
+// defList, persistent too, so a join that adds one binding to a long list costs
+// a path of its key trie, not a copy of the list.
 type reachSet struct{ root *reachNode }
 
 const (
@@ -30,7 +29,7 @@ type reachNode struct {
 type reachEntry struct {
 	hash uint32
 	name string
-	defs []Definition
+	defs defList
 }
 
 func reachHash(name string) uint32 {
@@ -43,8 +42,8 @@ func reachSlot(h uint32, depth int) int {
 	return int(h>>(depth*reachBits)) & (reachWidth - 1)
 }
 
-// get returns the bindings of name, or nil.
-func (s reachSet) get(name string) []Definition {
+// get returns the bindings of name, or the empty list.
+func (s reachSet) get(name string) defList {
 	h := reachHash(name)
 	n := s.root
 	for d := 0; n != nil; d++ {
@@ -54,26 +53,26 @@ func (s reachSet) get(name string) []Definition {
 					return e.defs
 				}
 			}
-			return nil
+			return defList{}
 		}
 		n = n.kids[reachSlot(h, d)]
 	}
-	return nil
+	return defList{}
 }
 
 // with returns s with name bound to exactly defs.
-func (s reachSet) with(name string, defs []Definition) reachSet {
+func (s reachSet) with(name string, defs defList) reachSet {
 	e := reachEntry{hash: reachHash(name), name: name, defs: defs}
-	return reachSet{upsert(s.root, e, 0, func(_ []Definition, _ bool) []Definition { return defs })}
+	return reachSet{upsert(s.root, e, 0, func(defList, bool) defList { return defs })}
 }
 
 // withAdded returns s with d joined to the bindings of its name.
 func (s reachSet) withAdded(d Definition) reachSet {
-	return s.with(d.Name, appendDedup(s.get(d.Name), d))
+	return s.with(d.Name, unionDefs(s.get(d.Name), defsOf(d)))
 }
 
 // each calls f for every name in s, in no particular order.
-func (s reachSet) each(f func(name string, defs []Definition)) {
+func (s reachSet) each(f func(name string, defs defList)) {
 	var walk func(n *reachNode)
 	walk = func(n *reachNode) {
 		if n == nil {
@@ -91,10 +90,10 @@ func (s reachSet) each(f func(name string, defs []Definition)) {
 
 // upsert stores e.name in n's subtree at depth d, with the defs merge returns from
 // the stored defs (ok false when there are none). When merge returns the stored
-// slice itself, n is returned unchanged.
-func upsert(n *reachNode, e reachEntry, d int, merge func(old []Definition, ok bool) []Definition) *reachNode {
+// list itself, n is returned unchanged.
+func upsert(n *reachNode, e reachEntry, d int, merge func(old defList, ok bool) defList) *reachNode {
 	if n == nil {
-		e.defs = merge(nil, false)
+		e.defs = merge(defList{}, false)
 		return &reachNode{entries: []reachEntry{e}}
 	}
 	if n.entries != nil {
@@ -103,7 +102,7 @@ func upsert(n *reachNode, e reachEntry, d int, merge func(old []Definition, ok b
 				continue
 			}
 			defs := merge(old.defs, true)
-			if sameSlice(defs, old.defs) {
+			if defs.n == old.defs.n {
 				return n
 			}
 			entries := append([]reachEntry(nil), n.entries...)
@@ -111,7 +110,7 @@ func upsert(n *reachNode, e reachEntry, d int, merge func(old []Definition, ok b
 			return &reachNode{entries: entries}
 		}
 		if d == reachMaxDepth || n.entries[0].hash == e.hash {
-			e.defs = merge(nil, false)
+			e.defs = merge(defList{}, false)
 			entries := append(append([]reachEntry(nil), n.entries...), e)
 			return &reachNode{entries: entries}
 		}
@@ -156,7 +155,7 @@ func joinNodes(a, b *reachNode, d int) *reachNode {
 	case b.entries != nil:
 		r := a
 		for _, e := range b.entries {
-			r = upsert(r, e, d, func(old []Definition, ok bool) []Definition {
+			r = upsert(r, e, d, func(old defList, ok bool) defList {
 				if !ok {
 					return e.defs
 				}
@@ -170,7 +169,7 @@ func joinNodes(a, b *reachNode, d int) *reachNode {
 	case a.entries != nil:
 		r := b
 		for _, e := range a.entries {
-			r = upsert(r, e, d, func(old []Definition, ok bool) []Definition {
+			r = upsert(r, e, d, func(old defList, ok bool) defList {
 				if !ok {
 					return e.defs
 				}
@@ -196,63 +195,8 @@ func joinNodes(a, b *reachNode, d int) *reachNode {
 	return &out
 }
 
-// defKey identifies a binding site by its name's range.
-type defKey struct{ start, end int }
-
-// unionDefs returns x followed by the bindings of y not in x. It returns x itself
-// when y adds nothing, and y itself when x is a prefix of y.
-func unionDefs(x, y []Definition) []Definition {
-	if sameSlice(x, y) {
-		return x
-	}
-	if len(x) <= len(y) {
-		prefix := true
-		// Whole values, not keys: one site may be carried as two Definitions (a try
-		// handler's variable has two Namespace spellings), and x's copy must win.
-		for i := range x {
-			if x[i] != y[i] {
-				prefix = false
-				break
-			}
-		}
-		if prefix {
-			return y
-		}
-	}
-	// A set's slice holds no duplicates, so only x's keys need looking up; a short
-	// x is scanned, which keeps a one-binding arm joining a long list cheap.
-	inX := func(d Definition) bool {
-		for _, e := range x {
-			if e.NameStart == d.NameStart && e.NameEnd == d.NameEnd {
-				return true
-			}
-		}
-		return false
-	}
-	if len(x) > 8 {
-		seen := make(map[defKey]bool, len(x))
-		for _, d := range x {
-			seen[defKey{d.NameStart, d.NameEnd}] = true
-		}
-		inX = func(d Definition) bool { return seen[defKey{d.NameStart, d.NameEnd}] }
-	}
-	var out []Definition
-	for _, d := range y {
-		if !inX(d) {
-			if out == nil {
-				out = append(make([]Definition, 0, len(x)+len(y)), x...)
-			}
-			out = append(out, d)
-		}
-	}
-	if out == nil {
-		return x
-	}
-	return out
-}
-
 // sameEntries reports whether leaves r and b hold the same names bound to the
-// same slices.
+// same lists.
 func sameEntries(r, b *reachNode) bool {
 	if r.entries == nil || len(r.entries) != len(b.entries) {
 		return false
@@ -261,7 +205,7 @@ func sameEntries(r, b *reachNode) bool {
 		found := false
 		for _, f := range b.entries {
 			if e.name == f.name {
-				found = sameSlice(e.defs, f.defs)
+				found = e.defs.n == f.defs.n
 				break
 			}
 		}
@@ -272,11 +216,6 @@ func sameEntries(r, b *reachNode) bool {
 	return true
 }
 
-// sameSlice reports whether x and y are the same slice (same start and length).
-func sameSlice(x, y []Definition) bool {
-	return len(x) == len(y) && (len(x) == 0 || &x[0] == &y[0])
-}
-
 // reachEqual reports whether two reachSets contain the same bindings (by
 // variable name and NameStart/NameEnd identity).
 func reachEqual(a, b reachSet) bool {
@@ -284,27 +223,13 @@ func reachEqual(a, b reachSet) bool {
 		return true
 	}
 	na, nb := 0, 0
-	b.each(func(string, []Definition) { nb++ })
+	b.each(func(string, defList) { nb++ })
 	equal := true
-	a.each(func(name string, da []Definition) {
+	a.each(func(name string, da defList) {
 		na++
-		if !equal {
-			return
-		}
-		db := b.get(name)
-		if db == nil || len(da) != len(db) {
-			equal = false
-			return
-		}
-		seen := make(map[defKey]bool, len(da))
-		for _, d := range da {
-			seen[defKey{d.NameStart, d.NameEnd}] = true
-		}
-		for _, d := range db {
-			if !seen[defKey{d.NameStart, d.NameEnd}] {
-				equal = false
-				return
-			}
+		if equal {
+			db := b.get(name)
+			equal = db.n != nil && da.len() == db.len() && keySubset(da.n.keys, db.n.keys, 0)
 		}
 	})
 	return equal && na == nb
