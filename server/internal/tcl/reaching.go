@@ -3,8 +3,8 @@ package tcl
 // ReachingAt returns the local-variable bindings that may reach the use at byte
 // offset useOff in src, as Definition values (Kind DefLocal/DefGlobalLink, with
 // NameStart/NameEnd on the binding's name token and Origin for links). ok is false
-// when the analyzer has no answer: the scope is oversized or useOff is not on a use
-// it visited. ok with no defs means the analyzer visited the use and nothing reaches
+// when the analyzer has no answer: the scope is oversized, its analysis exceeds the
+// work budget (see analyzer.visits), or useOff is not on a use it visited. ok with no defs means the analyzer visited the use and nothing reaches
 // it, or that a bracket script it cannot read (flowDistrusted) may bind it, so callers
 // stay silent rather than guess. When nothing else reaches a visited use, a binding
 // above it in an unknown command's body answers, because that body may or may not run
@@ -30,6 +30,9 @@ func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 		}
 	}
 	a.seq(Parse(inner), innerBase, entry) //nolint:errcheck — result unused; a.found/a.answer carry the answer
+	if a.overBudget {
+		return nil, false
+	}
 	if a.distrustFrom >= 0 && (!a.found || useOff >= a.distrustFrom) {
 		return nil, true
 	}
@@ -132,6 +135,46 @@ type analyzer struct {
 	// (loopStarts[0]), since a back edge may carry them to an earlier use in the loop.
 	distrustFrom int
 	loopStarts   []int
+	// warm holds each loop's last analysis, by the loop's start. An enclosing loop's
+	// later pass reaches the loop again with a larger entry set; see analyzeLoop.
+	warm map[int]loopState
+	// visits counts command analyses, and sites the distinct commands among them. A
+	// pass of an enclosing loop can bring new bindings that must flow through every
+	// loop nested in it, so the cost grows with the nesting depth. Past
+	// maxVisitsPerCommand analyses per command, on average, the analyzer stops and
+	// ReachingAt answers nothing.
+	visits     int
+	sites      map[int]struct{}
+	overBudget bool
+}
+
+const (
+	maxVisitsPerCommand = 16
+	freeVisits          = 4096
+)
+
+// spend counts one analysis of the command at offset site and reports whether the
+// budget still allows it.
+func (a *analyzer) spend(site int) bool {
+	if a.overBudget {
+		return false
+	}
+	if a.sites == nil {
+		a.sites = map[int]struct{}{}
+	}
+	a.sites[site] = struct{}{}
+	a.visits++
+	if a.visits > freeVisits+maxVisitsPerCommand*len(a.sites) {
+		a.overBudget = true
+	}
+	return !a.overBudget
+}
+
+// loopState is one analysis of a loop: its entry set, the header it reached from it
+// (a fixpoint when converged), and the set after the loop.
+type loopState struct {
+	entry, header, out reachSet
+	converged          bool
 }
 
 // distrust records a word at offset start holding a bracket script that flow
@@ -257,6 +300,23 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	if !live {
 		return cur, false
 	}
+	// An enclosing loop's later pass reaches this loop again, and re-running its
+	// fixpoint from scratch on every such pass costs exponential time in the nesting
+	// depth. The header's fixpoint only grows with the entry set, so when this entry
+	// contains the last one, the last header is a sound start: iteration from it ends
+	// at the same set. When the entry adds nothing to that header either, the header
+	// is already the fixpoint, and a pass over it repeats the last converged pass, whose
+	// result is kept and whose effects on the analyzer have already happened. That
+	// holds because every effect a walk has on the analyzer is a union or a minimum
+	// (answer, skipped, ret, distrustFrom); an effect of any other kind must not skip.
+	site := base + c.Words[0].Start
+	entry := cur
+	if prev, ok := a.warm[site]; ok && reachEqual(joinSets([]reachSet{entry, prev.entry}), entry) {
+		if prev.converged && reachEqual(joinSets([]reachSet{prev.header, entry}), prev.header) {
+			return prev.out, true
+		}
+		cur = joinSets([]reachSet{entry, prev.header})
+	}
 	// A test script that ends the path is rare; the loop treats it as live, which
 	// only adds bindings.
 	exprWords := exprWordStarts(c)
@@ -277,6 +337,7 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 		out, _ := a.substituteWord(c, exprWords, test, base, header, flowAlways, &live)
 		return out, out
 	}
+	converged := false
 	for iter := 0; iter < maxLoopIters; iter++ {
 		_, passEntry := afterTest(cur)
 		for _, d := range loopVars {
@@ -297,6 +358,7 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 		}
 		merged := joinSets([]reachSet{cur, backEdge})
 		if reachEqual(merged, cur) {
+			converged = true
 			break
 		}
 		cur = merged
@@ -305,7 +367,12 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	// every back-edge contribution, so after the test it covers every path that
 	// may reach post-loop. acc.brk adds paths that exited via `break`.
 	exit, _ := afterTest(cur)
-	return joinSets([]reachSet{exit, acc.brk}), true
+	out := joinSets([]reachSet{exit, acc.brk})
+	if a.warm == nil {
+		a.warm = map[int]loopState{}
+	}
+	a.warm[site] = loopState{entry: entry, header: cur, out: out, converged: converged}
+	return out, true
 }
 
 // conservativeHead reports whether command c requires conservative may-reach
@@ -515,6 +582,9 @@ func (a *analyzer) recordSkipped(c Command, base int) {
 // new). Returns (out set, live). live is false for non-local exits
 // (return/break/continue).
 func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
+	if !a.spend(base + c.Words[0].Start) {
+		return in, false // ReachingAt discards everything once over budget
+	}
 	if isCmd(c.Words, "if") {
 		return a.analyzeIf(c, base, in)
 	}

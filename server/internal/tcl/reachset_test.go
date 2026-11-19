@@ -180,6 +180,42 @@ func straightSource(n int) (string, int) {
 	return src, strings.LastIndex(src, "$x") + 1
 }
 
+// nestedLoopSource nests levels while loops, each holding perLevel bindings: of x
+// when sameName, else of a name of their own. With after, a loop's bindings follow
+// its inner loop, so each outer pass reaches the inner loop with new bindings. The
+// use of x is in the innermost loop, above its bindings.
+func nestedLoopSource(levels, perLevel int, sameName, after bool) (string, int) {
+	binds := func(level int) string {
+		var b strings.Builder
+		for i := 0; i < perLevel; i++ {
+			if sameName {
+				fmt.Fprintf(&b, " set x %d\n", level*perLevel+i)
+			} else {
+				fmt.Fprintf(&b, " set v%d_%d 1\n", level, i)
+			}
+		}
+		return b.String()
+	}
+	var b strings.Builder
+	b.WriteString("proc p {c} {\n set x 1\n")
+	for level := 0; level < levels; level++ {
+		b.WriteString(" while {$c} {\n")
+		if !after {
+			b.WriteString(binds(level))
+		}
+	}
+	b.WriteString(" puts $x\n")
+	for level := levels - 1; level >= 0; level-- {
+		if after {
+			b.WriteString(binds(level))
+		}
+		b.WriteString(" }\n")
+	}
+	b.WriteString("}\n")
+	src := b.String()
+	return src, strings.Index(src, "$x") + 1
+}
+
 // reachingCost runs ReachingAt once and returns the bytes it allocated and the
 // time it took. Bytes are deterministic, and the flat map grew them by a full
 // copy of the set per binding, so they show the scaling where time is noise.
@@ -187,13 +223,35 @@ func reachingCost(t *testing.T, src string, off, want int) (uint64, time.Duratio
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	start := time.Now()
-	defs, ok := ReachingAt(src, off)
+	defs, ok := reachingWithin(t, src, off)
 	took := time.Since(start)
 	runtime.ReadMemStats(&after)
 	if !ok || len(defs) != want {
 		t.Fatalf("ReachingAt = %d bindings, %v; want %d", len(defs), ok, want)
 	}
 	return after.TotalAlloc - before.TotalAlloc, took
+}
+
+// reachingWithin runs ReachingAt and fails the test if it takes over 10 seconds, so
+// a superlinear regression fails here rather than at the go test timeout.
+func reachingWithin(t *testing.T, src string, off int) ([]Definition, bool) {
+	t.Helper()
+	type result struct {
+		defs []Definition
+		ok   bool
+	}
+	done := make(chan result, 1)
+	go func() {
+		defs, ok := ReachingAt(src, off)
+		done <- result{defs, ok}
+	}()
+	select {
+	case r := <-done:
+		return r.defs, r.ok
+	case <-time.After(10 * time.Second):
+		t.Fatalf("ReachingAt took over 10s")
+		return nil, false
+	}
 }
 
 // TestReachingScalesLinearlyInDepth checks the ratio between depths 1000 and 4000
@@ -211,6 +269,16 @@ func TestReachingScalesLinearlyInDepth(t *testing.T) {
 		"straight-line binds": {straightSource, one},
 		"same-name ternary":   {sameNameTernarySource, all},
 		"same-name switch":    {sameNameSwitchSource, all},
+		// Bindings above the inner loop: depth grows with n, 50 bindings a level.
+		"nested loops":            {func(n int) (string, int) { return nestedLoopSource(n/50, 50, false, false) }, one},
+		"nested loops, same name": {func(n int) (string, int) { return nestedLoopSource(n/50, 50, true, false) }, one},
+		// Bindings below the inner loop cost a pass per enclosing loop, so the
+		// depth stays 10 and the loops widen. TestReachingNestedLoopsPastBudget
+		// covers depth growing with n.
+		"nested loops, binds after inner": {func(n int) (string, int) { return nestedLoopSource(10, n/10, false, true) }, one},
+		// Each loop's last binding reaches the use around a back edge, and so does
+		// the binding above the loops.
+		"nested loops, same name after inner": {func(n int) (string, int) { return nestedLoopSource(10, n/10, true, true) }, func(int) int { return 11 }},
 	}
 	for shape := range deepExprShapes {
 		sources[shape] = source{func(n int) (string, int) { return deepExprSource(shape, n) }, one}
@@ -231,6 +299,39 @@ func TestReachingScalesLinearlyInDepth(t *testing.T) {
 		}
 		if took > 2*time.Second {
 			t.Errorf("%s: depth 4000 took %v, want well under 2s", name, took)
+		}
+	}
+}
+
+// TestReachingNestedLoopsPastBudget pins the work budget: with bindings below each
+// inner loop, every outer pass sends new bindings through the loops it holds, so
+// the cost grows with the depth. At 80 levels that passes the budget, and
+// ReachingAt answers nothing, at no more than a few times the cost of answering
+// the same bindings 10 levels deep.
+func TestReachingNestedLoopsPastBudget(t *testing.T) {
+	for _, sameName := range []bool{false, true} {
+		answered, off := nestedLoopSource(10, 400, sameName, true)
+		want := 1
+		if sameName {
+			want = 11
+		}
+		shallow, _ := reachingCost(t, answered, off, want)
+		deepSrc, deepOff := nestedLoopSource(80, 50, sameName, true)
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		start := time.Now()
+		defs, ok := reachingWithin(t, deepSrc, deepOff)
+		took := time.Since(start)
+		runtime.ReadMemStats(&after)
+		if ok || defs != nil {
+			t.Errorf("sameName=%v: 80 levels: ReachingAt = %d bindings, %v; want nothing, false", sameName, len(defs), ok)
+		}
+		deep := after.TotalAlloc - before.TotalAlloc
+		if ratio := float64(deep) / float64(shallow); ratio > 4 {
+			t.Errorf("sameName=%v: 80 levels allocated %d bytes, 10 levels %d (%.1fx), want at most 4x", sameName, deep, shallow, ratio)
+		}
+		if took > 2*time.Second {
+			t.Errorf("sameName=%v: 80 levels took %v, want well under 2s", sameName, took)
 		}
 	}
 }
@@ -264,5 +365,85 @@ func TestReachingKeepsFirstCopyOfASite(t *testing.T) {
 	want := []Definition{{Kind: DefLocal, Name: "v5", Namespace: "::", NameStart: site, NameEnd: site + 2}}
 	if !ok || !reflect.DeepEqual(defs, want) {
 		t.Errorf("ReachingAt = %+v, %v; want %+v, true", defs, ok, want)
+	}
+}
+
+// naiveSites renders a set as name -> sorted site list, for a reference equality.
+// A name bound to no sites is left out, as get cannot tell it from an absent one.
+func naiveSites(s reachSet) string {
+	var parts []string
+	s.each(func(name string, d defList) {
+		if d.len() == 0 {
+			return
+		}
+		var sites []string
+		for _, x := range d.slice() {
+			sites = append(sites, fmt.Sprintf("%d:%d", x.NameStart, x.NameEnd))
+		}
+		sort.Strings(sites)
+		parts = append(parts, name+"="+strings.Join(sites, ","))
+	})
+	sort.Strings(parts)
+	return strings.Join(parts, ";")
+}
+
+// TestReachEqualMatchesNaive builds pairs of sets from shared ancestors by random
+// with/withAdded/joinSets steps, some binding a name to no sites, and checks
+// reachEqual against a naive comparison in both argument orders. Sets that share
+// subtrees exercise nodesEqual's skipping, and leaves against inner nodes its
+// fallback.
+func TestReachEqualMatchesNaive(t *testing.T) {
+	r := rand.New(rand.NewSource(7))
+	nameCount := []int{3, 20, 200}
+	for trial := 0; trial < 50000; trial++ {
+		nn := nameCount[trial%len(nameCount)]
+		name := func() string { return fmt.Sprintf("v%d", r.Intn(nn)) }
+		def := func(n string) Definition {
+			s := r.Intn(6)
+			return Definition{Kind: DefLocal, Name: n, NameStart: s, NameEnd: s + 1}
+		}
+		step := func(s reachSet) reachSet {
+			switch r.Intn(4) {
+			case 0:
+				n := name()
+				return s.with(n, defsOf(def(n)))
+			case 1:
+				n := name()
+				return s.withAdded(def(n))
+			case 2:
+				n := name()
+				return s.with(n, defList{})
+			default:
+				o := reachSet{}
+				for i := r.Intn(5); i > 0; i-- {
+					o = o.withAdded(def(name()))
+				}
+				if r.Intn(2) == 0 {
+					return joinSets([]reachSet{s, o})
+				}
+				return joinSets([]reachSet{o, s})
+			}
+		}
+		base := reachSet{}
+		for i := r.Intn(nn); i > 0; i-- {
+			base = step(base)
+		}
+		a, b := base, base
+		for i := r.Intn(4); i > 0; i-- {
+			a = step(a)
+		}
+		for i := r.Intn(4); i > 0; i-- {
+			b = step(b)
+		}
+		if r.Intn(3) == 0 {
+			b = joinSets([]reachSet{a, b})
+		}
+		want := naiveSites(a) == naiveSites(b)
+		if got := reachEqual(a, b); got != want {
+			t.Fatalf("trial %d: reachEqual(a,b)=%v naive=%v\na=%s\nb=%s", trial, got, want, naiveSites(a), naiveSites(b))
+		}
+		if got := reachEqual(b, a); got != want {
+			t.Fatalf("trial %d: reachEqual(b,a)=%v naive=%v", trial, got, want)
+		}
 	}
 }
