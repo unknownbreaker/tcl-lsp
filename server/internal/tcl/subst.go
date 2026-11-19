@@ -13,9 +13,11 @@ import "strings"
 // fallback, for several expr words or text the parse cannot read: there a $var
 // after such a script is not reported, because which bindings reach it depends on
 // which operands ran (`$c ? [set x 1] : $x` reads the value from before the
-// script), so it stays silent. CommandRefs (refs) and the reaching analyzer
-// (reaching_subst.go) both walk words through here, so they agree on what is
-// substituted.
+// script), so it stays silent. The flat scan stops at a bracket script whose `]`
+// may sit in its quotes or braces (bracesHideBrackets), since the rest of the text
+// cannot be read, and reports flowDistrusted. CommandRefs (refs) and the reaching
+// analyzer (reaching_subst.go) both walk words through here, so they agree on what
+// is substituted.
 
 // exprFlow is how much of an expression may have been skipped by the point reached.
 // Values are ordered; a later one implies the earlier ones.
@@ -25,6 +27,7 @@ const (
 	flowAlways          exprFlow = iota // everything so far runs whenever the expression does
 	flowConditional                     // a short-circuit operator came, so a later script may not run
 	flowAfterCondScript                 // a script that may not have run came; later $vars stay silent
+	flowDistrusted                      // a script whose end is unknown came; the scan stopped there
 )
 
 // scriptFunc receives the interior of one [script] at absolute offset innerBase.
@@ -34,7 +37,8 @@ type scriptFunc func(inner string, innerBase int, conditional bool)
 // walkSubst calls onVar for each $var substituted in text and onScript for each
 // [script] interior, in source order. base is the absolute offset of text's first
 // byte. expr is true for the text of an expression. flow is how the same
-// expression ran before text; the result is how it has run by text's end.
+// expression ran before text; the result is how it has run by text's end, or
+// flowDistrusted when the scan stopped at a script it cannot read.
 func walkSubst(text string, base int, expr bool, flow exprFlow, onVar func(VarRef), onScript scriptFunc) exprFlow {
 	inQuote := false
 	i := 0
@@ -64,6 +68,9 @@ func walkSubst(text string, base int, expr bool, flow exprFlow, onVar func(VarRe
 			// skipBracketSpan returns len(text) and there is no ']' to remove.
 			if end > i+1 && text[end-1] == ']' {
 				innerEnd = end - 1
+				if expr && bracesHideBrackets(text[i+1:innerEnd]) {
+					return flowDistrusted
+				}
 			}
 			onScript(text[i+1:innerEnd], base+i+1, flow >= flowConditional)
 			if flow == flowConditional {

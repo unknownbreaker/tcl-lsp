@@ -69,11 +69,79 @@ func TestReachingExpressionUnmodeledIsSilent(t *testing.T) {
 			if off < 0 {
 				t.Fatalf("mark %q not in source", c.mark)
 			}
-			if defs, ok := ReachingAt(c.src, off); ok {
+			if defs, _ := ReachingAt(c.src, off); len(defs) > 0 {
 				t.Errorf("ReachingAt(%s) = %+v, want silent\nsource:\n%s", c.mark, defs, c.src)
 			}
 		})
 	}
+}
+
+// The flat scan cannot tell where a bracket script ends when a `]` may sit in its
+// quotes or braces, so it stops there, and the uses that script's bindings may
+// reach get no answer: those after it, and all of them when it is in a loop. A
+// use before it keeps its answer, and so does a script whose quotes and brackets
+// balance. Tcl's answers are in research/experiments/08_quoted_bracket_flat.tcl.
+// A `{` inside a word is literal, so it cannot hide the `;` and `#` that start a
+// comment holding the `]`. Pinned on the guard, since reaching happens to answer
+// right here (the naive tail reads as a later command). A `${name}` is no brace
+// group at all.
+func TestBracesHideBracketsWordBraces(t *testing.T) {
+	if !bracesHideBrackets("list a{;# }") {
+		t.Error(`bracesHideBrackets("list a{;# }") = false, want true`)
+	}
+	// `${n}` is a braced variable name, `${a}(` takes no index, and `a{b}` is literal.
+	// Tcl 9.0 nests braces and honors `\}` in a braced name; 8.6 stops at the first `}`.
+	for _, bad := range []string{"list ${a]}; set x 1", "list ${a[}; set x 1",
+		"list ${c{} ; set x 1 ", "list ${c\\} ; set x 1 "} {
+		if !bracesHideBrackets(bad) {
+			t.Errorf("bracesHideBrackets(%q) = false, want true", bad)
+		}
+	}
+	for _, ok := range []string{"set ${n}(k)", "list ${a}(", "list ${a b}x", "list a{b}"} {
+		if bracesHideBrackets(ok) {
+			t.Errorf("bracesHideBrackets(%q) = true, want false", ok)
+		}
+	}
+}
+
+func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
+	for _, c := range []struct{ name, src, mark string }{
+		{"a later operand", "proc f {} {\n  set x 0\n  if {[string length \"]\"; set x 1] && $x ne {\"}} {}\n}", "$x ne"},
+		{"the next command", "proc f {} {\n  set x 0\n  if {[string length \"]\"; set x 1]} {}\n  puts $x\n}", "$x\n}"},
+		{"a braced bracket", "proc f {s} {\n  set x 0\n  if {[string map {] [set x 1]} $s] ne {} && $x == 0} {}\n}", "$x =="},
+		{"an earlier use in a loop", "proc f {c} {\n  set x 0\n  while {$c} {\n    puts $x\n    if {[string length \"]\"; set x 1]} {}\n  }\n}", "$x\n"},
+		{"a use in the script", "proc f {} {\n  set x 0\n  if {[string length \"]\"; puts $x]} {}\n}", "$x]"},
+		{"a quote inside a word is literal", "proc f {} {\n  set x 0\n  if {[list a\"b \"]\"; set x 1] && $x ne {\"}} {}\n}", "$x ne"},
+		{"a backslash-newline starts a word", "proc f {} {\n  set x 0\n  if {[list a\\\n\"]\"; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"an array index", "proc f {} {\n  set x 0; array set a {] 5}\n  if {[list $a(]); set x 1] ne {} && $x} {}\n}", "$x}"},
+		{"the next command after an array index", "proc f {} {\n  set x 0; array set a {] 5}\n  if {[list $a(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"an empty-named array index", "proc f {} {\n  set x 0; set (]) 5\n  if {[list $(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a qualified array index", "proc f {} {\n  set x 0; array set ::a {] 5}\n  if {[list $::a(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a quote and a nested index in an index", "proc f {} {\n  set x 0\n  if {[list $::a(x \"$::a(x \" ) ] ) ; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a brace and a nested index in an index", "proc f {} {\n  set x 0\n  if {[list $::a(x {$::a(y } ) ] ) ; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a bracket in a braced variable name", "proc f {} {\n  set x 0; set {a]} 1\n  if {[list ${a]}; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a brace in a braced variable name", "proc f {} {\n  set x 0\n  if {[list ${c{} ; set x 1 ]}] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"an unclosed array index", "proc f {} {\n  set x 0\n  if {[list $a(] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a comment in the script", "proc f {} {\n  set x 0\n  if {[list a;# x]\n       set x 1] ne {} && $x} {}\n}", "$x}"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			off := strings.Index(c.src, c.mark)
+			if off < 0 {
+				t.Fatalf("mark %q not in source", c.mark)
+			}
+			if defs, _ := ReachingAt(c.src, off); len(defs) > 0 {
+				t.Errorf("ReachingAt(%q) = %+v, want silent\nsource:\n%s", c.mark, defs, c.src)
+			}
+		})
+	}
+	runReachCases(t, []reachCase{
+		{"a use before it", "proc f {} {\n  set x 0\n  puts $x\n  if {[string length \"]\"; set x 1]} {}\n}", "$x", []int{2}},
+		{"a use before its loop", "proc f {c} {\n  set x 0\n  puts $x\n  while {$c} {\n    if {[string length \"]\"; set x 1]} {}\n  }\n}", "$x", []int{2}},
+		{"a use between loops", "proc f {c} {\n  set x 0\n  foreach i {1 2} {}\n  puts $x\n  foreach i {1 2} {if {[string length \"]\"; set y 1]} {}}\n}", "$x", []int{2}},
+		{"a braced variable name", "proc f {n} {\n  set x 0\n  if {[list [set ${n}(k)] ${n}] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
+		{"a bracket nested in an array index", "proc f {} {\n  set x 0; array set a {k 5}\n  if {[list $a([string trim k])] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
+		{"a balanced script in a multi-word expr", "proc f {} {\n  set x 0\n  expr {[string length \"[set x 1]\"]} + {$x}\n}", "$x}", []int{3}},
+	})
 }
 
 // expr runs an operand after && only when the earlier operands of its chain ran

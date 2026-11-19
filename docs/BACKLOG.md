@@ -109,8 +109,12 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   Several `expr` words (`expr {$c} && {[set x 1]}`) and text the parse cannot read (an unbalanced
   paren, a Tcl 9 `#` comment, a bracket script whose `]` may sit in braces or quotes) keep the flat
   scan: a bracket after `&&`, `||` or `?` joins with the set before it, and a bare `$x` after one is
-  silent. The flat scan itself ends a bracket at a quoted `]`: `if {[string length "]"; set x 1] &&
-  $x ne {"}} {}` answers `set x 0`, though Tcl reads `x` as 1.
+  silent. Since v0.6.23 the flat scan stops at a bracket script whose `]` may sit in its quotes,
+  braces or an array index (`[string length "]"; set x 1]`, `[list $a(]); set x 1]`), and reaching
+  answers no use at or after that word, nor from the outermost enclosing loop's start when the
+  script sits in a loop (research/experiments/08_quoted_bracket_flat.tcl). In Tcl 8.6 an index in a
+  quoted word may still hide one (#81). Command words still end a substitution at such a `]`:
+  `set r "[list {]}; set x 1]"; puts $x` answers `set x 0` (#78).
 - **Itcl class names under the global fallback.** Since v0.6.21 a relative class name in
   `itcl::body` or `inherit` outside the global namespace names the local class when the workspace
   declares it, else the global one (`::G` for `itcl::body G::run` in `::other` or a template), as

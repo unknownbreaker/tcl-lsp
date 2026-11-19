@@ -72,6 +72,7 @@ func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base i
 				cur = out
 			}
 		})
+	a.distrust(base+c.Words[idx].Start, flow)
 	return cur, flow
 }
 
@@ -88,9 +89,10 @@ func (a *analyzer) recordUseAt(name string, start, end int, in reachSet) {
 func (a *analyzer) collectSubstBindings(c Command, base int, into reachSet, follow func(Command) bool) {
 	exprWords := exprWordStarts(c)
 	for idx := range c.Words {
-		walkWordSubst(c, exprWords, idx, base, flowAlways, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
+		flow := walkWordSubst(c, exprWords, idx, base, flowAlways, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
 			a.collectBindings(Parse(inner), innerBase, into, follow)
 		})
+		a.distrust(base+c.Words[idx].Start, flow)
 	}
 }
 

@@ -1,5 +1,7 @@
 package tcl
 
+import "strings"
+
 // Expression structure. expr evaluates `a ? b : c`, `||` and `&&` lazily: an
 // operand after && runs only when every earlier operand of its chain ran and was
 // true, one after || only when every earlier one ran and was false, and a ternary
@@ -272,29 +274,78 @@ func (s exprSeq) visit(onVar func(VarRef), onScript scriptFunc, conditional bool
 // bracesHideBrackets reports whether a script's span may have ended at the wrong
 // `]`: skipBracketSpan knows neither braces nor quotes, so a span whose braces or
 // quotes do not balance, or whose braced or quoted text holds unbalanced brackets
-// (`[string map {] x} $s]`, `[string length "]"; set x 1]`), is not trusted. A
-// nested quote inside a quoted bracket also counts as unbalanced, which only
-// costs silence.
+// (`[string map {] x} $s]`, `[string length "]"; set x 1]`), is not trusted. As in
+// Tcl, only a `"` that starts a word opens a quote (`a"b` is literal), and a
+// backslash-newline or a nested `[` starts a word. A `#` where a command starts
+// begins a comment, which may hide a `]`, so it is not trusted either. A nested
+// quote inside a quoted bracket also counts as unbalanced, which only costs silence.
+// A bare `$name(` index runs to its `)` and hides a `]` the same way
+// (`[list $a(]); set x 1]`), so a `]` at the index's own level, or an index that
+// never closes, is not trusted; a `[...]` nested in the index is a command, and
+// quotes, braces and spaces in it are literal. A bare `{` opens braces only where
+// a word starts (`a{b}` is literal); `${name}` is a variable name.
 func bracesHideBrackets(script string) bool {
 	braces, brackets := 0, 0 // brackets counts only those inside braces or quotes
 	quoted := false
+	var indexes []int // per open bare array index: the brackets opened inside it
+	wordStart, cmdStart := true, true
 	for i := 0; i < len(script); i++ {
 		c := script[i]
+		atWord, atCmd := wordStart, cmdStart
+		wordStart, cmdStart = false, false
+		bare := braces == 0 && !quoted
+		// In an index at its own level, only `\`, `$`, `[`, `]` and `)` mean anything.
+		inIndex := bare && len(indexes) > 0 && indexes[len(indexes)-1] == 0
 		switch {
 		case c == '\\':
+			if i+1 < len(script) && script[i+1] == '\n' && bare {
+				wordStart, cmdStart = true, atCmd
+			}
 			i++
+		case inIndex && c != '$' && c != '[' && c != ']' && c != ')':
+		case bare && (c == ';' || c == '\n'):
+			wordStart, cmdStart = true, true
+		case bare && isListSpace(c):
+			wordStart, cmdStart = true, atCmd
+		case bare && c == '$' && i+1 < len(script) && script[i+1] == '{':
+			// `${name}` takes no index, and a bracket in the name is literal, so it
+			// hides one from the span. Tcl 8.6 ends the name at the first `}`, but
+			// 9.0 nests braces and honors `\}` in it, so a `{` or `\` is not trusted.
+			end := strings.IndexByte(script[i+2:], '}')
+			if end < 0 || strings.ContainsAny(script[i+2:i+2+end], "[]{\\") {
+				return true
+			}
+			i += 2 + end
+		case bare && c == '$' && arrayIndexAt(script, i+1) > 0:
+			i = arrayIndexAt(script, i+1)
+			indexes = append(indexes, 0)
+		case bare && c == '[':
+			if n := len(indexes); n > 0 {
+				indexes[n-1]++
+			}
+			wordStart, cmdStart = true, true
+		case bare && c == ']' && len(indexes) > 0:
+			if indexes[len(indexes)-1] == 0 {
+				return true
+			}
+			indexes[len(indexes)-1]--
+		case bare && c == ')' && len(indexes) > 0 && indexes[len(indexes)-1] == 0:
+			indexes = indexes[:len(indexes)-1]
+		case bare && c == '#' && atCmd:
+			return true
 		case c == '"' && braces == 0:
-			if quoted && brackets != 0 {
-				return true
+			if quoted {
+				if brackets != 0 {
+					return true
+				}
+				quoted = false
+			} else if atWord {
+				quoted = true
 			}
-			quoted = !quoted
-		case c == '{' && !quoted:
+		case c == '{' && !quoted && (braces > 0 || atWord):
 			braces++
-		case c == '}' && !quoted:
-			if braces--; braces < 0 {
-				return true
-			}
-			if braces == 0 && brackets != 0 {
+		case c == '}' && !quoted && braces > 0: // a bare `}` is literal
+			if braces--; braces == 0 && brackets != 0 {
 				return true
 			}
 		case (braces > 0 || quoted) && c == '[':
@@ -305,5 +356,19 @@ func bracesHideBrackets(script string) bool {
 			}
 		}
 	}
-	return braces != 0 || quoted
+	return braces != 0 || quoted || len(indexes) != 0
+}
+
+// arrayIndexAt returns the offset of the `(` that opens an array index when a
+// variable name (letters, digits, `_`, `::`; possibly empty, as `$(k)` reads the
+// array named "") starts at i and is followed by one, and 0 otherwise.
+func arrayIndexAt(s string, i int) int {
+	j := i
+	for j < len(s) && (isNameByte(s[j]) || s[j] == ':') {
+		j++
+	}
+	if j < len(s) && s[j] == '(' {
+		return j
+	}
+	return 0
 }
