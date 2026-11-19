@@ -283,8 +283,8 @@ func (s exprSeq) visit(onVar func(VarRef), onScript scriptFunc, conditional bool
 // same way (`[list $a(]); set x 1]`, and in Tcl 8.6 `[list "$a(k " ] )"]`), so a
 // `]` at the index's own level, or an index that never closes, is not trusted; a
 // `[...]` nested in the index is a command, and quotes, braces and spaces in it
-// are literal. A bare `{` opens braces only where
-// a word starts (`a{b}` is literal); `${name}` is a variable name.
+// are literal. A bare `{` opens braces only where a word starts (`a{b}` is
+// literal); `${name}` is a variable name.
 func bracesHideBrackets(script string) bool {
 	braces, brackets := 0, 0 // brackets counts only those inside braces or quotes
 	quoted := false
@@ -385,22 +385,10 @@ func trustedDepthSpan(text string, i int) (int, bool) {
 }
 
 // arrayIndexAt returns the offset of the `(` that opens an array index when a
-// variable name (letters, digits, `_`, runs of two or more `:`; possibly empty,
-// as `$(k)` reads the array named "") starts at i and is followed by one, and 0
-// otherwise. A lone `:` ends the name, so `$a:(` is `$a` and the text `:(`.
+// variable name (nameEnd; possibly empty, as `$(k)` reads the array named "")
+// starts at i and is followed by one, and 0 otherwise.
 func arrayIndexAt(s string, i int) int {
-	j := i
-	for j < len(s) {
-		if isNameByte(s[j]) {
-			j++
-		} else if s[j] == ':' && j+1 < len(s) && s[j+1] == ':' {
-			for j < len(s) && s[j] == ':' {
-				j++
-			}
-		} else {
-			break
-		}
-	}
+	j := nameEnd(s, i)
 	if j < len(s) && s[j] == '(' {
 		return j
 	}
