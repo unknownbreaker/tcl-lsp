@@ -1,5 +1,7 @@
 package tcl
 
+import "strings"
+
 // Expression structure. expr evaluates `a ? b : c`, `||` and `&&` lazily: an
 // operand after && runs only when every earlier operand of its chain ran and was
 // true, one after || only when every earlier one ran and was false, and a ternary
@@ -281,7 +283,7 @@ func (s exprSeq) visit(onVar func(VarRef), onScript scriptFunc, conditional bool
 // (`[list $a(]); set x 1]`), so a `]` at the index's own level, or an index that
 // never closes, is not trusted; a `[...]` nested in the index is a command, and
 // quotes, braces and spaces in it are literal. A bare `{` opens braces only where
-// a word starts (`a{` is literal).
+// a word starts (`a{b}` is literal); `${name}` is a variable name.
 func bracesHideBrackets(script string) bool {
 	braces, brackets := 0, 0 // brackets counts only those inside braces or quotes
 	quoted := false
@@ -305,6 +307,13 @@ func bracesHideBrackets(script string) bool {
 			wordStart, cmdStart = true, true
 		case bare && isListSpace(c):
 			wordStart, cmdStart = true, atCmd
+		case bare && c == '$' && i+1 < len(script) && script[i+1] == '{':
+			// `${name}` runs to the first `}` and takes no index.
+			end := strings.IndexByte(script[i+2:], '}')
+			if end < 0 {
+				return true
+			}
+			i += 2 + end
 		case bare && c == '$' && arrayIndexAt(script, i+1) > 0:
 			i = arrayIndexAt(script, i+1)
 			indexes = append(indexes, 0)
@@ -333,11 +342,8 @@ func bracesHideBrackets(script string) bool {
 			}
 		case c == '{' && !quoted && (braces > 0 || atWord):
 			braces++
-		case c == '}' && !quoted:
-			if braces--; braces < 0 {
-				return true
-			}
-			if braces == 0 && brackets != 0 {
+		case c == '}' && !quoted && braces > 0: // a bare `}` is literal
+			if braces--; braces == 0 && brackets != 0 {
 				return true
 			}
 		case (braces > 0 || quoted) && c == '[':

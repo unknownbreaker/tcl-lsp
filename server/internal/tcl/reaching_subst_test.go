@@ -83,10 +83,17 @@ func TestReachingExpressionUnmodeledIsSilent(t *testing.T) {
 // balance. Tcl's answers are in research/experiments/08_quoted_bracket_flat.tcl.
 // A `{` inside a word is literal, so it cannot hide the `;` and `#` that start a
 // comment holding the `]`. Pinned on the guard, since reaching happens to answer
-// right here (the naive tail reads as a later command).
-func TestBracesHideBracketsMidWordBrace(t *testing.T) {
+// right here (the naive tail reads as a later command). A `${name}` is no brace
+// group at all.
+func TestBracesHideBracketsWordBraces(t *testing.T) {
 	if !bracesHideBrackets("list a{;# }") {
 		t.Error(`bracesHideBrackets("list a{;# }") = false, want true`)
+	}
+	// `${n}` is a braced variable name, `${a}(` takes no index, and `a{b}` is literal.
+	for _, ok := range []string{"set ${n}(k)", "list ${a}(", "list ${a b}x", "list a{b}"} {
+		if bracesHideBrackets(ok) {
+			t.Errorf("bracesHideBrackets(%q) = true, want false", ok)
+		}
 	}
 }
 
@@ -122,6 +129,7 @@ func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 		{"a use before it", "proc f {} {\n  set x 0\n  puts $x\n  if {[string length \"]\"; set x 1]} {}\n}", "$x", []int{2}},
 		{"a use before its loop", "proc f {c} {\n  set x 0\n  puts $x\n  while {$c} {\n    if {[string length \"]\"; set x 1]} {}\n  }\n}", "$x", []int{2}},
 		{"a use between loops", "proc f {c} {\n  set x 0\n  foreach i {1 2} {}\n  puts $x\n  foreach i {1 2} {if {[string length \"]\"; set y 1]} {}}\n}", "$x", []int{2}},
+		{"a braced variable name", "proc f {n} {\n  set x 0\n  if {[list [set ${n}(k)] ${n}] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
 		{"a bracket nested in an array index", "proc f {} {\n  set x 0; array set a {k 5}\n  if {[list $a([string trim k])] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
 		{"a balanced script in a multi-word expr", "proc f {} {\n  set x 0\n  expr {[string length \"[set x 1]\"]} + {$x}\n}", "$x}", []int{3}},
 	})
