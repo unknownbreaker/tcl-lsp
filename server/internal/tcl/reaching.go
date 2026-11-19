@@ -4,12 +4,13 @@ package tcl
 // offset useOff in src, as Definition values (Kind DefLocal/DefGlobalLink, with
 // NameStart/NameEnd on the binding's name token and Origin for links). ok is false
 // when the analyzer has no answer: the scope is oversized, its analysis exceeds the
-// work budget (see analyzer.visits), or useOff is not on a use it visited. ok with no defs means the analyzer visited the use and nothing reaches
-// it, or that a bracket script it cannot read (flowDistrusted) may bind it, so callers
-// stay silent rather than guess. When nothing else reaches a visited use, a binding
-// above it in an unknown command's body answers, because that body may or may not run
-// here. Intraprocedural
-// and may-reach. Also supports namespace-level variables (used by RVT templates).
+// work budget (see analyzer.visits), or useOff is not on a use it visited. ok with no
+// defs means the analyzer visited the use and nothing reaches it, or that a bracket
+// script it cannot read (flowDistrusted) may bind it, so callers stay silent rather
+// than guess. When nothing else reaches a visited use, a binding above it in an
+// unknown command's body answers, because that body may or may not run here.
+// Intraprocedural and may-reach. Also supports namespace-level variables (used by RVT
+// templates).
 func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	inner, innerBase, argsWord, argsBase, ns, frame, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, useOff)
 	if !found {
@@ -140,8 +141,8 @@ type analyzer struct {
 	warm map[int]loopState
 	// visits counts command analyses, and sites the distinct commands among them. A
 	// pass of an enclosing loop can bring new bindings that must flow through every
-	// loop nested in it, so the cost grows with the nesting depth. Past
-	// maxVisitsPerCommand analyses per command, on average, the analyzer stops and
+	// loop nested in it, so the cost grows with the nesting depth. Past freeVisits
+	// plus maxVisitsPerCommand analyses per distinct command, the analyzer stops and
 	// ReachingAt answers nothing.
 	visits     int
 	sites      map[int]struct{}
@@ -169,6 +170,9 @@ func (a *analyzer) spend(site int) bool {
 	}
 	return !a.overBudget
 }
+
+// subsumes reports whether sup holds every binding of sub.
+func subsumes(sup, sub reachSet) bool { return reachEqual(joinSets([]reachSet{sup, sub}), sup) }
 
 // loopState is one analysis of a loop: its entry set, the header it reached from it
 // (a fixpoint when converged), and the set after the loop.
@@ -307,12 +311,14 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 	// at the same set. When the entry adds nothing to that header either, the header
 	// is already the fixpoint, and a pass over it repeats the last converged pass, whose
 	// result is kept and whose effects on the analyzer have already happened. That
-	// holds because every effect a walk has on the analyzer is a union or a minimum
-	// (answer, skipped, ret, distrustFrom); an effect of any other kind must not skip.
+	// holds because repeating a walk changes nothing: answer, skipped and ret are
+	// unions, distrustFrom a minimum, and found and useName are set to the same values.
+	// A new effect of any other kind would make this skip wrong. Both shortcuts need a
+	// converged last run, since one stopped at maxLoopIters is not a fixpoint.
 	site := base + c.Words[0].Start
 	entry := cur
-	if prev, ok := a.warm[site]; ok && reachEqual(joinSets([]reachSet{entry, prev.entry}), entry) {
-		if prev.converged && reachEqual(joinSets([]reachSet{prev.header, entry}), prev.header) {
+	if prev, ok := a.warm[site]; ok && prev.converged && subsumes(entry, prev.entry) {
+		if subsumes(prev.header, entry) {
 			return prev.out, true
 		}
 		cur = joinSets([]reachSet{entry, prev.header})

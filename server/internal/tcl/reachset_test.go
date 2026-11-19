@@ -232,6 +232,31 @@ func reachingCost(t *testing.T, src string, off, want int) (uint64, time.Duratio
 	return after.TotalAlloc - before.TotalAlloc, took
 }
 
+// TestReachingNestedForeachAndWrapper pins 20 levels of foreach alternating with
+// an unknown command's body, which took over 20 s when each outer pass re-ran the
+// inner loops. Each level re-collects the bodies below it, so the cost still grows
+// with depth times size (BACKLOG "Cost at pathological depth").
+func TestReachingNestedForeachAndWrapper(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("proc p {l} {\n set x 1\n")
+	for level := 0; level < 20; level++ {
+		fmt.Fprintf(&b, " foreach y $l {\n wrap {\n set x %d\n", level)
+	}
+	b.WriteString(" puts $x\n")
+	b.WriteString(strings.Repeat(" }\n }\n", 20))
+	b.WriteString("}\n")
+	src := b.String()
+	start := time.Now()
+	defs, ok := reachingWithin(t, src, strings.Index(src, "$x")+1)
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("20 levels took %v, want well under 2s", took)
+	}
+	site := strings.Index(src, "set x 19") + 4
+	if !ok || len(defs) != 1 || defs[0].NameStart != site {
+		t.Errorf("ReachingAt = %+v, %v; want the binding at %d", defs, ok, site)
+	}
+}
+
 // reachingWithin runs ReachingAt and fails the test if it takes over 10 seconds, so
 // a superlinear regression fails here rather than at the go test timeout.
 func reachingWithin(t *testing.T, src string, off int) ([]Definition, bool) {

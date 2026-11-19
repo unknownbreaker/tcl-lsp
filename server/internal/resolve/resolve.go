@@ -83,8 +83,8 @@ func localBindingAt(file, src, name string, scope, offset int) []index.Location 
 // bracket script whose end is unknown (a `]` an expression's braces or quotes may hide,
 // or a command word's script that 8.6 and 9.0 may end differently) makes the reaching
 // answer empty for the uses it may bind (see ReachingAt), so those stay silent. When
-// the analyzer has no answer at all (oversized proc, array element access, or a use it
-// did not find), the earliest binding at or before offset answers, so a loop-carried use
+// the analyzer has no answer at all (oversized proc, analysis over its work budget, array
+// element access, or a use it did not find), the earliest binding at or before offset answers, so a loop-carried use
 // on those paths stays silent.
 func (r *Resolver) localDefinition(file, src, name string, scope int, element bool, offset int) []index.Location {
 	// Array element sites (e.g. $arr(key)) are excluded from reaching: the engine

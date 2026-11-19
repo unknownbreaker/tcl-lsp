@@ -188,5 +188,7 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
 - **Cost at pathological depth, new in v0.6.3.** Goto-def on a use inside nested unknown bodies re-collects each
   sub-body per level (1,000 nested wrappers took about 3.4 s). It only runs when the cursor is in that body, and
   hand-written code does not nest this deep, but one such request blocks the dispatch loop. A cap on the walk's depth
-  would bound it. Nested loops (alternating `foreach` and a wrapper included) are bounded since v0.6.28 by the loop
-  warm start and the reaching work budget (`maxVisitsPerCommand`), which answers nothing past it.
+  would bound it. Since v0.6.28 the loop warm start removed the growth per level of alternating `foreach` and a
+  wrapper (20 levels went from over 20 s to milliseconds); the re-collection per level remains. Nested loops are
+  bounded by the reaching work budget (`maxVisitsPerCommand`). Past the budget `ReachingAt` has no answer, and
+  goto-def falls back to the earliest binding, as for an oversized proc.
