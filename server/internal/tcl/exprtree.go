@@ -220,8 +220,8 @@ func (p *exprParser) subst(items []exprItem, end byte) []exprItem {
 // at the first `)`, as Tcl's does.
 func (p *exprParser) substOne(items []exprItem) []exprItem {
 	if p.text[p.i] == '[' {
-		end := skipBracketSpan(p.text, p.i)
-		if p.text[end-1] != ']' || end == p.i+1 || bracesHideBrackets(p.text[p.i+1:end-1]) {
+		end, ok := trustedDepthSpan(p.text, p.i)
+		if !ok {
 			p.ok = false
 			return items
 		}
@@ -342,6 +342,9 @@ func bracesHideBrackets(script string) bool {
 			} else if atWord {
 				quoted = true
 			}
+		case bare && c == '{' && atWord && isExpandPrefix(script, i):
+			i += 2 // {*}: the next byte starts the word
+			wordStart = true
 		case c == '{' && !quoted && (braces > 0 || atWord):
 			braces++
 		case c == '}' && !quoted && braces > 0: // a bare `}` is literal
@@ -357,6 +360,17 @@ func bracesHideBrackets(script string) bool {
 		}
 	}
 	return braces != 0 || quoted || len(indexes) != 0
+}
+
+// trustedDepthSpan returns the offset just past the `]` the depth count of
+// skipBracketSpan pairs with the `[` at i, and whether that span can be trusted:
+// it closes and bracesHideBrackets finds nothing in it that may hide its `]`.
+func trustedDepthSpan(text string, i int) (int, bool) {
+	end := skipBracketSpan(text, i)
+	if end == i+1 || text[end-1] != ']' || bracesHideBrackets(text[i+1:end-1]) {
+		return end, false
+	}
+	return end, true
 }
 
 // arrayIndexAt returns the offset of the `(` that opens an array index when a

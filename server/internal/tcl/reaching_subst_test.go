@@ -1,8 +1,10 @@
 package tcl
 
 import (
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A [command substitution] is a script that runs in this frame, left to right with
@@ -179,4 +181,117 @@ func TestReachingExpressionStructure(t *testing.T) {
 		{"an else body without the keyword after then", "proc f {c d} {\n  set x 0\n  if {$d} then {} elseif {$c && [set x 1]} then {} {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
 		{"an unbalanced paren falls back to the flat scan", "proc f {c} {\n  set x 0\n  if {($c && [set x 1]} {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
 	})
+}
+
+// A command word's [script] ends where Tcl ends it, not at a `]` in its quotes,
+// braces, an index or a comment, so its bindings reach the uses after it. Where
+// Tcl 8.6 and 9.0 may disagree on the end, or none closes it, the uses after it
+// stay silent. Tcl's answers are in research/experiments/08_quoted_bracket_command.tcl.
+func TestReachingCommandWordHiddenBracket(t *testing.T) {
+	runReachCases(t, []reachCase{
+		{"a braced bracket in a quoted word", "proc f {} {\n  set x 0\n  set r \"[list {]}; set x 1]\"\n  puts $x\n}", "$x\n}", []int{3}},
+		{"a quoted bracket in a bare word", "proc f {} {\n  set x 0\n  puts [string length \"]\"; set x 1]\n  puts $x\n}", "$x\n}", []int{3}},
+		{"a quoted bracket in a quoted word", "proc f {} {\n  set x 0\n  set r \"[string length \"]\"; set x 1]\"\n  puts $x\n}", "$x\n}", []int{3}},
+		{"a quoted if condition", "proc f {} {\n  set x 0\n  if \"[list {]}; set x 1] ne {} && \\$x\" {puts $x}\n}", "$x}", []int{3}},
+		{"a later word of the command", "proc f {} {\n  set x 0\n  list [list {]}; set x 1] $x\n}", "$x\n}", []int{3}},
+		{"a bare array index", "proc f {} {\n  set x 0; array set a {] 5}\n  puts [list $a(]); set x 1]\n  puts $x\n}", "$x\n}", []int{3}},
+		{"a comment", "proc f {} {\n  set x 0\n  puts [list a;# x]\n  set x 1]\n  puts $x\n}", "$x\n}", []int{4}},
+		{"an expanded braced word", "proc f {} {\n  set x 0\n  set r \"[list {*}{]} ; set x 1]\"\n  puts $x\n}", "$x\n}", []int{3}},
+		{"an expanded quoted word", "proc f {} {\n  set x 0\n  set r \"[list {*}\"]\" ; set x 1]\"\n  puts $x\n}", "$x\n}", []int{3}},
+		{"a literal {*} mid-word", "proc f {} {\n  set x 0\n  set r \"[list a{*}{]} ; set x 1]\"\n  puts $x\n}", "$x\n}", []int{2}},
+		{"a lone open bracket in braces", "proc f {s} {\n  set x 0\n  set i [string first {[} $s]\n  set x 1\n  puts $x\n}", "$x\n}", []int{4}},
+		{"a lone open bracket in a quoted word", "proc f {s} {\n  set x 0\n  set i \"[string map {[ (} $s]\"\n  set x 1\n  puts $x\n}", "$x\n}", []int{4}},
+		{"an earlier use in a loop", "proc f {c} {\n  set x 0\n  while {$c} {\n    puts $x\n    set r \"[list {]}; set x 1]\"\n  }\n}", "$x\n", []int{2, 5}},
+		{"a use before it", "proc f {} {\n  set x 0\n  puts $x\n  set r \"[list {]}; set x 1]\"\n}", "$x", []int{2}},
+		{"a balanced quoted script", "proc f {} {\n  set x 0\n  set r \"[string length \"[set x 1]\"]\"\n  puts $x\n}", "$x\n}", []int{3}},
+		{"a balanced braced script", "proc f {} {\n  set x 0\n  puts [string map {a b} [set x 1]]\n  puts $x\n}", "$x\n}", []int{3}},
+		{"a balanced quoted if condition", "proc f {} {\n  set x 0\n  if \"[set x 1] && \\$x\" {}\n  puts $x\n}", "$x\n}", []int{3}},
+	})
+	for _, c := range []struct{ name, src, mark string }{
+		{"a ${name} 8.6 and 9.0 read differently", "proc f {} {\n  set x 0\n  set r \"[list ${a\\}] ; set x 1]\"\n  puts $x\n}", "$x\n}"},
+		{"an unterminated script", "proc f {} {\n  set x 0\n  set r \"[list {]} ; set x 1\"\n  puts $x\n}", "$x\n}"},
+		{"an unterminated script in a loop", "proc f {c} {\n  set x 0\n  while {$c} {\n    puts $x\n    set r \"[list ${a\\}] ; set x 1]\"\n  }\n}", "$x\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			off := strings.Index(c.src, c.mark)
+			if off < 0 {
+				t.Fatalf("mark %q not in source", c.mark)
+			}
+			if defs, _ := ReachingAt(c.src, off); len(defs) > 0 {
+				t.Errorf("ReachingAt(%q) = %+v, want silent\nsource:\n%s", c.mark, defs, c.src)
+			}
+		})
+	}
+}
+
+// The scanner ends a command substitution where Tcl does, so text after a `]`
+// hidden in its quotes, braces, an array index or a comment is not read as
+// further words or commands.
+func TestScanBracketHiddenClose(t *testing.T) {
+	for _, c := range []struct {
+		name, src string
+		want      []string
+	}{
+		{"a braced bracket", "puts [string map {] [set y 2]} $s]; z", []string{"puts", "[string map {] [set y 2]} $s]", "z"}},
+		{"a quoted bracket", "puts [string length \"]\"; set x 1]\nz", []string{"puts", "[string length \"]\"; set x 1]", "z"}},
+		{"a quoted bracket in a quoted word", "set r \"[string length \"]\"; set x 1]\"; z", []string{"set", "r", "\"[string length \"]\"; set x 1]\"", "z"}},
+		{"an array index", "puts [list $a(]); set x 1]; z", []string{"puts", "[list $a(]); set x 1]", "z"}},
+		{"a comment", "puts [list a;# x]\n  set x 1]; z", []string{"puts", "[list a;# x]\n  set x 1]", "z"}},
+		{"an expanded braced word", "puts \"[list {*}{]} \"; proc fake {} {}; list \"]\"\nz", []string{"puts", "\"[list {*}{]} \"; proc fake {} {}; list \"]\"", "z"}},
+		{"a lone open bracket in braces", "puts [string first {[} $s]; z", []string{"puts", "[string first {[} $s]", "z"}},
+		{"a balanced script", "puts [a [b] {c}]x; z", []string{"puts", "[a [b] {c}]x", "z"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var got []string
+			for _, cmd := range Parse(c.src) {
+				for _, w := range cmd.Words {
+					got = append(got, w.Text)
+				}
+			}
+			if !slices.Equal(got, c.want) {
+				t.Errorf("words of %q = %q, want %q", c.src, got, c.want)
+			}
+		})
+	}
+}
+
+// References name only what Tcl may run: the commands of a script whose `]`
+// hides in braces, quotes or a comment, and none of the text a misread `]` would
+// have cut loose. Where the script's end is unknown, nothing in it is named.
+func TestCommandRefsHiddenBracketScript(t *testing.T) {
+	for _, c := range []struct {
+		src  string
+		want []string
+	}{
+		{"puts [string map {] [foo]} $s]", []string{"puts", "string", "s"}},
+		{"puts \"[string length \"]\"; foo]\"", []string{"puts", "string", "foo"}},
+		{"puts [list a;# x]\n  foo]", []string{"puts", "list", "foo"}},
+		{"puts \"[list {*}{]} \"; proc fake {} {}; list \"]\"", []string{"puts", "list"}},
+		{"puts \"[list ${a\\}] ; foo]\"", []string{"puts"}},
+	} {
+		var names []string
+		for _, cmd := range Parse(c.src) {
+			for _, r := range CommandRefs(cmd) {
+				names = append(names, r.Name)
+			}
+		}
+		if !slices.Equal(names, c.want) {
+			t.Errorf("references in %q = %q, want %q", c.src, names, c.want)
+		}
+	}
+}
+
+// A lone `[` in braces makes the depth count run to the end of the input, so a
+// scanner that tries it first on every such script parses in quadratic time.
+// 900 KB of them took 19 s that way; ending the span with scriptClose first takes
+// milliseconds. The bound is loose so a loaded machine does not fail it.
+func TestParseLoneOpenBracketsLinear(t *testing.T) {
+	src := strings.Repeat("set i [string first {[} $s]\n", 32000)
+	start := time.Now()
+	if n := len(Parse(src)); n != 32000 {
+		t.Fatalf("Parse gave %d commands, want 32000", n)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("Parse of %d bytes took %v, want well under 3s", len(src), d)
+	}
 }

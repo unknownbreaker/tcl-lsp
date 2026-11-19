@@ -114,12 +114,11 @@ func objMethodInSubsts(w Word, cmdBase int, ns string, frame FrameKind, scope in
 		case c == '\\' && i+1 < len(text):
 			i += 2
 		case c == '[':
-			end := skipBracketSpan(text, i)
-			innerEnd := end
-			if end > i+1 && text[end-1] == ']' {
-				innerEnd = end - 1
+			end, ok := substEnd(text, i, false) // where Tcl ends the script
+			if !ok {
+				return 0, "", false // the rest of the word cannot be read
 			}
-			inner := text[i+1 : innerEnd]
+			inner := text[i+1 : end-1]
 			innerBase := base + i + 1
 			if ro, mn, found := objMethodInCmds(Parse(inner), innerBase, ns, frame, scope, class, offset); found {
 				return ro, mn, true

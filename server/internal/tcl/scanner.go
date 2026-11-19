@@ -76,8 +76,8 @@ func (s *scanner) scanWord() {
 	s.emit(KindWord, start, s.pos)
 }
 
-// scanQuoted advances over a "quoted" word to the next unescaped quote.
-// Tolerant of unterminated input.
+// scanQuoted advances over a "quoted" word to the next unescaped quote outside
+// its [command substitutions]. Tolerant of unterminated input.
 func (s *scanner) scanQuoted() {
 	s.pos++ // opening quote
 	for s.pos < len(s.src) {
@@ -89,6 +89,9 @@ func (s *scanner) scanQuoted() {
 		case c == '"':
 			s.pos++ // closing quote
 			return
+		case c == '[':
+			s.scanBracket() // a quote inside the script does not end the word
+			continue
 		}
 		s.pos++
 	}
@@ -151,26 +154,20 @@ func (s *scanner) scanBare() {
 	}
 }
 
-// scanBracket advances over a balanced [command substitution] span, backslash-
-// aware. Tolerant of unterminated input. (Pragmatic depth counting; a closing
-// bracket inside a nested brace is a rare edge case accepted as a known limit.)
+// scanBracket advances over a [command substitution] span, backslash-aware. It
+// ends the span where Tcl ends it (scriptClose), which knows the quotes, braces,
+// indexes and comments that hide a `]`. When that is unknown, the depth count
+// ends it if that span is trusted (trustedDepthSpan); otherwise the
+// span runs to the end of the input, so no text after a misread `]` is read as
+// words or commands.
 func (s *scanner) scanBracket() {
-	depth := 0
-	for s.pos < len(s.src) {
-		c := s.src[s.pos]
-		switch {
-		case c == '\\' && s.pos+1 < len(s.src):
-			s.pos += 2
-			continue
-		case c == '[':
-			depth++
-		case c == ']':
-			depth--
-			if depth == 0 {
-				s.pos++
-				return
-			}
-		}
-		s.pos++
+	if end, ok := scriptClose(s.src, s.pos+1); ok {
+		s.pos = end + 1
+		return
 	}
+	if end, ok := trustedDepthSpan(s.src, s.pos); ok {
+		s.pos = end
+		return
+	}
+	s.pos = len(s.src)
 }
