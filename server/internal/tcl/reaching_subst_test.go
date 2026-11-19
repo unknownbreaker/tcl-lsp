@@ -90,7 +90,9 @@ func TestBracesHideBracketsWordBraces(t *testing.T) {
 		t.Error(`bracesHideBrackets("list a{;# }") = false, want true`)
 	}
 	// `${n}` is a braced variable name, `${a}(` takes no index, and `a{b}` is literal.
-	for _, bad := range []string{"list ${a]}; set x 1", "list ${a[}; set x 1"} {
+	// Tcl 9.0 nests braces and honors `\}` in a braced name; 8.6 stops at the first `}`.
+	for _, bad := range []string{"list ${a]}; set x 1", "list ${a[}; set x 1",
+		"list ${c{} ; set x 1 ", "list ${c\\} ; set x 1 "} {
 		if !bracesHideBrackets(bad) {
 			t.Errorf("bracesHideBrackets(%q) = false, want true", bad)
 		}
@@ -118,6 +120,7 @@ func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 		{"a quote and a nested index in an index", "proc f {} {\n  set x 0\n  if {[list $::a(x \"$::a(x \" ) ] ) ; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"a brace and a nested index in an index", "proc f {} {\n  set x 0\n  if {[list $::a(x {$::a(y } ) ] ) ; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"a bracket in a braced variable name", "proc f {} {\n  set x 0; set {a]} 1\n  if {[list ${a]}; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a brace in a braced variable name", "proc f {} {\n  set x 0\n  if {[list ${c{} ; set x 1 ]}] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"an unclosed array index", "proc f {} {\n  set x 0\n  if {[list $a(] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"a comment in the script", "proc f {} {\n  set x 0\n  if {[list a;# x]\n       set x 1] ne {} && $x} {}\n}", "$x}"},
 	} {

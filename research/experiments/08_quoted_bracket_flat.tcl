@@ -113,3 +113,13 @@ proc bracedNameNoIndex {} {
 }
 bracedName
 bracedNameNoIndex
+# Tcl 9.0 nests braces in a braced name: here it is `c{} ; set x 1 ]`, so `set`
+# never runs (x=0). Tcl 8.6 ends the name at the first `}` and rejects the
+# expression. The versions disagree, so the guard distrusts a `{` or `\` there.
+proc bracedNameNests {} {
+  set x 0
+  set "c\{\} ; set x 1 \]" 5
+  catch {if {[list ${c{} ; set x 1 ]}] ne {}} {}}
+  puts "bracedNameNests: x=$x"
+}
+bracedNameNests
