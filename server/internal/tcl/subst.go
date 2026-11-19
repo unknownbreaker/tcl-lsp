@@ -15,9 +15,9 @@ import "strings"
 // which operands ran (`$c ? [set x 1] : $x` reads the value from before the
 // script), so it stays silent. The flat scan stops at a bracket script whose `]`
 // may sit in its quotes or braces (bracesHideBrackets), since the rest of the text
-// cannot be read, and reports flowDistrusted. CommandRefs (refs) and the reaching analyzer
-// (reaching_subst.go) both walk words through here, so they agree on what is
-// substituted.
+// cannot be read, and reports flowDistrusted. CommandRefs (refs) and the reaching
+// analyzer (reaching_subst.go) both walk words through here, so they agree on what
+// is substituted.
 
 // exprFlow is how much of an expression may have been skipped by the point reached.
 // Values are ordered; a later one implies the earlier ones.

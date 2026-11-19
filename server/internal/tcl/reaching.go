@@ -6,8 +6,9 @@ package tcl
 // when the analyzer has no answer: the scope is oversized or useOff is not on a use
 // it visited. ok with no defs means the analyzer visited the use and nothing reaches
 // it, or that a bracket script it cannot read (flowDistrusted) may bind it, so callers
-// stay silent rather than guess. When nothing else reaches a visited use, a binding above it in an unknown
-// command's body answers, because that body may or may not run here. Intraprocedural
+// stay silent rather than guess. When nothing else reaches a visited use, a binding
+// above it in an unknown command's body answers, because that body may or may not run
+// here. Intraprocedural
 // and may-reach. Also supports namespace-level variables (used by RVT templates).
 func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
 	inner, innerBase, argsWord, argsBase, ns, frame, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, useOff)
