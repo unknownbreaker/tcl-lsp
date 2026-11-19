@@ -99,7 +99,19 @@ func TestBracesHideBracketsWordBraces(t *testing.T) {
 			t.Errorf("bracesHideBrackets(%q) = false, want true", bad)
 		}
 	}
-	for _, ok := range []string{"set ${n}(k)", "list ${a}(", "list ${a b}x", "list a{b}"} {
+	// In a quoted word too, a `$name(` index runs to its `)`, so its `"` and `]` are
+	// literal (Tcl 8.6; 9.0 rejects a `"` in an index). Both the span Tcl reads and
+	// the shorter one the depth count ends at are distrusted.
+	for _, bad := range []string{`list "$a(k " ] )[set x 1]"; set x 2`, `list "$a(k " `,
+		`list "$::a(k " ] )"`, `list "$a([x] ] )"`,
+		// A lone `:` ends a variable name, so `$a:(` opens no index and its `"` counts.
+		`list "$a:(" ) "`, `list $a:( "x" ") " "`} {
+		if !bracesHideBrackets(bad) {
+			t.Errorf("bracesHideBrackets(%q) = false, want true", bad)
+		}
+	}
+	for _, ok := range []string{"set ${n}(k)", "list ${a}(", "list ${a b}x", "list a{b}",
+		`list "$a($k)" "$a([lindex $l 0])"`, `list "$a(k)" x`, `list "$a([list x])"`} {
 		if bracesHideBrackets(ok) {
 			t.Errorf("bracesHideBrackets(%q) = true, want false", ok)
 		}
@@ -124,6 +136,9 @@ func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 		{"a bracket in a braced variable name", "proc f {} {\n  set x 0; set {a]} 1\n  if {[list ${a]}; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"a brace in a braced variable name", "proc f {} {\n  set x 0\n  if {[list ${c{} ; set x 1 ]}] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"an unclosed array index", "proc f {} {\n  set x 0\n  if {[list $a(] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"an array index in a quoted word", "proc f {} {\n  set x 0\n  if {[list \"$::a(k \" ] )[set x 1]\"; set x 2] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a lone colon in a quoted word opens no index", "proc f {} {\n  set x 0; set a A\n  if {[list \"$a:(\" ) \"]\" ; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"a lone colon in a bare word opens no index", "proc f {} {\n  set x 0; set a A\n  if {[list $a:( \"x\" \") \" \"]\" ; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"a comment in the script", "proc f {} {\n  set x 0\n  if {[list a;# x]\n       set x 1] ne {} && $x} {}\n}", "$x}"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -142,6 +157,7 @@ func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 		{"a use between loops", "proc f {c} {\n  set x 0\n  foreach i {1 2} {}\n  puts $x\n  foreach i {1 2} {if {[string length \"]\"; set y 1]} {}}\n}", "$x", []int{2}},
 		{"a braced variable name", "proc f {n} {\n  set x 0\n  if {[list [set ${n}(k)] ${n}] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
 		{"a bracket nested in an array index", "proc f {} {\n  set x 0; array set a {k 5}\n  if {[list $a([string trim k])] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
+		{"balanced array indexes in quoted words", "proc f {} {\n  set x 0; set k k; set l {5}\n  if {[list \"$::b($k)\" \"$::b([lindex $l 0])\"] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
 		{"a balanced script in a multi-word expr", "proc f {} {\n  set x 0\n  expr {[string length \"[set x 1]\"]} + {$x}\n}", "$x}", []int{3}},
 	})
 }
