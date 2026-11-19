@@ -53,3 +53,17 @@ proc backslashNewline {} {
 midWordQuote
 commentBracket
 backslashNewline
+
+# An array index hides a `]` too: the index runs to its `)`, so x=1 both times.
+proc arrayIndex {} {
+  set x 0; array set a {] 5}
+  if {[list $a(]); set x 1] ne {} && $x} {puts "arrayIndex: x=$x"}
+  puts "arrayIndexNextLine: x=$x"
+}
+# A bracket nested in an index is a command substitution; the script is balanced.
+proc arrayIndexNested {} {
+  set x 0; array set a {k 5}
+  if {[list $a([string trim k])] ne {} && $x == 0} {puts "arrayIndexNested: x=$x"}
+}
+arrayIndex
+arrayIndexNested

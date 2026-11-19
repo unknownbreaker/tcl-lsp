@@ -90,6 +90,9 @@ func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 		{"a use in the script", "proc f {} {\n  set x 0\n  if {[string length \"]\"; puts $x]} {}\n}", "$x]"},
 		{"a quote inside a word is literal", "proc f {} {\n  set x 0\n  if {[list a\"b \"]\"; set x 1] && $x ne {\"}} {}\n}", "$x ne"},
 		{"a backslash-newline starts a word", "proc f {} {\n  set x 0\n  if {[list a\\\n\"]\"; set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"an array index", "proc f {} {\n  set x 0; array set a {] 5}\n  if {[list $a(]); set x 1] ne {} && $x} {}\n}", "$x}"},
+		{"the next command after an array index", "proc f {} {\n  set x 0; array set a {] 5}\n  if {[list $a(]); set x 1] ne {}} {}\n  puts $x\n}", "$x\n}"},
+		{"an unclosed array index", "proc f {} {\n  set x 0\n  if {[list $a(] ne {}} {}\n  puts $x\n}", "$x\n}"},
 		{"a comment in the script", "proc f {} {\n  set x 0\n  if {[list a;# x]\n       set x 1] ne {} && $x} {}\n}", "$x}"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -106,6 +109,7 @@ func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 		{"a use before it", "proc f {} {\n  set x 0\n  puts $x\n  if {[string length \"]\"; set x 1]} {}\n}", "$x", []int{2}},
 		{"a use before its loop", "proc f {c} {\n  set x 0\n  puts $x\n  while {$c} {\n    if {[string length \"]\"; set x 1]} {}\n  }\n}", "$x", []int{2}},
 		{"a use between loops", "proc f {c} {\n  set x 0\n  foreach i {1 2} {}\n  puts $x\n  foreach i {1 2} {if {[string length \"]\"; set y 1]} {}}\n}", "$x", []int{2}},
+		{"a bracket nested in an array index", "proc f {} {\n  set x 0; array set a {k 5}\n  if {[list $a([string trim k])] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
 		{"a balanced script in a multi-word expr", "proc f {} {\n  set x 0\n  expr {[string length \"[set x 1]\"]} + {$x}\n}", "$x}", []int{3}},
 	})
 }

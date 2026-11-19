@@ -99,21 +99,32 @@ func TestGotoDefImplicitElseSeesFalsePaths(t *testing.T) {
 	}
 }
 
-// A `]` inside quotes in a bracket script does not end it, so Tcl runs `set x 1`
-// before the use. The flat scan cannot tell where the script ends, so goto-def
-// stays silent rather than answer `set x 0` alone. Checked against tclsh 8.6 and 9.0.
+// A `]` inside quotes, braces or an array index in a bracket script does not end
+// it. The flat scan cannot tell where the script ends, so goto-def stays silent
+// rather than answer `set x 0` alone (the earliest-binding fallback would too).
+// Checked against tclsh 8.6 and 9.0 in research/experiments/08_quoted_bracket_flat.tcl.
 func TestGotoDefSilentAfterHiddenBracket(t *testing.T) {
-	for _, tc := range []struct{ file, src string }{
-		{"/w/a.tcl", "proc f {} {\n  set x 0\n  if {[string length \"]\"; set x 1]} {}\n  puts $x\n}\n"},
-		{"/w/a.rvt", "<html>\n<?\nproc f {} {\n  set x 0\n  if {[string length \"]\"; set x 1]} {}\n  puts $x\n}\n?>\n</html>\n"},
-	} {
-		t.Run(tc.file, func(t *testing.T) {
-			ix := index.New()
-			ix.IndexFile(tc.file, tc.src)
-			if locs := New(ix).Definition(tc.file, tc.src, strings.Index(tc.src, "puts $x")+6); len(locs) > 0 {
-				t.Fatalf("goto-def on $x = %+v, want silent", locs)
-			}
-		})
+	bodies := []struct{ name, body, mark string }{
+		{"next command", "  set x 0\n  if {[string length \"]\"; set x 1]} {}\n  puts $x\n", "$x\n"},
+		{"same condition", "  set x 0\n  if {[string length \"]\"; set x 1] && $x ne {\"}} {}\n", "$x ne"},
+		{"braced", "  set x 0\n  if {[string map {] [set x 1]} $s] ne {} && $x == 0} {}\n", "$x =="},
+		{"array index", "  set x 0; array set a {] 5}\n  if {[list $a(]); set x 1] ne {} && $x} {}\n", "$x}"},
+	}
+	for _, b := range bodies {
+		proc := "proc f {s} {\n" + b.body + "}\n"
+		for _, tc := range []struct{ file, src string }{
+			{"/w/a.tcl", proc},
+			{"/w/a.rvt", "<html>\n<?\n" + proc + "?>\n</html>\n"},
+		} {
+			t.Run(b.name+" "+tc.file, func(t *testing.T) {
+				ix := index.New()
+				ix.IndexFile(tc.file, tc.src)
+				off := strings.Index(tc.src, b.mark)
+				if locs := New(ix).Definition(tc.file, tc.src, off+1); len(locs) > 0 {
+					t.Fatalf("goto-def on $x = %+v, want silent", locs)
+				}
+			})
+		}
 	}
 }
 
