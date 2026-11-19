@@ -15,12 +15,12 @@ import "strings"
 // which operands ran (`$c ? [set x 1] : $x` reads the value from before the
 // script), so it stays silent. A command word's [script] ends where Tcl ends it
 // (scriptclose.go), as the scanner first tries. An expression's ends at the depth
-// count, and the flat scan stops at one whose `]` may sit in its quotes or braces
-// (bracesHideBrackets). Either scan stops at a script whose end is unknown, since
-// the rest of the text cannot be read, and reports flowDistrusted, which silences
-// the uses after it. CommandRefs (refs) and the reaching
-// analyzer (reaching_subst.go) both walk words through here, so they agree on what
-// is substituted.
+// count, and the flat scan stops at one whose `]` may sit in its quotes, braces or
+// an array index (bracesHideBrackets). Either scan stops at a script whose end
+// is unknown, since the rest of the text cannot be read, and reports
+// flowDistrusted, which silences the uses after it. CommandRefs (refs) and the
+// reaching analyzer (reaching_subst.go) both walk words through here, so they
+// agree on what is substituted.
 
 // exprFlow is how much of an expression may have been skipped by the point reached.
 // Values are ordered; a later one implies the earlier ones.

@@ -123,3 +123,38 @@ proc bracedNameNests {} {
   puts "bracedNameNests: x=$x"
 }
 bracedNameNests
+
+# Issue #82: a `$name(` index inside a quoted word runs to its `)` as a bare one
+# does, so in Tcl 8.6 it swallows the `" ] ` and the script ends at the last `]`:
+# x=2. Tcl 9.0 rejects the `"` ("invalid character in array index") and prints
+# x=0. The depth count would end the script at the first `]` and read `set x 1`
+# as the last binding, so the guard distrusts the script.
+set ::a(k\ \"\ \]\ ) V
+proc quotedIndex {} {
+  set x 0
+  catch {if {[list "$::a(k " ] )[set x 1]"; set x 2] ne {}} {}}
+  puts "quotedIndex: x=$x"
+}
+# Balanced quoted indexes, plain and with a nested command, keep their answers.
+array set ::b {k K 5 F}
+proc quotedIndexBalanced {} {
+  set x 0; set k k; set l {5}
+  if {[list "$::b($k)" "$::b([lindex $l 0])"] ne {} && $x == 0} {puts "quotedIndexBalanced: x=$x"}
+}
+quotedIndex
+quotedIndexBalanced
+# A lone `:` ends a variable name, so `$a:(` is `$a` and the text `:(`; it opens
+# no index, and the `"` after it closes the quote. x=1 in both versions, in a
+# quoted word and a bare one; the depth count ends the script at the quoted `]`.
+proc loneColonQuoted {} {
+  set x 0; set a A
+  if {[list "$a:(" ) "]" ; set x 1] ne {}} {}
+  puts "loneColonQuoted: x=$x"
+}
+proc loneColonBare {} {
+  set x 0; set a A
+  if {[list $a:( "x" ") " "]" ; set x 1] ne {}} {}
+  puts "loneColonBare: x=$x"
+}
+loneColonQuoted
+loneColonBare

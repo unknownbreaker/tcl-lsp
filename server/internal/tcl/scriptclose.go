@@ -167,17 +167,7 @@ func varEnd(s string, i int) (int, bool) {
 		}
 		return 0, false
 	}
-	for j < len(s) {
-		if isNameByte(s[j]) {
-			j++
-		} else if s[j] == ':' && j+1 < len(s) && s[j+1] == ':' {
-			for j < len(s) && s[j] == ':' {
-				j++
-			}
-		} else {
-			break
-		}
-	}
+	j = nameEnd(s, j)
 	if j >= len(s) || s[j] != '(' {
 		return max(j, i+1), true
 	}
@@ -204,4 +194,22 @@ func varEnd(s string, i int) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// nameEnd returns the offset just past the variable name that starts at i:
+// letters, digits, `_` and runs of two or more `:`. A lone `:` ends it, so
+// `$a:(` is `$a` and the text `:(`.
+func nameEnd(s string, i int) int {
+	for i < len(s) {
+		if isNameByte(s[i]) {
+			i++
+		} else if s[i] == ':' && i+1 < len(s) && s[i+1] == ':' {
+			for i < len(s) && s[i] == ':' {
+				i++
+			}
+		} else {
+			break
+		}
+	}
+	return i
 }

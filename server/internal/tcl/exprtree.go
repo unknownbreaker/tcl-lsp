@@ -279,23 +279,25 @@ func (s exprSeq) visit(onVar func(VarRef), onScript scriptFunc, conditional bool
 // backslash-newline or a nested `[` starts a word. A `#` where a command starts
 // begins a comment, which may hide a `]`, so it is not trusted either. A nested
 // quote inside a quoted bracket also counts as unbalanced, which only costs silence.
-// A bare `$name(` index runs to its `)` and hides a `]` the same way
-// (`[list $a(]); set x 1]`), so a `]` at the index's own level, or an index that
-// never closes, is not trusted; a `[...]` nested in the index is a command, and
-// quotes, braces and spaces in it are literal. A bare `{` opens braces only where
-// a word starts (`a{b}` is literal); `${name}` is a variable name.
+// A `$name(` index, bare or in a quoted word, runs to its `)` and hides a `]` the
+// same way (`[list $a(]); set x 1]`, and in Tcl 8.6 `[list "$a(k " ] )"]`), so a
+// `]` at the index's own level, or an index that never closes, is not trusted; a
+// `[...]` nested in the index is a command, and quotes, braces and spaces in it
+// are literal. A bare `{` opens braces only where a word starts (`a{b}` is
+// literal); `${name}` is a variable name.
 func bracesHideBrackets(script string) bool {
 	braces, brackets := 0, 0 // brackets counts only those inside braces or quotes
 	quoted := false
-	var indexes []int // per open bare array index: the brackets opened inside it
+	var indexes []int // per open array index: the brackets opened inside it
 	wordStart, cmdStart := true, true
 	for i := 0; i < len(script); i++ {
 		c := script[i]
 		atWord, atCmd := wordStart, cmdStart
 		wordStart, cmdStart = false, false
 		bare := braces == 0 && !quoted
-		// In an index at its own level, only `\`, `$`, `[`, `]` and `)` mean anything.
-		inIndex := bare && len(indexes) > 0 && indexes[len(indexes)-1] == 0
+		// In an index at its own level (bare or quoted, never in braces), only `\`,
+		// `$`, `[`, `]` and `)` mean anything.
+		inIndex := braces == 0 && len(indexes) > 0 && indexes[len(indexes)-1] == 0
 		switch {
 		case c == '\\':
 			if i+1 < len(script) && script[i+1] == '\n' && bare {
@@ -316,7 +318,7 @@ func bracesHideBrackets(script string) bool {
 				return true
 			}
 			i += 2 + end
-		case bare && c == '$' && arrayIndexAt(script, i+1) > 0:
+		case braces == 0 && c == '$' && arrayIndexAt(script, i+1) > 0:
 			i = arrayIndexAt(script, i+1)
 			indexes = append(indexes, 0)
 		case bare && c == '[':
@@ -329,7 +331,7 @@ func bracesHideBrackets(script string) bool {
 				return true
 			}
 			indexes[len(indexes)-1]--
-		case bare && c == ')' && len(indexes) > 0 && indexes[len(indexes)-1] == 0:
+		case inIndex && c == ')':
 			indexes = indexes[:len(indexes)-1]
 		case bare && c == '#' && atCmd:
 			return true
@@ -352,8 +354,17 @@ func bracesHideBrackets(script string) bool {
 				return true
 			}
 		case (braces > 0 || quoted) && c == '[':
+			if quoted && len(indexes) > 0 {
+				indexes[len(indexes)-1]++
+			}
 			brackets++
 		case (braces > 0 || quoted) && c == ']':
+			if quoted && inIndex {
+				return true
+			}
+			if quoted && len(indexes) > 0 {
+				indexes[len(indexes)-1]--
+			}
 			if brackets--; brackets < 0 {
 				return true
 			}
@@ -374,13 +385,10 @@ func trustedDepthSpan(text string, i int) (int, bool) {
 }
 
 // arrayIndexAt returns the offset of the `(` that opens an array index when a
-// variable name (letters, digits, `_`, `::`; possibly empty, as `$(k)` reads the
-// array named "") starts at i and is followed by one, and 0 otherwise.
+// variable name (nameEnd; possibly empty, as `$(k)` reads the array named "")
+// starts at i and is followed by one, and 0 otherwise.
 func arrayIndexAt(s string, i int) int {
-	j := i
-	for j < len(s) && (isNameByte(s[j]) || s[j] == ':') {
-		j++
-	}
+	j := nameEnd(s, i)
 	if j < len(s) && s[j] == '(' {
 		return j
 	}
