@@ -102,7 +102,7 @@ func upsert(n *reachNode, e reachEntry, d int, merge func(old defList, ok bool) 
 				continue
 			}
 			defs := merge(old.defs, true)
-			if defs.n == old.defs.n {
+			if defs.same(old.defs) {
 				return n
 			}
 			entries := append([]reachEntry(nil), n.entries...)
@@ -205,7 +205,7 @@ func sameEntries(r, b *reachNode) bool {
 		found := false
 		for _, f := range b.entries {
 			if e.name == f.name {
-				found = e.defs.n == f.defs.n
+				found = e.defs.same(f.defs)
 				break
 			}
 		}
@@ -228,8 +228,7 @@ func reachEqual(a, b reachSet) bool {
 	a.each(func(name string, da defList) {
 		na++
 		if equal {
-			db := b.get(name)
-			equal = db.n != nil && da.len() == db.len() && keySubset(da.n.keys, db.n.keys, 0)
+			equal = da.sameSites(b.get(name))
 		}
 	})
 	return equal && na == nb

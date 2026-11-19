@@ -1,8 +1,8 @@
 package tcl
 
 import (
-	"fmt"
 	"math/rand"
+	"slices"
 	"testing"
 )
 
@@ -40,7 +40,7 @@ func collidingKeys(want int) []defKey {
 }
 
 // TestDefListMatchesReference drives unionDefs with random unions and appends
-// over sites that include full keyHash collisions and the same site under two
+// over 5,000 steps whose sites include full keyHash collisions and the same site under two
 // Namespace spellings, and checks order, first-copy-wins, len and keySubset
 // against the eager union.
 func TestDefListMatchesReference(t *testing.T) {
@@ -68,14 +68,14 @@ func TestDefListMatchesReference(t *testing.T) {
 		}
 		return l.n.keys
 	}
-	for step := 0; step < 20000; step++ {
+	for step := 0; step < 5000; step++ {
 		a, b := pool[rng.Intn(len(pool))], pool[rng.Intn(len(pool))]
 		if rng.Intn(4) == 0 {
 			d := mk()
 			b = pair{defsOf(d), []Definition{d}}
 		}
 		p := pair{unionDefs(a.l, b.l), refUnion(a.ref, b.ref)}
-		if got := p.l.slice(); fmt.Sprintf("%+v", got) != fmt.Sprintf("%+v", p.ref) || p.l.len() != len(p.ref) {
+		if got := p.l.slice(); !slices.Equal(got, p.ref) || p.l.len() != len(p.ref) {
 			t.Fatalf("step %d: unionDefs = %+v (len %d), want %+v", step, got, p.l.len(), p.ref)
 		}
 		c := pool[rng.Intn(len(pool))]

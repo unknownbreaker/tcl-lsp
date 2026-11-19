@@ -8,12 +8,12 @@ package tcl
 // is empty.
 type defList struct{ n *defNode }
 
-// defNode is a leaf (defs, deduplicated) or the union of x then y. keys holds
-// every site in the list either way.
+// defNode is a leaf (defs, deduplicated) or the union of head then tail. keys
+// holds every site in the list either way.
 type defNode struct {
-	keys *keyNode
-	defs []Definition
-	x, y *defNode
+	keys       *keyNode
+	defs       []Definition
+	head, tail *defNode
 }
 
 // defKey identifies a binding site by its name's range.
@@ -37,6 +37,17 @@ func defsOf(ds ...Definition) defList {
 	return defList{n}
 }
 
+// same reports whether l and m are the same list, not merely equal ones.
+func (l defList) same(m defList) bool { return l.n == m.n }
+
+// sameSites reports whether l and m hold the same sites, in any order.
+func (l defList) sameSites(m defList) bool {
+	if l.n == nil || m.n == nil {
+		return l.n == m.n
+	}
+	return l.len() == m.len() && keySubset(l.n.keys, m.n.keys, 0)
+}
+
 // len returns the number of sites in l.
 func (l defList) len() int {
 	if l.n == nil {
@@ -51,7 +62,7 @@ func (l defList) slice() []Definition {
 	if l.n == nil {
 		return nil
 	}
-	if l.n.x == nil {
+	if l.n.head == nil {
 		return l.n.defs
 	}
 	out := make([]Definition, 0, l.len())
@@ -64,7 +75,7 @@ func (l defList) slice() []Definition {
 			return
 		}
 		visited[n] = true
-		if n.x == nil {
+		if n.head == nil {
 			for _, d := range n.defs {
 				if k := keyOf(d); !seen[k] {
 					seen[k] = true
@@ -73,8 +84,8 @@ func (l defList) slice() []Definition {
 			}
 			return
 		}
-		walk(n.x)
-		walk(n.y)
+		walk(n.head)
+		walk(n.tail)
 	}
 	walk(l.n)
 	return out
@@ -86,14 +97,14 @@ func unionDefs(x, y defList) defList {
 	switch {
 	case x.n == y.n || y.n == nil:
 		return x
-	case x.n == nil || y.n.x == x.n || leafPrefix(x.n, y.n):
+	case x.n == nil || y.n.head == x.n || leafPrefix(x.n, y.n):
 		return y
 	}
 	keys := keyUnion(x.n.keys, y.n.keys, 0)
 	if keys == x.n.keys {
 		return x
 	}
-	return defList{&defNode{keys: keys, x: x.n, y: y.n}}
+	return defList{&defNode{keys: keys, head: x.n, tail: y.n}}
 }
 
 // leafPrefix reports whether leaves x and y hold the same bindings y starts
@@ -102,7 +113,7 @@ func unionDefs(x, y defList) defList {
 // must win. Returning y then keeps its identity, so a join of equal leaves built
 // twice returns the right-hand one, as joinNodes expects.
 func leafPrefix(x, y *defNode) bool {
-	if x.x != nil || y.x != nil || len(x.defs) > len(y.defs) {
+	if x.head != nil || y.head != nil || len(x.defs) > len(y.defs) {
 		return false
 	}
 	for i := range x.defs {
@@ -122,11 +133,13 @@ type keyNode struct {
 	count int
 }
 
+// hashedKey is a site with its keyHash, computed once.
 type hashedKey struct {
 	hash uint32
 	key  defKey
 }
 
+// keyHash mixes both ends of a site's range into 32 bits.
 func keyHash(k defKey) uint32 {
 	h := uint64(k.start)*0x9E3779B97F4A7C15 ^ uint64(k.end)*0xC2B2AE3D27D4EB4F
 	return uint32(h ^ h>>32)
@@ -253,6 +266,7 @@ func keyHas(n *keyNode, k hashedKey, d int) bool {
 	return false
 }
 
+// keyEach calls f for every key in n's subtree, in no particular order.
 func keyEach(n *keyNode, f func(hashedKey)) {
 	if n == nil {
 		return
