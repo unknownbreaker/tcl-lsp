@@ -43,10 +43,12 @@ func reachSlot(h uint32, depth int) int {
 }
 
 // get returns the bindings of name, or the empty list.
-func (s reachSet) get(name string) defList {
+func (s reachSet) get(name string) defList { return getAt(s.root, name, 0) }
+
+// getAt returns the bindings of name in the subtree n at depth d.
+func getAt(n *reachNode, name string, d int) defList {
 	h := reachHash(name)
-	n := s.root
-	for d := 0; n != nil; d++ {
+	for ; n != nil; d++ {
 		if n.entries != nil {
 			for _, e := range n.entries {
 				if e.name == name {
@@ -217,18 +219,39 @@ func sameEntries(r, b *reachNode) bool {
 }
 
 // reachEqual reports whether two reachSets contain the same bindings (by
-// variable name and NameStart/NameEnd identity).
-func reachEqual(a, b reachSet) bool {
-	if a.root == b.root {
+// variable name and NameStart/NameEnd identity). Sets built from one another share
+// every subtree a change left alone, so it compares by node and skips shared ones.
+func reachEqual(a, b reachSet) bool { return nodesEqual(a.root, b.root, 0) }
+
+// nodesEqual reports whether subtrees a and b, both at depth d, hold the same
+// names bound to the same sites.
+func nodesEqual(a, b *reachNode, d int) bool {
+	if a == b {
 		return true
 	}
+	if a != nil && b != nil && a.entries == nil && b.entries == nil {
+		for i := range a.kids {
+			if !nodesEqual(a.kids[i], b.kids[i], d+1) {
+				return false
+			}
+		}
+		return true
+	}
+	// A leaf against a subtree: the same names may sit in either shape. A name bound
+	// to no sites counts as absent.
 	na, nb := 0, 0
-	b.each(func(string, defList) { nb++ })
+	reachSet{b}.each(func(_ string, db defList) {
+		if db.len() > 0 {
+			nb++
+		}
+	})
 	equal := true
-	a.each(func(name string, da defList) {
-		na++
+	reachSet{a}.each(func(name string, da defList) {
+		if da.len() > 0 {
+			na++
+		}
 		if equal {
-			equal = da.sameSites(b.get(name))
+			equal = da.sameSites(getAt(b, name, d))
 		}
 	})
 	return equal && na == nb
