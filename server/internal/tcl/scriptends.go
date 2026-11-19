@@ -19,7 +19,9 @@ import "unsafe"
 // the byte at e, and is "none" for one that stops before it. A failure answers
 // any s that stops no later than the one that failed.
 type scriptEnds struct {
-	ends map[uintptr]scriptEnd
+	ends   map[uintptr]scriptEnd
+	depths map[uintptr]spanEnd // [script] spans by depth count, by their `[`
+	braces map[uintptr]spanEnd // {braced} spans, by their `{`
 }
 
 type scriptEnd struct {
@@ -71,4 +73,205 @@ func (m *scriptEnds) store(s string, i, end int, found bool) {
 		e.at = addr(s, 0) + uintptr(len(s))
 	}
 	m.ends[addr(s, i)] = e
+}
+
+// Spans found once. The depth count of a [script] in an expression
+// (skipBracketSpan), the trust check over that span (bracesHideBrackets) and a
+// braced word's span (skipBraceSpan) each read the whole span, and so the spans
+// nested in it, at every level: n levels of `[expr {1+[expr {1+ ...}]}]` cost n²
+// (#95). Each is remembered by the address of its opening byte, as script ends
+// are, and each jumps over the spans nested in it through the memo, so every
+// span is read once per walk.
+//
+// A span's end depends only on the bytes from its opening to its closing byte,
+// and its trust only on the bytes between them, so a span that closed answers any
+// text that holds its closing byte, and is "open" for one that stops before it.
+// A span that stays open answers any text that stops no later than the one it
+// was found in. The trust of an open span depends on where the text stops, so it
+// is not remembered.
+type spanEnd struct {
+	keep  string  // the text the span was found in, held so its memory stays put
+	at    uintptr // address of the closing byte, or of the end of keep when open
+	open  bool
+	trust int8 // a [script] span's trust: 0 unknown, 1 trusted, -1 not
+	// A [script] span's braces between its `[` and `]`: the net count of `{`
+	// over `}`, and the lowest running count, as bracesHideBrackets counts them
+	// inside braces.
+	braceNet, braceLow int
+}
+
+// spanLookup returns the remembered entry for the span opening at s[i] and, when
+// it applies to s, whether the span closes in s, with end just past its closing
+// byte, or len(s) when it does not close.
+func spanLookup(tab map[uintptr]spanEnd, s string, i int) (e spanEnd, end int, closed, hit bool) {
+	e, ok := tab[addr(s, i)]
+	if !ok {
+		return e, 0, false, false
+	}
+	start := addr(s, 0)
+	limit := start + uintptr(len(s))
+	switch {
+	case !e.open && e.at < limit:
+		return e, int(e.at-start) + 1, true, true
+	case !e.open, limit <= e.at:
+		return e, len(s), false, true // s stops before the span could close
+	}
+	return e, 0, false, false // a shorter text stayed open; s may close it
+}
+
+// spanStore remembers that the span opening at s[i] closes at s[end-1], or
+// stays open in s when end is 0.
+func spanStore(tab *map[uintptr]spanEnd, s string, i, end int, e spanEnd) {
+	if *tab == nil {
+		*tab = map[uintptr]spanEnd{}
+	}
+	e.keep = s
+	if end == 0 {
+		e.open, e.at = true, addr(s, 0)+uintptr(len(s))
+	} else {
+		e.at = addr(s, end-1)
+	}
+	(*tab)[addr(s, i)] = e
+}
+
+// depthSpan is skipBracketSpan(s, i) for the `[` at i, and whether the span
+// closes in s.
+func (m *scriptEnds) depthSpan(s string, i int) (end int, closed bool) {
+	_, end, closed = m.depthScan(s, i)
+	return end, closed
+}
+
+// depthScan is depthSpan, with the span's brace counts when it closes. A nested
+// span is jumped over: the depth count returns to this level exactly where that
+// span's own count closes.
+func (m *scriptEnds) depthScan(s string, i int) (e spanEnd, end int, closed bool) {
+	if m != nil {
+		if e, end, closed, hit := spanLookup(m.depths, s, i); hit {
+			return e, end, closed
+		}
+	}
+	e, end, closed = m.scanDepth(s, i)
+	if m != nil {
+		at := end
+		if !closed {
+			at = 0
+		}
+		spanStore(&m.depths, s, i, at, e)
+	}
+	return e, end, closed
+}
+
+// scanDepth is depthScan without the memo for the span at i itself.
+func (m *scriptEnds) scanDepth(s string, i int) (e spanEnd, end int, closed bool) {
+	net, low := 0, 0
+	for j := i + 1; j < len(s); {
+		switch c := s[j]; {
+		case c == '\\' && j+1 < len(s):
+			j += 2
+		case c == '[':
+			n, e, ok := m.depthScan(s, j)
+			if !ok {
+				return spanEnd{}, len(s), false
+			}
+			low = min(low, net+n.braceLow)
+			net += n.braceNet
+			j = e
+		case c == ']':
+			return spanEnd{braceNet: net, braceLow: low}, j + 1, true
+		case c == '{':
+			net++
+			j++
+		case c == '}':
+			net--
+			low = min(low, net)
+			j++
+		default:
+			j++
+		}
+	}
+	return spanEnd{}, len(s), false
+}
+
+// trustedDepthSpan returns the offset just past the `]` the depth count of
+// skipBracketSpan pairs with the `[` at i, and whether that span can be trusted:
+// it closes and bracesHideBrackets finds nothing in it that may hide its `]`.
+func (m *scriptEnds) trustedDepthSpan(text string, i int) (int, bool) {
+	end, closed := m.depthSpan(text, i)
+	if !closed {
+		// Unterminated: the depth count ran to the end of text, which is
+		// trusted only when it happens to stop on a `]`.
+		if end == i+1 || text[end-1] != ']' || m.bracesHideBrackets(text[i+1:end-1]) {
+			return end, false
+		}
+		return end, true
+	}
+	if m == nil {
+		return end, !m.bracesHideBrackets(text[i+1 : end-1])
+	}
+	key := addr(text, i)
+	e := m.depths[key]
+	if e.trust == 0 {
+		e.trust = 1
+		if m.bracesHideBrackets(text[i+1 : end-1]) {
+			e.trust = -1
+		}
+		m.depths[key] = e
+	}
+	return end, e.trust > 0
+}
+
+// closedTrustedSpan returns the end of the [script] span at i when it closes in
+// s and is trusted.
+func (m *scriptEnds) closedTrustedSpan(s string, i int) (int, bool) {
+	if _, closed := m.depthSpan(s, i); !closed {
+		return 0, false
+	}
+	return m.trustedDepthSpan(s, i)
+}
+
+// skipBraceSpan returns the index just past a balanced {..} span starting at i.
+// Backslash-aware; tolerant of unterminated input (returns len(text)).
+func (m *scriptEnds) skipBraceSpan(s string, i int) int {
+	end, _ := m.braceSpan(s, i)
+	return end
+}
+
+// braceSpan is skipBraceSpan for the `{` at i, and whether the span closes in
+// s. A nested span is jumped over, as in depthSpan.
+func (m *scriptEnds) braceSpan(s string, i int) (end int, closed bool) {
+	if m != nil {
+		if _, end, closed, hit := spanLookup(m.braces, s, i); hit {
+			return end, closed
+		}
+	}
+	end, closed = m.scanBrace(s, i)
+	if m != nil {
+		at := end
+		if !closed {
+			at = 0
+		}
+		spanStore(&m.braces, s, i, at, spanEnd{})
+	}
+	return end, closed
+}
+
+// scanBrace is braceSpan without the memo for the span at i itself.
+func (m *scriptEnds) scanBrace(s string, i int) (end int, closed bool) {
+	for j := i + 1; j < len(s); {
+		switch c := s[j]; {
+		case c == '\\' && j+1 < len(s):
+			j += 2
+		case c == '{':
+			e, ok := m.braceSpan(s, j)
+			if !ok {
+				return len(s), false
+			}
+			j = e
+		case c == '}':
+			return j + 1, true
+		default:
+			j++
+		}
+	}
+	return len(s), false
 }

@@ -68,11 +68,11 @@ func (m *scriptEnds) scanScriptClose(s string, i int) (end int, ok bool) {
 			atWord = true
 			continue
 		case c == '{' && wasWord:
-			j, ok := braceClose(s, i)
+			j, ok := m.braceSpan(s, i)
 			if !ok {
 				return 0, false
 			}
-			i = j + 1
+			i = j
 			continue
 		case c == '"' && wasWord:
 			j, ok := m.quoteClose(s, i+1)
@@ -120,25 +120,6 @@ func commentEnd(s string, i int) int {
 		i++
 	}
 	return min(i, len(s))
-}
-
-// braceClose returns the offset of the `}` that closes the brace group at i.
-// A backslash quotes the next byte, so `\{` and `\}` do not count.
-func braceClose(s string, i int) (int, bool) {
-	depth := 0
-	for ; i < len(s); i++ {
-		switch s[i] {
-		case '\\':
-			i++
-		case '{':
-			depth++
-		case '}':
-			if depth--; depth == 0 {
-				return i, true
-			}
-		}
-	}
-	return 0, false
 }
 
 // quoteClose returns the offset of the `"` that closes a quoted word whose text

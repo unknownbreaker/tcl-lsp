@@ -125,7 +125,7 @@ func (a *analyzer) evalExprWord(c Command, exprWords map[int]bool, idx, base int
 	if w.Kind != WordBraced || !exprWords[w.Start] {
 		return condOut{}, condOut{}, false
 	}
-	t, ok := exprTreeOf(c, w, base)
+	t, ok := exprTreeOf(c, w, base, &a.ends)
 	if !ok {
 		return condOut{}, condOut{}, false
 	}

@@ -40,15 +40,17 @@ type exprTern struct {
 }
 
 type exprParser struct {
+	ends *scriptEnds // spans found once (scriptends.go)
 	text string
 	base int
 	i    int
 	ok   bool
 }
 
-// parseExprTree parses an expression's text, at absolute offset base.
-func parseExprTree(text string, base int) (*exprTern, bool) {
-	p := &exprParser{text: text, base: base, ok: true}
+// parseExprTree parses an expression's text, at absolute offset base, finding
+// spans through ends.
+func parseExprTree(text string, base int, ends *scriptEnds) (*exprTern, bool) {
+	p := &exprParser{ends: ends, text: text, base: base, ok: true}
 	t := p.tern()
 	p.space()
 	if !p.ok || p.i < len(p.text) {
@@ -135,7 +137,7 @@ func (p *exprParser) seq() exprSeq {
 			s.items = append(s.items, exprItem{isGroup: true, group: p.group()})
 			continue
 		case c == '{':
-			p.i = skipBraceSpan(p.text, p.i)
+			p.i = p.ends.skipBraceSpan(p.text, p.i)
 			if p.text[p.i-1] != '}' {
 				p.ok = false
 			}
@@ -220,7 +222,7 @@ func (p *exprParser) subst(items []exprItem, end byte) []exprItem {
 // at the first `)`, as Tcl's does.
 func (p *exprParser) substOne(items []exprItem) []exprItem {
 	if p.text[p.i] == '[' {
-		end, ok := trustedDepthSpan(p.text, p.i)
+		end, ok := p.ends.trustedDepthSpan(p.text, p.i)
 		if !ok {
 			p.ok = false
 			return items
@@ -286,6 +288,16 @@ func (s exprSeq) visit(onVar func(VarRef), onScript scriptFunc, conditional bool
 // are literal. A bare `{` opens braces only where a word starts (`a{b}` is
 // literal); `${name}` is a variable name.
 func bracesHideBrackets(script string) bool {
+	var m *scriptEnds
+	return m.bracesHideBrackets(script)
+}
+
+// bracesHideBrackets is bracesHideBrackets, jumping over each [script] nested at
+// the top level that closes and is trusted (scriptends.go). Reading such a span
+// byte by byte starts and ends in the same state (bare, no index open, no word
+// or command starting after its `]`) and returns nothing on the way, so the
+// answer is the same.
+func (m *scriptEnds) bracesHideBrackets(script string) bool {
 	braces, brackets := 0, 0 // brackets counts only those inside braces or quotes
 	quoted := false
 	var indexes []int // per open array index: the brackets opened inside it
@@ -321,10 +333,14 @@ func bracesHideBrackets(script string) bool {
 		case braces == 0 && c == '$' && arrayIndexAt(script, i+1) > 0:
 			i = arrayIndexAt(script, i+1)
 			indexes = append(indexes, 0)
-		case bare && c == '[':
-			if n := len(indexes); n > 0 {
-				indexes[n-1]++
+		case bare && c == '[' && len(indexes) == 0:
+			if end, ok := m.closedTrustedSpan(script, i); ok {
+				i = end - 1
+				continue
 			}
+			wordStart, cmdStart = true, true
+		case bare && c == '[':
+			indexes[len(indexes)-1]++
 			wordStart, cmdStart = true, true
 		case bare && c == ']' && len(indexes) > 0:
 			if indexes[len(indexes)-1] == 0 {
@@ -353,6 +369,13 @@ func bracesHideBrackets(script string) bool {
 			if braces--; braces == 0 && brackets != 0 {
 				return true
 			}
+		case braces > 0 && c == '[' && m.jumpBraced(script, &i, &braces):
+			// Inside braces only braces and brackets count, and a span's brackets
+			// balance, so only its braces matter: a `}` in it that closes the
+			// braces it sits in does so with a bracket still open.
+			if braces <= 0 {
+				return true
+			}
 		case (braces > 0 || quoted) && c == '[':
 			if quoted && len(indexes) > 0 {
 				indexes[len(indexes)-1]++
@@ -373,15 +396,22 @@ func bracesHideBrackets(script string) bool {
 	return braces != 0 || quoted || len(indexes) != 0
 }
 
-// trustedDepthSpan returns the offset just past the `]` the depth count of
-// skipBracketSpan pairs with the `[` at i, and whether that span can be trusted:
-// it closes and bracesHideBrackets finds nothing in it that may hide its `]`.
-func trustedDepthSpan(text string, i int) (int, bool) {
-	end := skipBracketSpan(text, i)
-	if end == i+1 || text[end-1] != ']' || bracesHideBrackets(text[i+1:end-1]) {
-		return end, false
+// jumpBraced moves *i to the `]` of the [script] span at *i when the span closes
+// in script, and adds the span's net braces to *braces, or sets *braces to 0
+// when a `}` in the span closes the braces it sits in. It is false, changing
+// nothing, when the span does not close.
+func (m *scriptEnds) jumpBraced(script string, i, braces *int) bool {
+	e, end, closed := m.depthScan(script, *i)
+	if !closed {
+		return false
 	}
-	return end, true
+	if *braces+e.braceLow <= 0 {
+		*braces = 0
+	} else {
+		*braces += e.braceNet
+	}
+	*i = end - 1
+	return true
 }
 
 // arrayIndexAt returns the offset of the `(` that opens an array index when a
