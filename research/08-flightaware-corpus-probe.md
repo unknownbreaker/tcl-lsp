@@ -343,7 +343,8 @@ differs from this section, this section is right, and the plan lists the departu
      array names c` answers both lines, where `main@26f8ab2` dropped the first.
    - **Braced loop tests** of `while` and `for` are recorded at the loop header on every pass, so a binding in
      the body reaches `[llength $args]` in `while {[llength $args]} {...}`. An unbraced test substitutes once,
-     before the command runs, and gets no such treatment.
+     before the command runs, and gets no such treatment; since v0.6.35 (#110) one holding `\`, `$` or `[`,
+     which expr substitutes again, silences the uses after it instead.
    - **Unknown-command bodies stay out of reach sets.** Their bindings are collected separately and count only
      when nothing else reaches, so `set x 0; puts {set x 1}; puts $x` answers line 1 alone. The first attempt
      treated those bodies as conservative and would have excluded known data commands such as `puts`. That was

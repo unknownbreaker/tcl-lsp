@@ -222,7 +222,7 @@ func (a *analyzer) distrustWord(c Command, idx, base int, flow exprFlow) {
 	switch flow {
 	case flowResubst:
 		end := c.Words[len(c.Words)-1].End
-		if !mayRunExpr(c) {
+		if mayBeCondition(c, idx) {
 			for _, w := range c.Words[idx+1:] {
 				if w.Kind == WordBraced {
 					end = w.Start
