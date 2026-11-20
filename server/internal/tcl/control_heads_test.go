@@ -83,3 +83,63 @@ func TestCommandRefsControlHeadsExpressions(t *testing.T) {
 		}
 	}
 }
+
+// Every other command whose scripts the analysis models runs by its head's value
+// too: catch, try, switch, eval, time and timerate scripts, foreach, lmap and dict
+// loops, and the dict body forms bind in this frame, and return, break and continue
+// end the path (#126). Each case leaves the same values in tclsh 8.6 and 9.0 for
+// every head.
+func TestReachingModeledHeads(t *testing.T) {
+	scripts := []struct {
+		name, args string
+		want       []int
+	}{
+		{"catch", "{set x 1}", []int{2, 3}},
+		{"try", "{set x 1}", []int{2, 3}},
+		{"switch", "a {a {set x 1}}", []int{2, 3}},
+		{"eval", "{set x 1}", []int{2, 3}},
+		{"time", "{set x 1}", []int{2, 3}},
+		{"timerate", "{set x 1}", []int{2, 3}},
+	}
+	for _, s := range scripts {
+		for _, h := range controlHeads(s.name) {
+			runReachCases(t, []reachCase{
+				{h + "/script binds", "proc f {} {\n  set x 0\n  " + h + " " + s.args + "\n  puts $x\n}", "$x\n}", s.want},
+			})
+		}
+	}
+	loops := []struct{ name, args string }{
+		{"foreach", "v {1 2}"},
+		{"lmap", "v {1 2}"},
+	}
+	for _, l := range loops {
+		for _, h := range controlHeads(l.name) {
+			runReachCases(t, []reachCase{
+				{h + "/back edge", "proc f {} {\n  set x 0\n  " + h + " " + l.args + " {\n    puts $x\n    set x 1\n  }\n}", "$x\n    set", []int{2, 5}},
+			})
+		}
+	}
+	for _, h := range controlHeads("dict") {
+		runReachCases(t, []reachCase{
+			{h + "/for back edge", "proc f {} {\n  set x 0\n  " + h + " for {k v} {a 1 b 2} {\n    puts $x\n    set x 1\n  }\n}", "$x\n    set", []int{2, 5}},
+			{h + "/map back edge", "proc f {} {\n  set x 0\n  " + h + " map {k v} {a 1 b 2} {\n    puts $x\n    set x 1\n  }\n}", "$x\n    set", []int{2, 5}},
+			{h + "/with body binds", "proc f {d} {\n  set x 0\n  " + h + " with d {set x 1}\n  puts $x\n}", "$x\n}", []int{3}},
+			{h + "/update body binds", "proc f {d} {\n  set x 0\n  " + h + " update d a y {set x 1}\n  puts $x\n}", "$x\n}", []int{3}},
+		})
+	}
+	for _, h := range controlHeads("return") {
+		runReachCases(t, []reachCase{
+			{h + "/ends the path", "proc f {c} {\n  set x 0\n  if {$c} {set x 1; " + h + "}\n  puts $x\n}", "$x\n}", []int{2}},
+		})
+	}
+	for _, h := range controlHeads("break") {
+		runReachCases(t, []reachCase{
+			{h + "/ends the pass", "proc f {} {\n  set x 0\n  while {[incr n] < 3} {\n    " + h + "\n    set x 1\n  }\n  puts $x\n}", "$x\n}", []int{2}},
+		})
+	}
+	for _, h := range controlHeads("continue") {
+		runReachCases(t, []reachCase{
+			{h + "/ends the pass", "proc f {} {\n  set x 0\n  while {[incr n] < 3} {\n    " + h + "\n    set x 1\n  }\n  puts $x\n}", "$x\n}", []int{2}},
+		})
+	}
+}

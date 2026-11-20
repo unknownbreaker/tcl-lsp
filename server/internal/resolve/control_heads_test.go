@@ -101,3 +101,61 @@ func TestQualifiedControlHeadIsNotNamespaceProc(t *testing.T) {
 		}
 	}
 }
+
+// The other modeled builtins run by their head's value too (tclsh 8.6 and 9.0):
+// a catch or switch script binds, foreach, lmap and dict loops carry bindings
+// across their back edge, and break ends the pass, in .tcl and .rvt (#126).
+func TestModeledHeadsThroughResolver(t *testing.T) {
+	for _, h := range []string{`"catch"`, "{*}{catch}", "::catch"} {
+		runControlHead(t, h, "  "+h+" {set x [helper]}\n  puts $x\n", "$x\n}", []string{"x 0", "x [helper]"})
+	}
+	for _, h := range []string{`{switch}`, "::switch"} {
+		runControlHead(t, h, "  "+h+" a {a {set x [helper]}}\n  puts $x\n", "$x\n}", []string{"x 0", "x [helper]"})
+	}
+	for _, h := range []string{`"foreach"`, "::lmap"} {
+		runControlHead(t, h, "  "+h+" v {1 2} {\n    puts $x\n    set x [helper]\n  }\n", "$x\n    set", []string{"x 0", "x [helper]"})
+	}
+	for _, h := range []string{`{dict}`, "::dict"} {
+		runControlHead(t, h, "  "+h+" for {k v} {a 1} {\n    puts $x\n    set x [helper]\n  }\n", "$x\n    set", []string{"x 0", "x [helper]"})
+	}
+	for _, h := range []string{`"break"`, "{*}{continue}"} {
+		runControlHead(t, h, "  while {[helper]} {\n    "+h+"\n    set x 1\n  }\n  puts $x\n", "$x\n}", []string{"x 0"})
+	}
+	// catch traps the break in its script, so the loop runs on to set x 2.
+	for _, h := range []string{`"catch"`, "catch", "::try"} {
+		trap := ""
+		if h == "::try" {
+			trap = " on break {} {}"
+		}
+		runControlHead(t, h, "  while {[helper]} {\n    "+h+" {set x 1; break}"+trap+"\n    set x 2\n  }\n  puts $x\n", "$x\n}", []string{"x 0", "x 2"})
+	}
+}
+
+// A `::`-qualified catch, foreach or break names the global builtin, not a
+// namespace's own proc of the same name (tclsh 8.6 and 9.0), so neither
+// goto-definition nor find-references names ns::catch.
+func TestQualifiedModeledHeadIsNotNamespaceProc(t *testing.T) {
+	src := "namespace eval ns {\n  proc catch {a} {}\n  proc foreach {a b c} {}\n  proc break {} {}\n  proc helper {} {\n    ::catch {}\n    ::foreach v {} {}\n    while 1 {::break}\n    {*}::catch {}\n  }\n}\n"
+	ix := index.New()
+	ix.IndexFile("a.tcl", src)
+	r := New(ix)
+	for _, m := range []string{"::catch {}\n    ::", "::foreach v", "::break}", "{*}::catch"} {
+		i := strings.Index(src, m)
+		if i < 0 {
+			t.Fatalf("mark %q not in source", m)
+		}
+		off := i + strings.Index(m, "::") + 2
+		if locs := r.Definition("a.tcl", src, off); len(locs) != 0 {
+			t.Errorf("goto-def on %q = %+v, want none", m, locs)
+		}
+	}
+	for _, m := range []string{"catch {a", "foreach {a", "break {}"} {
+		i := strings.Index(src, m)
+		if i < 0 {
+			t.Fatalf("mark %q not in source", m)
+		}
+		if locs := r.References("a.tcl", src, i); len(locs) != 0 {
+			t.Errorf("find-references of %q = %+v, want none", m, locs)
+		}
+	}
+}
