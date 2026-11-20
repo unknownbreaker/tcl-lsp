@@ -400,7 +400,7 @@ var listOrDataHeads = map[string]bool{
 	"set": true, "list": true, "lappend": true, "lassign": true, "lset": true,
 	"linsert": true, "lreplace": true, "concat": true, "dict": true,
 	"array": true, "append": true, "return": true, "expr": true, "switch": true,
-	"::switch": true,
+	"::switch": true, "::expr": true,
 }
 
 // scriptBodies returns the braced script-argument words of a command. Expression
@@ -408,6 +408,9 @@ var listOrDataHeads = map[string]bool{
 // contents are not misread as commands. It says nothing about the frame a script
 // runs in: childBodies decides that.
 func scriptBodies(w []Word) []Word {
+	if _, ok := exprHead(w); ok {
+		return nil // every braced word is an expression (exprBodies)
+	}
 	if len(w) == 0 || w[0].Kind != WordBare {
 		return nil
 	}
@@ -462,7 +465,7 @@ func scriptBodies(w []Word) []Word {
 }
 
 // exprBodies returns the braced words a command evaluates as *expressions* (not
-// scripts): every braced argument of `expr`, the conditions of if/elseif, the
+// scripts): every braced argument of expr (any head exprHead accepts), the conditions of if/elseif, the
 // test of while, and the test clause of for. Tcl's expr engine evaluates
 // [command substitutions] inside these braces even though braces normally
 // suppress substitution, so the reference walker must scan them for embedded
@@ -471,19 +474,20 @@ func scriptBodies(w []Word) []Word {
 // commands: a braced if-word is either a condition (here) or a body (there),
 // never both, so the two classifications cannot drift.
 func exprBodies(w []Word) []Word {
-	if len(w) == 0 || w[0].Kind != WordBare {
-		return nil
-	}
-	braced := func(i int) bool { return i >= 0 && i < len(w) && w[i].Kind == WordBraced }
-	switch w[0].Text {
-	case "expr":
+	if h, ok := exprHead(w); ok {
 		var out []Word
-		for _, x := range w[1:] {
+		for _, x := range w[h+1:] {
 			if x.Kind == WordBraced {
 				out = append(out, x)
 			}
 		}
 		return out
+	}
+	if len(w) == 0 || w[0].Kind != WordBare {
+		return nil
+	}
+	braced := func(i int) bool { return i >= 0 && i < len(w) && w[i].Kind == WordBraced }
+	switch w[0].Text {
 	case "while":
 		if braced(1) { // while TEST body -- TEST is an expression.
 			return []Word{w[1]}

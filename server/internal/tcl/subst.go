@@ -181,7 +181,8 @@ func exprTreeOf(c Command, w Word, base int, ends *scriptEnds) (*exprTern, bool)
 // joins with spaces into one expression. Its braced words are expression text only
 // once joined, with a meaning their neighbours decide, so none is read on its own.
 func joinedExpr(c Command) bool {
-	return isCmd(c.Words, "expr") && len(c.Words) != 2
+	h, ok := exprHead(c.Words)
+	return ok && len(c.Words) != h+2
 }
 
 // resubstMayFormScript reports whether an unbraced expr word may hold a bracket
@@ -194,19 +195,28 @@ func resubstMayFormScript(text string) bool {
 }
 
 // mayRunExpr reports whether c is an expr, whose unbraced words are substituted
-// twice: `expr` or `::expr`, also when expanded (`{*}expr`). A dynamic head
-// (`{*}$cmd`) may run anything, so like any dynamic call it is out of reach.
+// twice (see exprHead).
 func mayRunExpr(c Command) bool {
-	name, _, ok := globalHead(c)
-	return ok && name == "expr"
+	_, ok := exprHead(c.Words)
+	return ok
+}
+
+// exprHead reports whether w runs the expr builtin, and the index of its head
+// word: a head whose value is `expr` or `::expr`, also quoted, braced or expanded
+// (`{*}expr` names it at 1). It is the one test of whether a command is expr, for
+// its expression words, their join and flow, and their substitution order (#114).
+// A dynamic head (`{*}$cmd`) may run anything, so like any dynamic call it is out
+// of reach.
+func exprHead(w []Word) (h int, ok bool) {
+	name, h, ok := globalHead(w)
+	return h, ok && name == "expr"
 }
 
 // globalHead returns the value of c's literal head with a leading `::` dropped,
 // and the index of the head word, past a `{*}` (`{*}::while` names while at 1).
 // Tcl names the command by the word's value, so `"if"` and `{while}` count. An
 // expanded head of several words (`{*}{if $c}`) shifts every role, so it does not.
-func globalHead(c Command) (name string, h int, ok bool) {
-	w := c.Words
+func globalHead(w []Word) (name string, h int, ok bool) {
 	if expands(w, 0) {
 		h = 1
 	}
@@ -226,7 +236,7 @@ func globalHead(c Command) (name string, h int, ok bool) {
 // (`{*}while`). When an argument is expanded, no word's role is known, so every
 // argument may be a condition, an expanded braced one too (walkWordSubst).
 func mayBeCondition(c Command, idx int) bool {
-	name, h, ok := globalHead(c)
+	name, h, ok := globalHead(c.Words)
 	if !ok || idx <= h || name != "if" && name != "while" && name != "for" {
 		return false
 	}
@@ -251,7 +261,7 @@ func mayBeCondition(c Command, idx int) bool {
 // later word's scripts conditional, and so may a substitution, whose value is
 // unknown. Every other command's words are separate.
 func carryFlow(c Command, w Word, flow exprFlow) exprFlow {
-	if !isCmd(c.Words, "expr") {
+	if _, ok := exprHead(c.Words); !ok {
 		return flowAlways
 	}
 	if w.Kind != WordBraced && strings.ContainsAny(w.Text, "&|?$[") {

@@ -17,7 +17,7 @@ func (a *analyzer) substitute(c Command, base int, in reachSet, deferred func(id
 	cur, live := in, true
 	// expr substitutes its other words before it evaluates the joined expression,
 	// so those run first, and the braced words then run as one expression.
-	isExpr := isCmd(c.Words, "expr")
+	_, isExpr := exprHead(c.Words)
 	if isExpr {
 		for idx, w := range c.Words {
 			if !exprWords[w.Start] && !deferred(idx) {
