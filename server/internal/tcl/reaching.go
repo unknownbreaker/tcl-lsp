@@ -161,9 +161,9 @@ type analyzer struct {
 	// the substitution walk cannot trust (flowDistrusted), or the end of an expr
 	// command, or the first braced word after an if, while or for condition, whose
 	// second substitution may form one (flowResubst), or the end of a multi-word
-	// eval (distrustEval). Its bindings are
-	// unknown, so no use at or after it is answered. In a loop it is the outermost loop's start
-	// (loopStarts[0]), since a back edge may carry them to an earlier use in the loop.
+	// eval (distrustEval). Its bindings are unknown, so no use at or after it is
+	// answered. In a loop it is the outermost loop's start (loopStarts[0]), since a
+	// back edge may carry them to an earlier use in the loop.
 	distrustFrom int
 	loopStarts   []int
 	// warm holds each loop's last analysis, by the loop's start. An enclosing loop's
@@ -463,10 +463,10 @@ func conservativeHead(c Command) bool {
 	return isCmd(w, "catch") || isCmd(w, "try") || isSwitch(w) || isCmd(w, "time") || isCmd(w, "timerate")
 }
 
-// multiWordEval reports whether c is an eval of more than one word. Tcl joins the
-// words with spaces and runs the result as a script in this frame, after every word
-// was substituted. The analysis does not read the joined script, so it may bind any
-// variable: see distrustEval.
+// multiWordEval reports whether c is an eval of more than one word. Tcl
+// concatenates its words as concat does and runs the result as a script in this
+// frame, after every word was substituted. The analysis does not read the joined
+// script, so it may bind any variable: see distrustEval.
 func multiWordEval(c Command) bool {
 	return isCmd(c.Words, "eval") && len(c.Words) > 2
 }

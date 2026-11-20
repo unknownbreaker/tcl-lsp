@@ -2,9 +2,9 @@ package tcl
 
 import "testing"
 
-// eval with more than one word joins its words with spaces and runs the result as a
-// script in this frame, so `set x 0; eval set x 1; puts $x` prints 1 (tclsh 8.6 and
-// 9.0). The analysis does not read the joined script, so uses after it stay silent:
+// eval with more than one word concatenates its words as concat does and runs the
+// result as a script in this frame, so `set x 0; eval set x 1; puts $x` prints 1
+// (tclsh 8.6 and 9.0). The analysis does not read the joined script, so uses after it stay silent:
 // a missed answer, never only `set x 0` (#132). Any literal head runs the builtin.
 func TestReachingMultiWordEvalSilent(t *testing.T) {
 	var cases []silentReachCase
