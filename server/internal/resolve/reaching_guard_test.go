@@ -248,8 +248,9 @@ func TestDefinitionUseInsideAnUnknownBody(t *testing.T) {
 
 // Only `eval {script}` runs its brace as a script here. With more words eval joins
 // them into a script the analysis does not read, so the use after it is silent
-// (#132): never the brace's binding, and never only the prior one, though Tcl leaves
-// a prior x at 0 in every multi-word case here (tclsh 8.6 and 9.0).
+// (#132): never the brace's binding, and never only the prior one. No multi-word
+// case here sets x in this frame (tclsh 8.6 and 9.0); the proc and two-script forms
+// fail with wrong # args, since concat drops `{}` and joins the scripts.
 func TestDefinitionEvalForms(t *testing.T) {
 	var cases []definitionCase
 	for _, command := range []string{
