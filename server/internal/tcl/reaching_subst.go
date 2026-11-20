@@ -72,7 +72,7 @@ func (a *analyzer) substituteWord(c Command, exprWords map[int]bool, idx, base i
 				cur = out
 			}
 		})
-	a.distrust(base+c.Words[idx].Start, flow)
+	a.distrustWord(c, idx, base, flow)
 	return cur, flow
 }
 
@@ -92,7 +92,7 @@ func (a *analyzer) collectSubstBindings(c Command, base int, into *reachSet, eve
 		flow := walkWordSubst(c, exprWords, idx, base, flowAlways, &a.ends, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
 			a.collectScript(inner, innerBase, into, every)
 		})
-		a.distrust(base+c.Words[idx].Start, flow)
+		a.distrustWord(c, idx, base, flow)
 	}
 }
 

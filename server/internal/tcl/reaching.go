@@ -206,6 +206,19 @@ func (a *analyzer) distrust(start int, flow exprFlow) {
 	}
 }
 
+// distrustWord records word idx of c, at base, when flow says a script in it may
+// bind unseen. A word whose scan stopped is distrusted from its start. One that
+// expr substitutes again (flowResubst) runs its script only once expr evaluates,
+// after every word of c was substituted, so the distrust starts at c's end.
+func (a *analyzer) distrustWord(c Command, idx, base int, flow exprFlow) {
+	switch flow {
+	case flowResubst:
+		a.distrust(base+c.Words[len(c.Words)-1].End, flowDistrusted)
+	case flowDistrusted:
+		a.distrust(base+c.Words[idx].Start, flowDistrusted)
+	}
+}
+
 // seq threads the reaching set left-to-right through a command sequence.
 // Returns (set at end, live). live is false when a non-local exit (return,
 // break, continue) terminates the sequence early; callers treat a non-live
