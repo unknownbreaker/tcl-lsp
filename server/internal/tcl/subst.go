@@ -26,14 +26,17 @@ import "strings"
 // agree on what is substituted.
 
 // exprFlow is how much of an expression may have been skipped by the point reached.
-// Values are ordered; a later one implies the earlier ones.
+// Values are ordered; a later one implies the earlier ones. flowResubst comes only
+// from a whole word, never from inside expression text: it silences the $vars
+// after it, as flowAfterCondScript does, and the reaching analyzer distrusts the
+// uses after its command (distrustWord).
 type exprFlow uint8
 
 const (
 	flowAlways          exprFlow = iota // everything so far runs whenever the expression does
 	flowConditional                     // a short-circuit operator came, so a later script may not run
 	flowAfterCondScript                 // a script that may not have run came; later $vars stay silent
-	flowResubst                         // the word was read, but expr may form and run a script from it
+	flowResubst                         // an expr word was read, but expr may form and run a script from it
 	flowDistrusted                      // a script whose end is unknown came; the scan stopped there
 )
 
@@ -142,7 +145,7 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 		}
 		// An expanded word is split as a list, which decodes its backslashes
 		// (`expr {*}{\x5bset x 1\x5d}`), so it may spell a bracket too.
-		if idx > 1 && c.Words[idx-1].Text == "{*}" && strings.ContainsRune(w.Text, '\\') {
+		if idx > 1 && expands(c.Words, idx-1) && strings.ContainsRune(w.Text, '\\') {
 			return flowResubst
 		}
 		return flow
@@ -187,7 +190,7 @@ func resubstMayFormScript(text string) bool {
 // (`{*}$cmd`) may run anything, so like any dynamic call it is out of reach.
 func mayRunExpr(c Command) bool {
 	w := c.Words
-	if len(w) > 1 && w[0].Kind == WordBraced && w[0].Text == "{*}" {
+	if expands(w, 0) {
 		w = w[1:]
 	}
 	return isCmd(w, "expr") || isCmd(w, "::expr")

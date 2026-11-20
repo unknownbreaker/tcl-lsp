@@ -23,8 +23,7 @@ func TestReachingExprEscapedBracketSilent(t *testing.T) {
 
 // A substituted value may hold the brackets: nothing in the source says it holds
 // none, so reaching stays silent after an unbraced $var or [script] in an expr
-// word too (#107's policy, measured on the corpus gate). Each source leaves x=1
-// in tclsh 8.6 and 9.0.
+// word too (#107). Each source leaves x=1 in tclsh 8.6 and 9.0.
 func TestReachingExprSubstitutedValueSilent(t *testing.T) {
 	runSilentReachCases(t, []silentReachCase{
 		{"value holding a script", "proc f {} {\n  set x 0\n  set s {[set x 1]}\n  expr $s\n  puts $x\n}", "$x\n}"},

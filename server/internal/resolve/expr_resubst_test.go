@@ -16,6 +16,8 @@ func TestExprResubstThroughResolver(t *testing.T) {
 		{"escaped brackets", `expr "\[set x 1\] + $x"`},
 		{"escaped over several words", `expr "\[set" x 1\] + $x`},
 		{"substituted value", `expr $x + $s`},
+		{"bare value", `expr $s`},
+		{"values around a braced word", `expr $s {set x 1} $x`},
 	} {
 		body := "proc f {s} {\n" +
 			"  set x 0\n" +
@@ -39,6 +41,9 @@ func TestExprResubstThroughResolver(t *testing.T) {
 				}
 				if locs := r.Definition(c.file, c.src, at("$x\n}")); len(locs) != 0 {
 					t.Errorf("Definition after the expr = %v, want silent", locs)
+				}
+				if !strings.Contains(shape.expr, "$x") {
+					return
 				}
 				inWord := strings.Index(c.src, shape.expr) + strings.Index(shape.expr, "$x") + 1
 				locs := r.Definition(c.file, c.src, inWord)

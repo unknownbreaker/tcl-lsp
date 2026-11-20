@@ -130,9 +130,11 @@ type analyzer struct {
 	// mirroring emitDefs. See the localBindings doc comment.
 	ns    string
 	frame FrameKind
-	// distrustFrom is the start of the first word holding a bracket script whose end
-	// the substitution walk cannot trust (flowDistrusted), or -1. Its bindings are unknown, so
-	// no use at or after it is answered. In a loop it is the outermost loop's start
+	// distrustFrom is the earliest offset from which a script the analyzer cannot see
+	// may have bound, or -1: the start of a word holding a bracket script whose end
+	// the substitution walk cannot trust (flowDistrusted), or the end of an expr
+	// command whose second substitution may form one (flowResubst). Its bindings are
+	// unknown, so no use at or after it is answered. In a loop it is the outermost loop's start
 	// (loopStarts[0]), since a back edge may carry them to an earlier use in the loop.
 	distrustFrom int
 	loopStarts   []int
