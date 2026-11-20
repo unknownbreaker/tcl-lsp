@@ -18,18 +18,25 @@ import "strings"
 // count, and the flat scan stops at one whose `]` may sit in its quotes, braces or
 // an array index (bracesHideBrackets). Either scan stops at a script whose end
 // is unknown, since the rest of the text cannot be read, and reports
-// flowDistrusted, which silences the uses after it. CommandRefs (refs) and the
+// flowDistrusted, which silences the uses after it. expr substitutes its unbraced
+// words a second time, so one that may hold a bracket once substituted (a
+// backslash, a $var or a [script]) reports flowResubst: its own uses were read
+// on the first pass, and the uses after it stay silent. CommandRefs (refs) and the
 // reaching analyzer (reaching_subst.go) both walk words through here, so they
 // agree on what is substituted.
 
 // exprFlow is how much of an expression may have been skipped by the point reached.
-// Values are ordered; a later one implies the earlier ones.
+// Values are ordered; a later one implies the earlier ones. flowResubst comes only
+// from a whole word, never from inside expression text: it silences the $vars
+// after it, as flowAfterCondScript does, and the reaching analyzer distrusts the
+// uses after its command (distrustWord).
 type exprFlow uint8
 
 const (
 	flowAlways          exprFlow = iota // everything so far runs whenever the expression does
 	flowConditional                     // a short-circuit operator came, so a later script may not run
 	flowAfterCondScript                 // a script that may not have run came; later $vars stay silent
+	flowResubst                         // an expr word was read, but expr may form and run a script from it
 	flowDistrusted                      // a script whose end is unknown came; the scan stopped there
 )
 
@@ -106,7 +113,9 @@ func (m *scriptEnds) substEnd(text string, i int, expr bool) (int, bool) {
 // through ends (scriptends.go). A literal command name
 // and a braced script or data word have nothing to substitute. exprWords is
 // exprWordStarts(c). flow and the result are as for walkSubst; flow carries only
-// through expression text, but any unbraced word may return flowDistrusted.
+// through expression text, but any unbraced word may return flowDistrusted, and
+// an unbraced expr word that may form a script once expr substitutes it again
+// returns flowResubst.
 func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFlow, ends *scriptEnds, onVar func(VarRef), onScript scriptFunc) exprFlow {
 	w := c.Words[idx]
 	if idx == 0 && isLiteralName(w) {
@@ -115,6 +124,9 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 	if w.Kind != WordBraced {
 		if walkSubst(w.Text, base+w.Start, false, flowAlways, ends, onVar, onScript) == flowDistrusted {
 			return flowDistrusted
+		}
+		if idx > 0 && mayRunExpr(c) && resubstMayFormScript(w.Text) {
+			return flowResubst
 		}
 		return flow
 	}
@@ -125,11 +137,16 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 		// The braced word means what the joined text means: `expr "{" {$x} "}"`
 		// is a literal, and `expr {"} {[set x 1]} {"}` runs the script. So it
 		// yields no use, and a script that may form in the join, and may bind,
-		// distrusts what follows. A bracket in the word may form one, and so may
-		// an escaped one in another word (`expr "\[" {set x 1]}`). A bracket in a
-		// substituted value (`expr $b {set x 1} $c`) is the open question of #107.
-		if strings.ContainsAny(w.Text, "[]") || joinedEscape(c) {
+		// distrusts what follows. A bracket in the word may form one; one from
+		// another word (`expr "\[" {set x 1]}`, `expr $b {set x 1} $c`) is
+		// distrusted at that word (resubstMayFormScript).
+		if strings.ContainsAny(w.Text, "[]") {
 			return flowDistrusted
+		}
+		// An expanded word is split as a list, which decodes its backslashes
+		// (`expr {*}{\x5bset x 1\x5d}`), so it may spell a bracket too.
+		if idx > 1 && expands(c.Words, idx-1) && strings.ContainsRune(w.Text, '\\') {
+			return flowResubst
 		}
 		return flow
 	}
@@ -159,15 +176,24 @@ func joinedExpr(c Command) bool {
 	return isCmd(c.Words, "expr") && len(c.Words) != 2
 }
 
-// joinedEscape reports whether an unbraced word of c holds a backslash, which may
-// escape a bracket into the joined text of a multi-word expr.
-func joinedEscape(c Command) bool {
-	for _, w := range c.Words[1:] {
-		if w.Kind != WordBraced && strings.ContainsRune(w.Text, '\\') {
-			return true
-		}
+// resubstMayFormScript reports whether an unbraced expr word may hold a bracket
+// once substituted, which expr substitutes again and runs as a script: a
+// backslash may escape or spell one (`\[`, `\x5b`), and a $var or [script] may
+// supply one in its value. Nothing in the source says a value holds no bracket,
+// so `expr $a + $b` counts too (#107).
+func resubstMayFormScript(text string) bool {
+	return strings.ContainsAny(text, "\\$[")
+}
+
+// mayRunExpr reports whether c is an expr, whose unbraced words are substituted
+// twice: `expr` or `::expr`, also when expanded (`{*}expr`). A dynamic head
+// (`{*}$cmd`) may run anything, so like any dynamic call it is out of reach.
+func mayRunExpr(c Command) bool {
+	w := c.Words
+	if expands(w, 0) {
+		w = w[1:]
 	}
-	return false
+	return isCmd(w, "expr") || isCmd(w, "::expr")
 }
 
 // carryFlow returns the flow that word w of c passes to c's next word. The words of

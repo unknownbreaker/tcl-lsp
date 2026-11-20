@@ -561,11 +561,16 @@ type tryHandler struct {
 // final word count and the role of each word are not known.
 func hasExpansion(w []Word) bool {
 	for i := 0; i+1 < len(w); i++ {
-		if w[i].Kind == WordBraced && w[i].Text == "{*}" && w[i].End == w[i+1].Start {
+		if expands(w, i) {
 			return true
 		}
 	}
 	return false
+}
+
+// expands reports whether word i of w is a `{*}` prefix that expands word i+1.
+func expands(w []Word, i int) bool {
+	return i+1 < len(w) && w[i].Kind == WordBraced && w[i].Text == "{*}" && w[i].End == w[i+1].Start
 }
 
 // tryParts splits a try command's words by role. main is nil for `try $script ...`,

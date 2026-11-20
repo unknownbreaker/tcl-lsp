@@ -121,6 +121,13 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   8.6 and 9.0 may read its end differently (a `${name}` holding `{` or `\`), the uses after it
   stay silent, and unless the depth count's span is trusted the rest of the input is one word. Braced expressions keep the silent guard
   above; they could end their scripts the same way.
+- **Reaching, after expr's second substitution.** Since v0.6.34 (#107) an unbraced `expr` word
+  holding a backslash, a `$var` or a `[script]` may form a script when expr substitutes it again
+  (`expr "\[set x 1\]"`, `expr $s`), so reaching answers no use after the command, nor from the
+  outermost enclosing loop's start. The command's own uses keep their answers. Nothing in the
+  source says a value holds no bracket, so `expr $a + $b` counts too: on the corpus gate that
+  silenced 174 of 29,885 goto-def answers, all after numeric unbraced exprs. Unbraced `if`, `while`
+  and `for` conditions have the same second substitution and still answer.
 - **Itcl class names under the global fallback.** Since v0.6.21 a relative class name in
   `itcl::body` or `inherit` outside the global namespace names the local class when the workspace
   declares it, else the global one (`::G` for `itcl::body G::run` in `::other` or a template), as
