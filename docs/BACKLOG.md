@@ -86,8 +86,9 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   `switch -regexp $x a {...} b {...}` (`$x` may be `-matchvar`) and a single inline arm without `--`
   whose body is a two-word list (`switch $k "a" { puts $y }`) are silent, and so is a half-typed
   inline switch without `--` that reads as complete if its subject is an option. None of these
-  occur in the corpus. Other `::`-qualified builtins (`::if`, `::foreach`) are still read as
-  unknown commands.
+  occur in the corpus. `if`, `while`, `for` and `expr` are read by their head's value
+  (`::if`, `"while"`, `{*}{for}`); other non-bare builtin heads (`::foreach`, `"catch"`,
+  `"break"`) are still read as unknown commands.
 - **Switch, a substituted last body.** A last body of `-` makes Tcl reject the switch, so its arms
   are silent, but only a literal `-` is seen: in `switch $x a { helper } b $body` the arms are
   walked though `$body` may be `-` at run time. (Arm lists are split as Tcl lists since v0.6.16.)

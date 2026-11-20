@@ -215,7 +215,9 @@ func exprHead(w []Word) (int, bool) {
 // globalHead returns the value of w's literal head with a leading `::` dropped,
 // and the index of the head word, past a `{*}` (`{*}::while` names while at 1).
 // Tcl names the command by the word's value, so `"if"` and `{while}` count. An
-// expanded head of several words (`{*}{if $c}`) shifts every role, so it does not.
+// expanded head names the command by its one list element (`{*}{ if }`,
+// `{*}{{if}}`). One of several words (`{*}{if $c}`) shifts every role, so it does
+// not count.
 func globalHead(w []Word) (name string, h int, ok bool) {
 	if expands(w, 0) {
 		h = 1
@@ -224,6 +226,13 @@ func globalHead(w []Word) (name string, h int, ok bool) {
 		return "", 0, false
 	}
 	v, ok := literalValue(w[h])
+	if ok && h == 1 {
+		elems, listOK := listElements(v)
+		if !listOK || len(elems) != 1 {
+			return "", 0, false
+		}
+		v, ok = literalValue(elems[0])
+	}
 	if !ok || v == "" || strings.ContainsAny(v, " \t\n\r\\{}\"[$;") {
 		return "", 0, false
 	}
@@ -232,12 +241,13 @@ func globalHead(w []Word) (name string, h int, ok bool) {
 
 // mayBeCondition reports whether word idx of c may be the condition of an if,
 // elseif, while or for, which expr evaluates, substituting an unbraced one a
-// second time (#110). The head may be qualified (`::if`) or expanded
-// (`{*}while`). When an argument is expanded, no word's role is known, so every
+// second time (#110). Parse spells a literal if/while/for head bare
+// (bareControlHead), so `::if` and `{*}while` arrive as `if` and `while`. When an
+// argument is expanded, no word's role is known, so every
 // argument may be a condition, an expanded braced one too (walkWordSubst).
 func mayBeCondition(c Command, idx int) bool {
 	name, h, ok := globalHead(c.Words)
-	if !ok || idx <= h || name != "if" && name != "while" && name != "for" {
+	if !ok || idx <= h || !isControlName(name) {
 		return false
 	}
 	w := c.Words
