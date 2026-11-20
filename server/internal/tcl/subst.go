@@ -121,6 +121,18 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 	if !exprWords[w.Start] {
 		return flow
 	}
+	if joinedExpr(c) {
+		// The braced word means what the joined text means: `expr "{" {$x} "}"`
+		// is a literal, and `expr {"} {[set x 1]} {"}` runs the script. So it
+		// yields no use, and a script that may form in the join, and may bind,
+		// distrusts what follows. A bracket in the word may form one, and so may
+		// an escaped one in another word (`expr "\[" {set x 1]}`). A bracket in a
+		// substituted value (`expr $b {set x 1} $c`) is the open question of #107.
+		if strings.ContainsAny(w.Text, "[]") || joinedEscape(c) {
+			return flowDistrusted
+		}
+		return flow
+	}
 	if t, ok := exprTreeOf(c, w, base, ends); ok {
 		t.visit(onVar, onScript, flow >= flowConditional)
 		return flow
@@ -133,11 +145,29 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 // false for an expression it cannot read, and for one of several expr words,
 // which form one expression only once joined. Spans are found through ends.
 func exprTreeOf(c Command, w Word, base int, ends *scriptEnds) (*exprTern, bool) {
-	if isCmd(c.Words, "expr") && len(c.Words) != 2 {
+	if joinedExpr(c) {
 		return nil, false
 	}
 	inner, innerBase := bracedInner(w, base)
 	return parseExprTree(inner, innerBase, ends)
+}
+
+// joinedExpr reports whether c is an expr of several argument words, which Tcl
+// joins with spaces into one expression. Its braced words are expression text only
+// once joined, with a meaning their neighbours decide, so none is read on its own.
+func joinedExpr(c Command) bool {
+	return isCmd(c.Words, "expr") && len(c.Words) != 2
+}
+
+// joinedEscape reports whether an unbraced word of c holds a backslash, which may
+// escape a bracket into the joined text of a multi-word expr.
+func joinedEscape(c Command) bool {
+	for _, w := range c.Words[1:] {
+		if w.Kind != WordBraced && strings.ContainsRune(w.Text, '\\') {
+			return true
+		}
+	}
+	return false
 }
 
 // carryFlow returns the flow that word w of c passes to c's next word. The words of

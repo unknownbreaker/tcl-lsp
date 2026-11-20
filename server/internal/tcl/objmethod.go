@@ -106,11 +106,6 @@ func objMethodInSubsts(c Command, base int, ns string, frame FrameKind, scope in
 	var mn string
 	found := false
 	exprWords := exprWordStarts(c)
-	if isCmd(c.Words, "expr") && len(c.Words) != 2 {
-		// Several expr words form one expression only once joined, so a braced
-		// one may be inside a literal: `expr "{" {[$o m]} "}"` never runs m.
-		exprWords = nil
-	}
 	for idx := range c.Words {
 		walkWordSubst(c, exprWords, idx, base, flowAlways, ends, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
 			if !found && offset >= innerBase && offset <= innerBase+len(inner) {
