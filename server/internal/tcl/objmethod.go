@@ -5,7 +5,8 @@ package tcl
 // It reports whether offset falls on the SECOND word of a command whose FIRST
 // word is a lone variable substitution — i.e. the word consists solely of a
 // single "$name" token with no surrounding text. The same shape nested inside
-// a "[command substitution]" span is also detected.
+// a "[command substitution]" span is also detected, including one in a braced
+// expression (`if {[$o m]} ...`, `expr {1+[$o m]}`).
 //
 // On success it returns:
 //   - receiverOff: the byte offset of the variable NAME (the byte after '$' in
@@ -39,11 +40,10 @@ func objMethodInCmds(cmds []Command, base int, ns string, frame FrameKind, scope
 				return ro, mn, true
 			}
 		}
-		// Recurse into [command substitution] spans within each word.
-		for _, w := range c.Words {
-			if ro, mn, found := objMethodInSubsts(w, base, ns, frame, scope, class, offset, ends); found {
-				return ro, mn, true
-			}
+		// Recurse into the [scripts] Tcl substitutes in each word, including those
+		// in braced expression words (if/while/for conditions, expr arguments).
+		if ro, mn, found := objMethodInSubsts(c, base, ns, frame, scope, class, offset, ends); found {
+			return ro, mn, true
 		}
 	}
 	return 0, "", false
@@ -96,37 +96,29 @@ func objMethodAtCmd(c Command, base int, offset int) (receiverOff int, methodNam
 	return absReceiverOff, method.Text, true
 }
 
-// objMethodInSubsts recurses into [command substitution] spans within word w,
-// looking for the "$var method" shape at offset. Returns on first match.
-func objMethodInSubsts(w Word, cmdBase int, ns string, frame FrameKind, scope int, class string, offset int, ends *scriptEnds) (int, string, bool) {
-	if w.Kind == WordBraced {
-		return 0, "", false // braces suppress substitution
+// objMethodInSubsts looks for the "$var method" shape at offset in the [scripts]
+// that Tcl substitutes in c's words, walked as references and reaching walk them
+// (walkWordSubst): a command word's script ends where Tcl ends it, and an
+// expression's at the depth count. A script whose end is unknown or distrusted
+// stops the walk of its word, so the text after it stays silent.
+func objMethodInSubsts(c Command, base int, ns string, frame FrameKind, scope int, class string, offset int, ends *scriptEnds) (int, string, bool) {
+	var ro int
+	var mn string
+	found := false
+	exprWords := exprWordStarts(c)
+	if isCmd(c.Words, "expr") && len(c.Words) != 2 {
+		// Several expr words form one expression only once joined, so a braced
+		// one may be inside a literal: `expr "{" {[$o m]} "}"` never runs m.
+		exprWords = nil
 	}
-	text := w.Text
-	// w.Start is relative to the script fragment this word was parsed from;
-	// cmdBase is that fragment's absolute offset. Both are needed so the inner
-	// command's offsets land in absolute source coordinates (the bug that hid
-	// `[$obj method]` calls inside method bodies, where cmdBase != 0).
-	base := cmdBase + w.Start
-	i := 0
-	for i < len(text) {
-		c := text[i]
-		switch {
-		case c == '\\' && i+1 < len(text):
-			i += 2
-		case c == '[':
-			end, ok := ends.substEnd(text, i, false) // where Tcl ends the script
-			if !ok {
-				return 0, "", false // the rest of the word cannot be read
+	for idx := range c.Words {
+		walkWordSubst(c, exprWords, idx, base, flowAlways, ends, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
+			if !found && offset >= innerBase && offset <= innerBase+len(inner) {
+				ro, mn, found = objMethodInCmds(parseWith(inner, ends), innerBase, ns, frame, scope, class, offset, ends)
 			}
-			inner := text[i+1 : end-1]
-			innerBase := base + i + 1
-			if ro, mn, found := objMethodInCmds(parseWith(inner, ends), innerBase, ns, frame, scope, class, offset, ends); found {
-				return ro, mn, true
-			}
-			i = end
-		default:
-			i++
+		})
+		if found {
+			return ro, mn, true
 		}
 	}
 	return 0, "", false
