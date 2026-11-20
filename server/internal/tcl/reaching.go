@@ -133,7 +133,8 @@ type analyzer struct {
 	// distrustFrom is the earliest offset from which a script the analyzer cannot see
 	// may have bound, or -1: the start of a word holding a bracket script whose end
 	// the substitution walk cannot trust (flowDistrusted), or the end of an expr
-	// command whose second substitution may form one (flowResubst). Its bindings are
+	// command, or the first braced word after an if, while or for condition, whose
+	// second substitution may form one (flowResubst). Its bindings are
 	// unknown, so no use at or after it is answered. In a loop it is the outermost loop's start
 	// (loopStarts[0]), since a back edge may carry them to an earlier use in the loop.
 	distrustFrom int
@@ -211,11 +212,25 @@ func (a *analyzer) distrust(start int, flow exprFlow) {
 // distrustWord records word idx of c, at base, when flow says a script in it may
 // bind unseen. A word whose scan stopped is distrusted from its start. One that
 // expr substitutes again (flowResubst) runs its script only once expr evaluates,
-// after every word of c was substituted, so the distrust starts at c's end.
+// after every word of c was substituted, so the distrust starts at c's end. An
+// if, while or for condition is evaluated once every word was substituted, but
+// before the braced words after it run (a loop's on every pass, which distrust
+// covers from the loop's start inside an enclosing loop), so the distrust starts
+// at the first braced word after it. The unbraced words between keep their
+// answers, read on the first pass.
 func (a *analyzer) distrustWord(c Command, idx, base int, flow exprFlow) {
 	switch flow {
 	case flowResubst:
-		a.distrust(base+c.Words[len(c.Words)-1].End, flowDistrusted)
+		end := c.Words[len(c.Words)-1].End
+		if mayBeCondition(c, idx) {
+			for _, w := range c.Words[idx+1:] {
+				if w.Kind == WordBraced {
+					end = w.Start
+					break
+				}
+			}
+		}
+		a.distrust(base+end, flowDistrusted)
 	case flowDistrusted:
 		a.distrust(base+c.Words[idx].Start, flowDistrusted)
 	}

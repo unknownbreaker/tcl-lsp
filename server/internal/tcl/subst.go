@@ -19,9 +19,10 @@ import "strings"
 // an array index (bracesHideBrackets). Either scan stops at a script whose end
 // is unknown, since the rest of the text cannot be read, and reports
 // flowDistrusted, which silences the uses after it. expr substitutes its unbraced
-// words a second time, so one that may hold a bracket once substituted (a
-// backslash, a $var or a [script]) reports flowResubst: its own uses were read
-// on the first pass, and the uses after it stay silent. CommandRefs (refs) and the
+// words a second time, and so do if, while and for their unbraced conditions,
+// so one that may hold a bracket once substituted (a backslash, a $var or a
+// [script]) reports flowResubst: its own uses were read on the first pass, and
+// the uses after it stay silent. CommandRefs (refs) and the
 // reaching analyzer (reaching_subst.go) both walk words through here, so they
 // agree on what is substituted.
 
@@ -29,14 +30,15 @@ import "strings"
 // Values are ordered; a later one implies the earlier ones. flowResubst comes only
 // from a whole word, never from inside expression text: it silences the $vars
 // after it, as flowAfterCondScript does, and the reaching analyzer distrusts the
-// uses after its command (distrustWord).
+// uses after its expr command, or after an if, while or for condition from the
+// first braced word that follows it (distrustWord).
 type exprFlow uint8
 
 const (
 	flowAlways          exprFlow = iota // everything so far runs whenever the expression does
 	flowConditional                     // a short-circuit operator came, so a later script may not run
 	flowAfterCondScript                 // a script that may not have run came; later $vars stay silent
-	flowResubst                         // an expr word was read, but expr may form and run a script from it
+	flowResubst                         // an expr word or condition was read, but expr may form and run a script from it
 	flowDistrusted                      // a script whose end is unknown came; the scan stopped there
 )
 
@@ -114,8 +116,9 @@ func (m *scriptEnds) substEnd(text string, i int, expr bool) (int, bool) {
 // and a braced script or data word have nothing to substitute. exprWords is
 // exprWordStarts(c). flow and the result are as for walkSubst; flow carries only
 // through expression text, but any unbraced word may return flowDistrusted, and
-// an unbraced expr word that may form a script once expr substitutes it again
-// returns flowResubst.
+// an unbraced expr word or if, while or for condition (or an expanded braced word
+// that may be one) that may form a script once expr substitutes it again returns
+// flowResubst.
 func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFlow, ends *scriptEnds, onVar func(VarRef), onScript scriptFunc) exprFlow {
 	w := c.Words[idx]
 	if idx == 0 && isLiteralName(w) {
@@ -125,12 +128,17 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 		if walkSubst(w.Text, base+w.Start, false, flowAlways, ends, onVar, onScript) == flowDistrusted {
 			return flowDistrusted
 		}
-		if idx > 0 && mayRunExpr(c) && resubstMayFormScript(w.Text) {
+		if idx > 0 && (mayRunExpr(c) || mayBeCondition(c, idx)) && resubstMayFormScript(w.Text) {
 			return flowResubst
 		}
 		return flow
 	}
 	if !exprWords[w.Start] {
+		// An expanded braced word may spell a condition (`if {*}{{[set x 1]} {}}`),
+		// which expr substitutes when it evaluates it.
+		if idx > 1 && expands(c.Words, idx-1) && mayBeCondition(c, idx) && resubstMayFormScript(w.Text) {
+			return flowResubst
+		}
 		return flow
 	}
 	if joinedExpr(c) {
@@ -189,11 +197,53 @@ func resubstMayFormScript(text string) bool {
 // twice: `expr` or `::expr`, also when expanded (`{*}expr`). A dynamic head
 // (`{*}$cmd`) may run anything, so like any dynamic call it is out of reach.
 func mayRunExpr(c Command) bool {
+	name, _, ok := globalHead(c)
+	return ok && name == "expr"
+}
+
+// globalHead returns the value of c's literal head with a leading `::` dropped,
+// and the index of the head word, past a `{*}` (`{*}::while` names while at 1).
+// Tcl names the command by the word's value, so `"if"` and `{while}` count. An
+// expanded head of several words (`{*}{if $c}`) shifts every role, so it does not.
+func globalHead(c Command) (name string, h int, ok bool) {
 	w := c.Words
 	if expands(w, 0) {
-		w = w[1:]
+		h = 1
 	}
-	return isCmd(w, "expr") || isCmd(w, "::expr")
+	if h >= len(w) {
+		return "", 0, false
+	}
+	v, ok := literalValue(w[h])
+	if !ok || v == "" || strings.ContainsAny(v, " \t\n\r\\{}\"[$;") {
+		return "", 0, false
+	}
+	return strings.TrimPrefix(v, "::"), h, true
+}
+
+// mayBeCondition reports whether word idx of c may be the condition of an if,
+// elseif, while or for, which expr evaluates, substituting an unbraced one a
+// second time (#110). The head may be qualified (`::if`) or expanded
+// (`{*}while`). When an argument is expanded, no word's role is known, so every
+// argument may be a condition, an expanded braced one too (walkWordSubst).
+func mayBeCondition(c Command, idx int) bool {
+	name, h, ok := globalHead(c)
+	if !ok || idx <= h || name != "if" && name != "while" && name != "for" {
+		return false
+	}
+	w := c.Words
+	if hasExpansion(w[h:]) {
+		return true
+	}
+	switch name {
+	case "while":
+		return idx == h+1
+	case "for":
+		return idx == h+2
+	}
+	// Tcl reads the keyword by its value, so `"elseif"` and `{elseif}` count, and
+	// so does a word whose value is unknown.
+	kw, ok := literalValue(w[idx-1])
+	return idx == h+1 || !ok || kw == "elseif"
 }
 
 // carryFlow returns the flow that word w of c passes to c's next word. The words of

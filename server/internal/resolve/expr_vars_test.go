@@ -138,7 +138,7 @@ func TestGotoDefAfterHiddenBracketInCommandWord(t *testing.T) {
 	}{
 		{"quoted word", "  set x 0\n  set r \"[list {]}; set x 1]\"\n  puts $x\n", "$x\n", "x 1]"},
 		{"bare word", "  set x 0\n  puts [string length \"]\"; set x 1]\n  puts $x\n", "$x\n", "x 1]"},
-		{"quoted if", "  set x 0\n  if \"[list {]}; set x 1] ne {} && \\$x\" {puts $x}\n", "$x}", "x 1]"},
+		{"quoted if", "  set x 0\n  if \"[list {]}; set x 1] ne {} && $x\" {}\n", "$x\"", "x 1]"},
 		{"expanded word", "  set x 0\n  set r \"[list {*}{]} ; set x 1]\"\n  puts $x\n", "$x\n", "x 1]"},
 		{"lone open bracket", "  set x 0\n  set i [string first {[} $s]\n  set x 2\n  puts $x\n", "$x\n", "x 2"},
 		{"balanced", "  set x 0\n  set r \"[string length \"[set x 1]\"]\"\n  puts $x\n", "$x\n", "x 1]"},

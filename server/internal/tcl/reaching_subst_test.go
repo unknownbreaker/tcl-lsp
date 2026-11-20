@@ -20,7 +20,7 @@ func TestReachingCommandSubstitutionScripts(t *testing.T) {
 		{"else sees every condition", "proc f {} {\n  set y 0\n  if {[set y 1]} {\n  } elseif {[set y 2]} {\n  } else {\n    puts $y\n  }\n}", "$y", []int{4}},
 		{"fall-through sees every condition", "proc f {} {\n  set y 0\n  if {[set y 1]} {\n  } elseif {[set y 2]} {\n  }\n  puts $y\n}", "$y", []int{3, 4}},
 		{"a first branch does not see a later condition", "proc f {} {\n  set y 0\n  if {$c} {\n    puts $y\n  } elseif {[set y 2]} {\n  }\n}", "$y", []int{2}},
-		{"an unbraced condition runs before the if; catch may abort", "proc f {} {\n  set y 0\n  if [catch {set y 1}] {\n    puts $y\n  }\n}", "$y", []int{2, 3}},
+		{"an unbraced condition runs before the if; catch may abort", "proc f {} {\n  set y 0\n  if \"[catch {set y 1}] && $y\" {}\n}", "$y", []int{2, 3}},
 		{"lmap in a bracket", "proc f {} {\n  set y 0\n  set r [lmap i {1 2} {\n    set y $i\n  }]\n  puts $y\n}", "$y", []int{2, 4}},
 		{"a nested bracket", "proc f {} {\n  set y 0\n  set r [list [set y 1]]\n  puts $y\n}", "$y", []int{3}},
 		{"a loop test's bracket reaches the body", "proc f {} {\n  set y 0\n  while {[set y 1]} {\n    puts $y\n  }\n}", "$y", []int{3}},
@@ -191,7 +191,7 @@ func TestReachingExpressionStructure(t *testing.T) {
 		{"a for body after an && chain", "proc f {c} {\n  set x 0\n  for {} {$c && [set x 1]} {} {\n    puts $x\n  }\n}", "$x", []int{3}},
 		{"a bracket that returns ends only its path", "proc f {c} {\n  set x 0\n  if {$c && [return]} {\n    set x 1\n  }\n  puts $x\n}", "$x", []int{2}},
 		{"an else body without the else keyword", "proc f {c} {\n  set x 0\n  if {$c && [set x 1]} {} {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
-		{"an elseif body after an unbraced condition", "proc f {c d} {\n  set x 0\n  if {$c && [set x 1]} {} elseif $d {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
+		{"an elseif body after an unbraced condition", "proc f {c d} {\n  set x 0\n  if {$c && [set x 1]} {} elseif 1 {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
 		{"an else body without the keyword after then", "proc f {c d} {\n  set x 0\n  if {$d} then {} elseif {$c && [set x 1]} then {} {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
 		{"an unbalanced paren falls back to the flat scan", "proc f {c} {\n  set x 0\n  if {($c && [set x 1]} {\n    puts $x\n  }\n}", "$x", []int{2, 3}},
 	})
@@ -206,7 +206,7 @@ func TestReachingCommandWordHiddenBracket(t *testing.T) {
 		{"a braced bracket in a quoted word", "proc f {} {\n  set x 0\n  set r \"[list {]}; set x 1]\"\n  puts $x\n}", "$x\n}", []int{3}},
 		{"a quoted bracket in a bare word", "proc f {} {\n  set x 0\n  puts [string length \"]\"; set x 1]\n  puts $x\n}", "$x\n}", []int{3}},
 		{"a quoted bracket in a quoted word", "proc f {} {\n  set x 0\n  set r \"[string length \"]\"; set x 1]\"\n  puts $x\n}", "$x\n}", []int{3}},
-		{"a quoted if condition", "proc f {} {\n  set x 0\n  if \"[list {]}; set x 1] ne {} && \\$x\" {puts $x}\n}", "$x}", []int{3}},
+		{"a quoted if condition", "proc f {} {\n  set x 0\n  if \"[list {]}; set x 1] ne {} && $x\" {}\n}", "$x\"", []int{3}},
 		{"a later word of the command", "proc f {} {\n  set x 0\n  list [list {]}; set x 1] $x\n}", "$x\n}", []int{3}},
 		{"a bare array index", "proc f {} {\n  set x 0; array set a {] 5}\n  puts [list $a(]); set x 1]\n  puts $x\n}", "$x\n}", []int{3}},
 		{"a comment", "proc f {} {\n  set x 0\n  puts [list a;# x]\n  set x 1]\n  puts $x\n}", "$x\n}", []int{4}},
@@ -219,7 +219,7 @@ func TestReachingCommandWordHiddenBracket(t *testing.T) {
 		{"a use before it", "proc f {} {\n  set x 0\n  puts $x\n  set r \"[list {]}; set x 1]\"\n}", "$x", []int{2}},
 		{"a balanced quoted script", "proc f {} {\n  set x 0\n  set r \"[string length \"[set x 1]\"]\"\n  puts $x\n}", "$x\n}", []int{3}},
 		{"a balanced braced script", "proc f {} {\n  set x 0\n  puts [string map {a b} [set x 1]]\n  puts $x\n}", "$x\n}", []int{3}},
-		{"a balanced quoted if condition", "proc f {} {\n  set x 0\n  if \"[set x 1] && \\$x\" {}\n  puts $x\n}", "$x\n}", []int{3}},
+		{"a balanced quoted if condition", "proc f {} {\n  set x 0\n  if \"[set x 1] && $x\" {}\n}", "$x\"", []int{3}},
 	})
 	for _, c := range []struct{ name, src, mark string }{
 		{"a ${name} 8.6 and 9.0 read differently", "proc f {} {\n  set x 0\n  set r \"[list ${a\\}] ; set x 1]\"\n  puts $x\n}", "$x\n}"},
