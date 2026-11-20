@@ -339,6 +339,10 @@ differs from this section, this section is right, and the plan lists the departu
      `on`/`trap` also see the main body's bindings, and `finally` also sees the handlers' bindings, because a
      handler may have run, but not its own later bindings. The exit set stays conservative. Each arm's bindings
      are collected into one set: rebuilding the set per arm made goto-def quadratic, about 10 s at 4,000 arms.
+   - **Trapped exits** (#126). A `break` or `continue` in a catch script ends there, since catch traps every
+     code, and in a timerate script, which ends its timing on either (`time` passes both on). timerate reruns its script, so a use in it also sees what the script binds below it. In a try main body it ends there when an `on` clause names it (`on break`, `on 3`). The exit set
+     covers where it goes next. An exit from a handler or `finally`, or past an `on` code given in another
+     spelling, still leaves for the enclosing loop (#134).
    - **`array set` merges.** It adds to what reaches rather than killing it, so `array set c {a 1}; array set c {b 2};
      array names c` answers both lines, where `main@26f8ab2` dropped the first.
    - **Braced loop tests** of `while` and `for` are recorded at the loop header on every pass, so a binding in

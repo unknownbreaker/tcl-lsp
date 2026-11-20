@@ -107,10 +107,35 @@ func procArgsWord(c Command, base int, frame FrameKind) (Word, int) {
 }
 
 // frameAcc collects a loop's break and continue exits. contLive records that a
-// continue was reached, which an empty cont set cannot tell.
+// continue was reached, which an empty cont set cannot tell. A trap frame is a catch
+// or try body, not a loop: an exit it traps ends there, and the command's
+// conservative exit covers where it goes next. Any other exit passes to the loop
+// below.
 type frameAcc struct {
 	brk, cont reachSet
 	contLive  bool
+	trap      *exitTraps
+}
+
+// exitLoop sends a break (brk) or continue reaching it with in to the innermost
+// loop, unless a catch or try body between traps it.
+func (a *analyzer) exitLoop(brk bool, in reachSet) {
+	for i := len(a.loopStack) - 1; i >= 0; i-- {
+		f := a.loopStack[i]
+		if f.trap != nil {
+			if (brk && f.trap.brk) || (!brk && f.trap.cont) {
+				return
+			}
+			continue
+		}
+		if brk {
+			f.brk = joinSets([]reachSet{f.brk, in})
+		} else {
+			f.cont = joinSets([]reachSet{f.cont, in})
+			f.contLive = true
+		}
+		return
+	}
 }
 
 type analyzer struct {
@@ -328,7 +353,8 @@ func (a *analyzer) runScript(script *Word, base int, in reachSet) (reachSet, boo
 // evaluates the test, runs the body, then next, so `continue` still runs next. Loop
 // variables (foreach/lmap/dict-for) are rebound at the top of every pass, so a
 // reassignment below a use does not reach that use on the next iteration.
-// break/continue exits are accumulated in a per-loop frameAcc pushed onto loopStack.
+// break/continue exits are accumulated in a per-loop frameAcc pushed onto loopStack,
+// which also holds the trap frames of catch, try and timerate bodies (runTrapped).
 func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool) {
 	acc := &frameAcc{brk: reachSet{}, cont: reachSet{}}
 	a.loopStack = append(a.loopStack, acc)
@@ -483,10 +509,11 @@ func (a *analyzer) sameScopeBodies(c Command, base int) []bodyScope {
 }
 
 // conservativeBody is one body of a conservative construct with the set it sees on
-// entry.
+// entry, and the exits its command traps from it.
 type conservativeBody struct {
 	script Word
 	entry  reachSet
+	traps  exitTraps
 }
 
 // bindingsIn unions every binding made in the braced script by code known to run
@@ -510,7 +537,12 @@ func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBod
 	var bodies []conservativeBody
 	handlerEntry := in
 	if main != nil {
-		bodies = append(bodies, conservativeBody{*main, in})
+		var traps exitTraps
+		for _, h := range handlers {
+			traps.brk = traps.brk || h.traps.brk
+			traps.cont = traps.cont || h.traps.cont
+		}
+		bodies = append(bodies, conservativeBody{*main, in, traps})
 		handlerEntry = joinSets([]reachSet{in, a.bindingsIn(*main, base)})
 	}
 	finallyEntry := handlerEntry
@@ -530,7 +562,7 @@ func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBod
 		paths = nil
 		finallyEntry = joinSets([]reachSet{finallyEntry, entry})
 		if handler.body != nil {
-			bodies = append(bodies, conservativeBody{*handler.body, entry})
+			bodies = append(bodies, conservativeBody{*handler.body, entry, exitTraps{}})
 			finallyEntry = joinSets([]reachSet{finallyEntry, a.bindingsIn(*handler.body, base)})
 		}
 	}
@@ -538,9 +570,19 @@ func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBod
 		finallyEntry = joinSets(append(paths, finallyEntry))
 	}
 	if finally != nil {
-		bodies = append(bodies, conservativeBody{*finally, finallyEntry})
+		bodies = append(bodies, conservativeBody{*finally, finallyEntry, exitTraps{}})
 	}
 	return bodies
+}
+
+// runTrapped runs one body of a conservative construct. A break or continue its
+// command traps (body.traps) ends in it; any other passes to the enclosing loop.
+func (a *analyzer) runTrapped(body conservativeBody, base int) {
+	if body.traps != (exitTraps{}) {
+		a.loopStack = append(a.loopStack, &frameAcc{trap: &body.traps})
+		defer func() { a.loopStack = a.loopStack[:len(a.loopStack)-1] }()
+	}
+	a.runScript(&body.script, base, body.entry)
 }
 
 // analyzeConservative over-approximates the exit: the bodies may or may not run and
@@ -548,7 +590,7 @@ func (a *analyzer) tryEntries(w []Word, base int, in reachSet) []conservativeBod
 // generated anywhere in them. Entry is precise: a catch body or a switch arm sees
 // only what precedes the command, and a try's parts see what tryEntries gives them.
 // So a binding below a use, or in a sibling arm, reaches it only through a loop's
-// back edge. A try handler's variable list binds when the handler starts; catch's
+// back edge, or timerate's, which reruns its script. A try handler's variable list binds when the handler starts; catch's
 // variables are written after its body, whatever it did.
 func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachSet, bool) {
 	bodyScripts := scriptBodies(c.Words)
@@ -557,19 +599,31 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 		inner, innerBase := bracedInner(script, base)
 		a.collectScript(inner, innerBase, &gens, false)
 	}
+	isCatch := isCmd(c.Words, "catch")
 	var bodies []conservativeBody
 	if isCmd(c.Words, "try") {
 		bodies = a.tryEntries(c.Words, base, in)
 	} else {
+		// catch traps every completion code, and timerate ends its timing on a break
+		// or continue, so either exit ends there; time passes both to the enclosing
+		// loop (tclsh 8.6 and 9.0).
+		isTimerate := isCmd(c.Words, "timerate")
+		trapsExits := isCatch || isTimerate
+		traps := exitTraps{brk: trapsExits, cont: trapsExits}
+		// timerate reruns its script until its time is up, so a pass also sees
+		// whatever an earlier pass bound (the back edge).
+		entry := in
+		if isTimerate {
+			entry = joinSets([]reachSet{in, gens})
+		}
 		for _, script := range bodyScripts {
-			bodies = append(bodies, conservativeBody{script, in})
+			bodies = append(bodies, conservativeBody{script, entry, traps})
 		}
 	}
 	for _, body := range bodies {
-		a.runScript(&body.script, base, body.entry)
+		a.runTrapped(body, base)
 	}
 	out := joinSets([]reachSet{in, gens})
-	isCatch := isCmd(c.Words, "catch")
 	for _, d := range localBindings(c, base, a.ns, a.frame) {
 		if isCatch {
 			out = out.with(d.Name, defsOf(d)) // catch always writes its variables
@@ -708,17 +762,10 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		a.ret = joinSets([]reachSet{a.ret, in})
 		return in, false
 	case isCmd(c.Words, "break"):
-		if n := len(a.loopStack); n > 0 {
-			top := a.loopStack[n-1]
-			top.brk = joinSets([]reachSet{top.brk, in})
-		}
+		a.exitLoop(true, in)
 		return in, false
 	case isCmd(c.Words, "continue"):
-		if n := len(a.loopStack); n > 0 {
-			top := a.loopStack[n-1]
-			top.cont = joinSets([]reachSet{top.cont, in})
-			top.contLive = true
-		}
+		a.exitLoop(false, in)
 		return in, false
 	}
 	a.visitBodyHoldingUse(c, base, in)

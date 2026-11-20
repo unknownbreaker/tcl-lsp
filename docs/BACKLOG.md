@@ -86,15 +86,21 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   `switch -regexp $x a {...} b {...}` (`$x` may be `-matchvar`) and a single inline arm without `--`
   whose body is a two-word list (`switch $k "a" { puts $y }`) are silent, and so is a half-typed
   inline switch without `--` that reads as complete if its subject is an option. None of these
-  occur in the corpus. `if`, `while`, `for` and `expr` are read by their head's value
-  (`::if`, `"while"`, `{*}{for}`); other non-bare builtin heads (`::foreach`, `"catch"`,
-  `"break"`) are still read as unknown commands.
+  occur in the corpus. Every builtin the analysis models by name (`if`, `while`, `for`,
+  `expr`, `catch`, `try`, `switch`, `eval`, `time`, `timerate`, `foreach`, `lmap`, `dict`,
+  `return`, `break`, `continue`) is read by its head's value (`::if`, `"catch"`,
+  `{*}{break}`). Empty expansions before the head (#127) and multi-word expanded heads (#128)
+  are not.
 - **Switch, a substituted last body.** A last body of `-` makes Tcl reject the switch, so its arms
   are silent, but only a literal `-` is seen: in `switch $x a { helper } b $body` the arms are
   walked though `$body` may be `-` at run time. (Arm lists are split as Tcl lists since v0.6.16.)
 - **Switch, an odd arm count with an unbraced last word.** Tcl rejects it (`extra switch pattern
   with no body`), yet the complete pairs before it are walked, on purpose: it is a pattern still
   being typed, as in `switch $x {a { helper } b}`.
+- **Try, an `on` code in another spelling (#134).** A try main body's `break` or `continue` ends
+  there only when an `on` clause names it or gives plain digits (`on break`, `on 3`). Another integer
+  spelling (`on 0x3`) or a non-literal code (`on $c`) lets it out to the enclosing loop, so the exit
+  can name a binding that never reaches it.
 - **Reaching, still a wrong answer.** `set x 0; eval {set y 1;} {set x 1}; puts $x` answers `set x 0`.
   `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. Both are
   the same on `main@26f8ab2`. (A `for` whose body cannot complete no longer runs `next`, since v0.6.7.) So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which
@@ -189,7 +195,7 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
 - **Skipped bindings ignore control flow.** A wrapper's binding answers a use nothing else reaches, wherever
   the wrapper sits: `if {$c} { with {set x 1} } else { puts $x }` answers the sibling, and so does a wrapper in a
   branch that returned. Same on `main@26f8ab2`.
-- **Reaching, incomplete.** `set x 0; time {set x 1} 5; puts $x` omits the `time` body, and
+- **Reaching, incomplete.** `set x 0; time {set x 1} 5; puts $x` omits the `time` body (#136), and
   `set a(1) 1; set a(2) 2; array names a` answers only the last `set`. Same on `main@26f8ab2`.
 - **Silent, not wrong.** `foo destructor {set x 1}`: tail matching reads an unknown command's word as
   a member keyword. `$a` in a bracketed proc or class body loses its semantic token.

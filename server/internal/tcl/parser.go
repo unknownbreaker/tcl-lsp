@@ -20,9 +20,9 @@ type Word struct {
 // Command is a single TCL command: an ordered list of words.
 type Command struct {
 	Words []Word
-	// srcHead is the head's first word as written, set only when bareControlHead
-	// spelled the head bare. A call reference names what the source names: `::while`
-	// is the global builtin even in a namespace with its own `while`, and an
+	// srcHead is the head's first word as written, set only when bareModeledHead
+	// spelled the head bare. A call reference names what the source names: `::catch`
+	// is the global builtin even in a namespace with its own `catch`, and an
 	// expanded head (`{*}::while`) starts with `{*}`, which names no command.
 	srcHead *Word
 }
@@ -41,7 +41,7 @@ func parseWith(src string, ends *scriptEnds) []Command {
 	var cur []Word
 	flush := func() {
 		if len(cur) > 0 {
-			words, src := bareControlHead(cur)
+			words, src := bareModeledHead(cur)
 			cmds = append(cmds, Command{Words: words, srcHead: src})
 			cur = nil
 		}
@@ -75,17 +75,17 @@ func wordFromToken(tk Token) Word {
 	return Word{Kind: k, Text: tk.Text, Start: tk.Start, End: tk.End}
 }
 
-// bareControlHead returns w with a literal if, while or for head spelled bare. Tcl names
-// a command by its word's value, so `"if"`, `{while}`, `::for` and an expanded
-// single literal (`{*}{if}`, `{*}::while`) run the same builtin as the bare word
-// (#117). Rewriting the head here decides it once, so reaching, references, folding
-// and every word-index check see one shape. The bare word keeps the head's span,
-// and a `{*}` before it is dropped: expanding one literal word is that word. src
-// is the head's first word as written when it was rewritten, else nil
-// (Command.srcHead).
-func bareControlHead(w []Word) (words []Word, src *Word) {
+// bareModeledHead returns w with a literal head spelled bare when it names a command
+// the analysis models by name (isModeledHead). Tcl names a command by its word's
+// value, so `"if"`, `{catch}`, `::foreach` and an expanded single literal
+// (`{*}{break}`, `{*}::while`) run the same builtin as the bare word (#117, #126).
+// Rewriting the head here decides it once, so reaching, references, folding and
+// every word-index check see one shape. The bare word keeps the head's span, and a
+// `{*}` before it is dropped: expanding one literal word is that word. src is the
+// head's first word as written when it was rewritten, else nil (Command.srcHead).
+func bareModeledHead(w []Word) (words []Word, src *Word) {
 	name, h, ok := globalHead(w)
-	if !ok || !isControlName(name) {
+	if !ok || !isModeledHead(name) {
 		return w, nil
 	}
 	if h == 0 && w[0].Kind == WordBare && w[0].Text == name {
@@ -95,13 +95,26 @@ func bareControlHead(w []Word) (words []Word, src *Word) {
 	return append([]Word{head}, w[h+1:]...), &w[0]
 }
 
+// modeledHeads are the builtins whose scripts run in this frame, or whose exits end
+// a path, that the analysis recognizes by a bare head. expr is not here: exprHead
+// reads its head by value itself.
+var modeledHeads = map[string]bool{
+	"if": true, "while": true, "for": true,
+	"catch": true, "try": true, "switch": true, "eval": true, "time": true, "timerate": true,
+	"foreach": true, "lmap": true, "dict": true,
+	"return": true, "break": true, "continue": true,
+}
+
+// isModeledHead reports whether bareModeledHead spells a head named name bare.
+func isModeledHead(name string) bool { return modeledHeads[name] }
+
 // isControlName reports whether name is if, while or for, whose words' roles
 // (conditions, bodies, tests) the analysis reads by index.
 func isControlName(name string) bool {
 	return name == "if" || name == "while" || name == "for"
 }
 
-// sourceHead returns c's first word as written, before bareControlHead.
+// sourceHead returns c's first word as written, before bareModeledHead.
 func (c Command) sourceHead() Word {
 	if c.srcHead != nil {
 		return *c.srcHead

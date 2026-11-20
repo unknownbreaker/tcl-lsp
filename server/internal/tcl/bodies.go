@@ -400,7 +400,7 @@ var listOrDataHeads = map[string]bool{
 	"set": true, "list": true, "lappend": true, "lassign": true, "lset": true,
 	"linsert": true, "lreplace": true, "concat": true, "dict": true,
 	"array": true, "append": true, "return": true, "expr": true, "switch": true,
-	"::switch": true, "::expr": true,
+	"::expr": true,
 }
 
 // scriptBodies returns the braced script-argument words of a command. Expression
@@ -448,7 +448,7 @@ func scriptBodies(w []Word) []Word {
 		return ifBodies(w)
 	case "try":
 		return tryBodies(w)
-	case "switch", "::switch":
+	case "switch":
 		return switchBodies(w)
 	default:
 		// User-defined or unrecognised commands: by strong Tcl convention a
@@ -555,11 +555,38 @@ func ifBodies(w []Word) []Word {
 // tryHandler is one complete `on`/`trap` clause of a try command. body is nil when
 // the handler script is not braced. fallsThrough marks a `-` body: the clause runs
 // the next clause's body. vars is nil when the command has an expanded word,
-// because the clauses then cannot be told apart with certainty.
+// because the clauses then cannot be told apart with certainty. traps is the exits
+// an `on` clause catches from the main body (onCodeTraps).
 type tryHandler struct {
 	vars         *Word
 	body         *Word
 	fallsThrough bool
+	traps        exitTraps
+}
+
+// exitTraps names the loop exits a script's caller catches: a catch traps every
+// completion code, and a try only those its `on` clauses name.
+type exitTraps struct {
+	brk, cont bool
+}
+
+// onCodeTraps returns the exits a try `on CODE` clause catches. Tcl takes a code's
+// name or an integer (`on break`, `on 3`, tclsh 8.6 and 9.0). Only a name or plain
+// digits are read here. Plain digits can read as octal in 8.6 and decimal in 9.0,
+// but only codes 3 and 4 matter, and their value agrees in both. Any other code
+// traps nothing, so its exits still leave the try (the conservative policy).
+func onCodeTraps(code Word) exitTraps {
+	v, ok := literalValue(code)
+	if !ok {
+		return exitTraps{}
+	}
+	if strings.Trim(v, "0123456789") == "" && v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return exitTraps{brk: n == 3, cont: n == 4}
+		}
+		return exitTraps{}
+	}
+	return exitTraps{brk: v == "break", cont: v == "continue"}
 }
 
 // hasExpansion reports whether any word of a command is expanded with `{*}`, so its
@@ -599,6 +626,9 @@ func tryParts(w []Word) (main *Word, handlers []tryHandler, finally *Word) {
 				var h tryHandler
 				if !expanded {
 					h.vars = &w[i+2]
+					if clause == "on" {
+						h.traps = onCodeTraps(w[i+1])
+					}
 				}
 				switch {
 				case w[i+3].Kind == WordBraced:
