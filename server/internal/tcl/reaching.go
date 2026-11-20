@@ -6,9 +6,10 @@ package tcl
 // when the analyzer has no answer: the scope is oversized, its analysis exceeds the
 // work budget (see analyzer.visits), or useOff is not on a use it visited. ok with no
 // defs means the analyzer visited the use and nothing reaches it, or that a bracket
-// script it cannot read (flowDistrusted) may bind it, so callers stay silent rather
-// than guess. When nothing else reaches a visited use, a binding above it in an
-// unknown command's body answers, because that body may or may not run here.
+// script it cannot read (flowDistrusted) or a multi-word eval (multiWordEval) may
+// bind it, so callers stay silent rather than guess. When nothing else reaches a
+// visited use, a binding above it in an unknown command's body answers, because
+// that body may or may not run here.
 // Intraprocedural and may-reach. Also supports namespace-level variables (used by RVT
 // templates).
 func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
@@ -159,7 +160,8 @@ type analyzer struct {
 	// may have bound, or -1: the start of a word holding a bracket script whose end
 	// the substitution walk cannot trust (flowDistrusted), or the end of an expr
 	// command, or the first braced word after an if, while or for condition, whose
-	// second substitution may form one (flowResubst). Its bindings are
+	// second substitution may form one (flowResubst), or the end of a multi-word
+	// eval (distrustEval). Its bindings are
 	// unknown, so no use at or after it is answered. In a loop it is the outermost loop's start
 	// (loopStarts[0]), since a back edge may carry them to an earlier use in the loop.
 	distrustFrom int
@@ -450,14 +452,30 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 
 // conservativeHead reports whether command c requires conservative may-reach
 // modeling: its scripts run in this frame, and they are alternatives or may abort, so
-// precise exception modeling is deferred. `eval` counts only in its one-script form.
-// With more words it concatenates them, and the resulting head decides what happens.
+// precise exception modeling is deferred. `eval` counts only in its one-script form;
+// with more words it joins them into a script the analysis does not read
+// (multiWordEval).
 func conservativeHead(c Command) bool {
 	w := c.Words
 	if isCmd(w, "eval") {
 		return len(w) == 2
 	}
 	return isCmd(w, "catch") || isCmd(w, "try") || isSwitch(w) || isCmd(w, "time") || isCmd(w, "timerate")
+}
+
+// multiWordEval reports whether c is an eval of more than one word. Tcl joins the
+// words with spaces and runs the result as a script in this frame, after every word
+// was substituted. The analysis does not read the joined script, so it may bind any
+// variable: see distrustEval.
+func multiWordEval(c Command) bool {
+	return isCmd(c.Words, "eval") && len(c.Words) > 2
+}
+
+// distrustEval distrusts the code after a multi-word eval, whose bindings are
+// unknown (#132). In a proc, a use in one of its braced words is part of the joined
+// script, so no analysis visits it and it stays silent too.
+func (a *analyzer) distrustEval(c Command, base int) {
+	a.distrust(base+c.Words[len(c.Words)-1].End, flowDistrusted)
 }
 
 // bodiesRunHere reports whether the scripts of command c are known to run in this
@@ -641,6 +659,10 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 func (a *analyzer) collectBindings(cmds []Command, base int, into *reachSet, every bool) {
 	for _, c := range cmds {
 		a.collectSubstBindings(c, base, into, every)
+		if multiWordEval(c) {
+			a.distrustEval(c, base)
+			continue
+		}
 		for _, d := range localBindings(c, base, a.ns, a.frame) {
 			*into = into.withAdded(d)
 		}
@@ -742,6 +764,9 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		return in, false
 	}
 	switch {
+	case multiWordEval(c):
+		a.distrustEval(c, base)
+		return in, true
 	case conservativeHead(c):
 		return a.analyzeConservative(c, base, in)
 	case loopHead(c):

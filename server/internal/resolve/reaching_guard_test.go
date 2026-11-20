@@ -246,8 +246,10 @@ func TestDefinitionUseInsideAnUnknownBody(t *testing.T) {
 	})
 }
 
-// Only `eval {script}` runs its brace as a script here. With more words eval
-// concatenates them and the head decides, so the brace is like any unknown command's.
+// Only `eval {script}` runs its brace as a script here. With more words eval joins
+// them into a script the analysis does not read, so the use after it is silent
+// (#132): never the brace's binding, and never only the prior one, though Tcl leaves
+// x at 0 in every multi-word case here (tclsh 8.6 and 9.0).
 func TestDefinitionEvalForms(t *testing.T) {
 	var cases []definitionCase
 	for _, command := range []string{
@@ -255,13 +257,16 @@ func TestDefinitionEvalForms(t *testing.T) {
 		"eval uplevel 1 {set x 1}",
 		"eval namespace eval ::n {set x 1}",
 		"eval lappend l {set x 1}",
+		"eval proc g {} {set x 1}",
+		"eval {set y 1} {set x 1}",
 	} {
-		cases = append(cases, definitionCase{command, "proc f {} {\n  set x 0\n  " + command + "\n  puts $x\n}", "$x", []int{2}})
+		cases = append(cases,
+			definitionCase{command, "proc f {} {\n  set x 0\n  " + command + "\n  puts $x\n}", "$x", nil},
+			definitionCase{command + ", no prior", "proc f {} {\n  " + command + "\n  puts $x\n}", "$x", nil},
+		)
 	}
 	cases = append(cases,
 		definitionCase{"eval {set x 1}", "proc f {} {\n  set x 0\n  eval {set x 1}\n  puts $x\n}", "$x", []int{2, 3}},
-		definitionCase{"eval of a proc definition, prior", "proc f {} {\n  set x 0\n  eval proc g {} {set x 1}\n  puts $x\n}", "$x", []int{2}},
-		definitionCase{"eval with two scripts is not one script", "proc f {} {\n  set x 0\n  eval {set y 1} {set x 1}\n  puts $x\n}", "$x", []int{2}},
 	)
 	runDefinitionCases(t, cases)
 }
