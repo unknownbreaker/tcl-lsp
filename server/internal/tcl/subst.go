@@ -54,7 +54,7 @@ func walkSubst(text string, base int, expr bool, flow exprFlow, ends *scriptEnds
 			inQuote = !inQuote
 			i++
 		case expr && !inQuote && c == '{':
-			i = skipBraceSpan(text, i)
+			i = ends.skipBraceSpan(text, i)
 		case expr && !inQuote && (c == '?' || (c == '&' || c == '|') && i+1 < len(text) && text[i+1] == c):
 			flow = max(flow, flowConditional)
 			i++
@@ -81,27 +81,6 @@ func walkSubst(text string, base int, expr bool, flow exprFlow, ends *scriptEnds
 	return flow
 }
 
-// skipBraceSpan returns the index just past a balanced {..} span starting at i.
-// Backslash-aware; tolerant of unterminated input (returns len(text)).
-func skipBraceSpan(text string, i int) int {
-	depth := 0
-	for i < len(text) {
-		switch text[i] {
-		case '\\':
-			i++
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return i + 1
-			}
-		}
-		i++
-	}
-	return len(text)
-}
-
 // exprWordStarts returns the start offsets of c's braced expression words.
 func exprWordStarts(c Command) map[int]bool {
 	starts := map[int]bool{}
@@ -120,7 +99,7 @@ func (m *scriptEnds) substEnd(text string, i int, expr bool) (int, bool) {
 		end, ok := m.scriptClose(text, i+1)
 		return end + 1, ok
 	}
-	return trustedDepthSpan(text, i)
+	return m.trustedDepthSpan(text, i)
 }
 
 // walkWordSubst walks word idx of c as Tcl substitutes it, finding script ends
@@ -142,7 +121,7 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 	if !exprWords[w.Start] {
 		return flow
 	}
-	if t, ok := exprTreeOf(c, w, base); ok {
+	if t, ok := exprTreeOf(c, w, base, ends); ok {
 		t.visit(onVar, onScript, flow >= flowConditional)
 		return flow
 	}
@@ -152,13 +131,13 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 
 // exprTreeOf parses the braced expression word w of c (see exprtree.go). It is
 // false for an expression it cannot read, and for one of several expr words,
-// which form one expression only once joined.
-func exprTreeOf(c Command, w Word, base int) (*exprTern, bool) {
+// which form one expression only once joined. Spans are found through ends.
+func exprTreeOf(c Command, w Word, base int, ends *scriptEnds) (*exprTern, bool) {
 	if isCmd(c.Words, "expr") && len(c.Words) != 2 {
 		return nil, false
 	}
 	inner, innerBase := bracedInner(w, base)
-	return parseExprTree(inner, innerBase)
+	return parseExprTree(inner, innerBase, ends)
 }
 
 // carryFlow returns the flow that word w of c passes to c's next word. The words of

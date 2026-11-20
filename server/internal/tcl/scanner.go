@@ -24,7 +24,7 @@ func Scan(src string) []Token {
 	return scanWith(src, nil)
 }
 
-// scanWith is Scan, finding script ends through ends (scriptends.go).
+// scanWith is Scan, finding script ends and spans through ends (scriptends.go).
 func scanWith(src string, ends *scriptEnds) []Token {
 	s := &scanner{src: src, atCommandStart: true, ends: ends}
 	return s.scan()
@@ -104,29 +104,12 @@ func (s *scanner) scanQuoted() {
 }
 
 // scanBraced advances over a {braced} word, honoring nesting. Backslash escapes
-// the next byte so \{ and \} do not change depth. Tolerant of unterminated input.
+// the next byte so \{ and \} do not change depth (matches Tcl's rule for locating
+// the matching close brace; verified on tclsh 8.6: `set a {\}}` -> value "\}",
+// length 2). Tolerant of unterminated input. Nested spans are found once
+// (scriptends.go).
 func (s *scanner) scanBraced() {
-	depth := 0
-	for s.pos < len(s.src) {
-		c := s.src[s.pos]
-		switch {
-		// A backslash quotes the next byte, so \{ and \} are NOT counted toward
-		// brace depth (matches Tcl's rule for locating the matching close brace;
-		// verified on tclsh 8.6: `set a {\}}` -> value "\}", length 2).
-		case c == '\\' && s.pos+1 < len(s.src):
-			s.pos += 2
-			continue
-		case c == '{':
-			depth++
-		case c == '}':
-			depth--
-			if depth == 0 {
-				s.pos++ // consume closing brace
-				return
-			}
-		}
-		s.pos++
-	}
+	s.pos = s.ends.skipBraceSpan(s.src, s.pos)
 }
 
 // scanComment advances over a comment from '#' to (but not including) newline.
@@ -171,7 +154,7 @@ func (s *scanner) scanBracket() {
 		s.pos = end + 1
 		return
 	}
-	if end, ok := trustedDepthSpan(s.src, s.pos); ok {
+	if end, ok := s.ends.trustedDepthSpan(s.src, s.pos); ok {
 		s.pos = end
 		return
 	}
