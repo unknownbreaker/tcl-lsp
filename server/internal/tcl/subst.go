@@ -125,12 +125,17 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 		if walkSubst(w.Text, base+w.Start, false, flowAlways, ends, onVar, onScript) == flowDistrusted {
 			return flowDistrusted
 		}
-		if idx > 0 && mayRunExpr(c) && resubstMayFormScript(w.Text) {
+		if idx > 0 && (mayRunExpr(c) || mayBeCondition(c, idx)) && resubstMayFormScript(w.Text) {
 			return flowResubst
 		}
 		return flow
 	}
 	if !exprWords[w.Start] {
+		// An expanded braced word may spell a condition (`if {*}{{[set x 1]} {}}`),
+		// which expr substitutes when it evaluates it.
+		if idx > 1 && expands(c.Words, idx-1) && mayBeCondition(c, idx) && resubstMayFormScript(w.Text) {
+			return flowResubst
+		}
 		return flow
 	}
 	if joinedExpr(c) {
@@ -194,6 +199,38 @@ func mayRunExpr(c Command) bool {
 		w = w[1:]
 	}
 	return isCmd(w, "expr") || isCmd(w, "::expr")
+}
+
+// mayBeCondition reports whether word idx of c may be the condition of an if,
+// elseif, while or for, which expr evaluates, substituting an unbraced one a
+// second time (#110). The head may be qualified (`::if`) or expanded
+// (`{*}while`). When an argument is expanded, no word's role is known, so every
+// argument may be a condition, an expanded braced one too (walkWordSubst).
+func mayBeCondition(c Command, idx int) bool {
+	w, h := c.Words, 0
+	if expands(w, 0) {
+		h = 1
+	}
+	if idx <= h || h >= len(w) || w[h].Kind != WordBare {
+		return false
+	}
+	name := strings.TrimPrefix(w[h].Text, "::")
+	if name != "if" && name != "while" && name != "for" {
+		return false
+	}
+	if hasExpansion(w[h:]) {
+		return true
+	}
+	switch name {
+	case "while":
+		return idx == h+1
+	case "for":
+		return idx == h+2
+	}
+	// Tcl reads the keyword by its value, so `"elseif"` and `{elseif}` count, and
+	// so does a word whose value is unknown.
+	kw, ok := literalValue(w[idx-1])
+	return idx == h+1 || !ok || kw == "elseif"
 }
 
 // carryFlow returns the flow that word w of c passes to c's next word. The words of
