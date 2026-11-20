@@ -55,16 +55,15 @@ func TestNestedExprScalesLinearly(t *testing.T) {
 		}
 	}
 
-	// A `$obj method` call at the bottom of the same nesting. ObjMethodAt does
-	// not look inside braced expressions, so it stays silent, as on main.
+	// A `$obj method` call at the bottom of the same nesting is found (#100).
 	objSrc := "proc p {} {\n set o [C #auto]\n set r " + strings.Repeat("[expr {1+", depth) + "[$o m]" + strings.Repeat("}]", depth) + "\n}\n"
 	start = time.Now()
 	_, name, ok := ObjMethodAt(objSrc, strings.Index(objSrc, "$o m")+3)
 	if took := time.Since(start); took > 2*time.Second {
 		t.Errorf("ObjMethodAt took %v, want well under 2s", took)
 	}
-	if ok {
-		t.Errorf("ObjMethodAt = %q, true; want silence, as on main", name)
+	if !ok || name != "m" {
+		t.Errorf("ObjMethodAt = %q, %v; want \"m\", true", name, ok)
 	}
 }
 
