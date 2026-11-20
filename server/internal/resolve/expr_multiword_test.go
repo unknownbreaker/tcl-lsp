@@ -41,7 +41,7 @@ func TestMultiWordExprBracedWordsThroughResolver(t *testing.T) {
 				}
 			}
 			unbraced := at("$x\n}")
-			refs := r.References(c.file, c.src, at("$x\n}"))
+			refs := r.References(c.file, c.src, unbraced)
 			sawUnbraced := false
 			for _, l := range refs {
 				if l.NameStart == braced-1 { // a reference starts at its '$'

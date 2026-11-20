@@ -125,8 +125,9 @@ func walkWordSubst(c Command, exprWords map[int]bool, idx, base int, flow exprFl
 		// The braced word means what the joined text means: `expr "{" {$x} "}"`
 		// is a literal, and `expr {"} {[set x 1]} {"}` runs the script. So it
 		// yields no use, and a script that may form in the join, and may bind,
-		// distrusts what follows. A bracket in the word, or an escaped one in
-		// another word (`expr "\[" {set x 1]}`), may form one.
+		// distrusts what follows. A bracket in the word may form one, and so may
+		// an escaped one in another word (`expr "\[" {set x 1]}`). A bracket in a
+		// substituted value (`expr $b {set x 1} $c`) is the open question of #107.
 		if strings.ContainsAny(w.Text, "[]") || joinedEscape(c) {
 			return flowDistrusted
 		}
@@ -159,7 +160,7 @@ func joinedExpr(c Command) bool {
 }
 
 // joinedEscape reports whether an unbraced word of c holds a backslash, which may
-// put a bracket into the joined text of a multi-word expr.
+// escape a bracket into the joined text of a multi-word expr.
 func joinedEscape(c Command) bool {
 	for _, w := range c.Words[1:] {
 		if w.Kind != WordBraced && strings.ContainsRune(w.Text, '\\') {
