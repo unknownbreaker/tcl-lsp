@@ -242,12 +242,12 @@ func globalHead(w []Word) (name string, h int, ok bool) {
 // mayBeCondition reports whether word idx of c may be the condition of an if,
 // elseif, while or for, which expr evaluates, substituting an unbraced one a
 // second time (#110). Parse spells a literal if/while/for head bare
-// (controlHead), so `::if` and `{*}while` arrive as `if` and `while`. When an
+// (bareControlHead), so `::if` and `{*}while` arrive as `if` and `while`. When an
 // argument is expanded, no word's role is known, so every
 // argument may be a condition, an expanded braced one too (walkWordSubst).
 func mayBeCondition(c Command, idx int) bool {
 	name, h, ok := globalHead(c.Words)
-	if !ok || idx <= h || name != "if" && name != "while" && name != "for" {
+	if !ok || idx <= h || !isControlName(name) {
 		return false
 	}
 	w := c.Words
