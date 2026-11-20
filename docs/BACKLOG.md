@@ -185,13 +185,15 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
 - **Cost.** `workspace/symbol` builds line indexes for every file even on a narrow query.
   `incomingCalls` fetches source twice per site and re-parses once per site. `refFQ` calls
   `lookupSide` only for a length check, allocating per candidate on the workspace scan; unmeasured.
-- **Cost at pathological depth, new in v0.6.3.** Goto-def on a use inside nested unknown bodies re-collects each
-  sub-body per level (1,000 nested wrappers took about 3.4 s). It only runs when the cursor is in that body, and
-  hand-written code does not nest this deep, but one such request blocks the dispatch loop. A cap on the walk's depth
-  would bound it. Since v0.6.28 the loop warm start removed the growth per level of alternating `foreach` and a
-  wrapper (20 levels went from over 20 s to milliseconds); the re-collection per level remains. Nested loops are
+- **Cost at pathological depth, new in v0.6.3.** Goto-def on a use inside nested unknown bodies still costs
+  superlinear time: 2,000 nested wrappers take about 0.26 s (7.4 s before v0.6.31). It only runs when the cursor is
+  in that body, and hand-written code does not nest this deep, but one such request blocks the dispatch loop. A cap
+  on the walk's depth would bound it. Since v0.6.28 the loop warm start removed the growth per level of alternating
+  `foreach` and a wrapper (20 levels went from over 20 s to milliseconds). Nested loops are
   bounded by the reaching work budget (`maxVisitsPerCommand`). Past the budget `ReachingAt` has no answer, and
   goto-def falls back to the earliest binding, as for an oversized proc. Since v0.6.29 nested `[scripts]` cost
   time linear in their size (#84: each script end is found once, `scriptends.go`), and since v0.6.30 so do scripts
-  nested in braced expressions (#95: the depth count, its trust check and brace spans are found once too). Scripts
-  nested through braced script bodies (`[catch {list [catch {...}]}]`) still re-collect per level (#96).
+  nested in braced expressions (#95: the depth count, its trust check and brace spans are found once too). Since
+  v0.6.31 each body's bindings are collected once per walk (#96, `collectScript`), so scripts nested through braced
+  script bodies (`[catch {list [catch {...}]}]`) cost linear time. A `switch` nested that way still re-splits its
+  arm list at every level (about 2 s for `ReachingAt` at 4,000 levels; `FileRefs` too).

@@ -150,6 +150,10 @@ type analyzer struct {
 	// ends remembers the script ends found in src, so nested [scripts] are not
 	// re-scanned at every level (scriptends.go).
 	ends scriptEnds
+	// collected remembers each script's bindings (collectScript), and
+	// distrustCapture, while one is collected, the first distrusted word in it.
+	collected       map[collectKey]bodyBindings
+	distrustCapture *int
 }
 
 const (
@@ -185,10 +189,14 @@ type loopState struct {
 }
 
 // distrust records a word at offset start holding a bracket script that flow
-// reports unreadable.
+// reports unreadable. It keeps only the earliest start, which is all collectScript
+// remembers and replays; any other effect added here must be replayed there too.
 func (a *analyzer) distrust(start int, flow exprFlow) {
 	if flow != flowDistrusted {
 		return
+	}
+	if c := a.distrustCapture; c != nil && (*c < 0 || start < *c) {
+		*c = start
 	}
 	if len(a.loopStarts) > 0 {
 		start = a.loopStarts[0]
@@ -456,7 +464,7 @@ type conservativeBody struct {
 func (a *analyzer) bindingsIn(script Word, base int) reachSet {
 	gens := reachSet{}
 	inner, innerBase := bracedInner(script, base)
-	a.collectBindings(a.parse(inner), innerBase, &gens, bodiesRunHere)
+	a.collectScript(inner, innerBase, &gens, false)
 	return gens
 }
 
@@ -517,7 +525,7 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 	gens := reachSet{}
 	for _, script := range bodyScripts {
 		inner, innerBase := bracedInner(script, base)
-		a.collectBindings(a.parse(inner), innerBase, &gens, bodiesRunHere)
+		a.collectScript(inner, innerBase, &gens, false)
 	}
 	var bodies []conservativeBody
 	if isCmd(c.Words, "try") {
@@ -543,22 +551,70 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 }
 
 // collectBindings unions every local binding made in cmds into `into`, recursing the
-// same-scope bodies of each command that follow accepts. Bindings inherit the
-// analyzer's scope context (a.ns/a.frame): the whole analyzed body is treated as one
-// frame.
-func (a *analyzer) collectBindings(cmds []Command, base int, into *reachSet, follow func(Command) bool) {
+// same-scope bodies of each command that bodiesRunHere accepts, or of every
+// command when every is set. Bindings inherit the analyzer's scope context
+// (a.ns/a.frame): the whole analyzed body is treated as one frame.
+func (a *analyzer) collectBindings(cmds []Command, base int, into *reachSet, every bool) {
 	for _, c := range cmds {
-		a.collectSubstBindings(c, base, into, follow)
+		a.collectSubstBindings(c, base, into, every)
 		for _, d := range localBindings(c, base, a.ns, a.frame) {
 			*into = into.withAdded(d)
 		}
-		if !follow(c) {
+		if !every && !bodiesRunHere(c) {
 			continue
 		}
 		for _, b := range a.sameScopeBodies(c, base) {
-			a.collectBindings(a.parse(b.Inner), b.Base, into, follow)
+			a.collectScript(b.Inner, b.Base, into, every)
 		}
 	}
+}
+
+// collectKey names one collection of a script: the address of its text, its
+// length and offset, and the mode.
+type collectKey struct {
+	at      uintptr
+	n, base int
+	every   bool
+}
+
+// bodyBindings is a script's bindings, found once per walk, and the start of the
+// first word in it the substitution walk distrusts, or -1.
+type bodyBindings struct {
+	keep      string // the script, held so its memory stays put (scriptends.go)
+	gens      reachSet
+	distrusts int
+}
+
+// collectScript unions every local binding made in script, at offset base, into
+// `into`, as collectBindings does for its commands. Each script's bindings are
+// found once per walk: a body nested in a body is collected again for every level
+// above it, so n levels of `[catch {list [catch {...}]}]` would cost n² (#96).
+// The bindings depend only on the script's text, offset and mode (a.ns and a.frame
+// are fixed per walk), and joining them adds each name's bindings in the order a
+// collection in place would. A distrusted word found inside is replayed.
+func (a *analyzer) collectScript(script string, base int, into *reachSet, every bool) {
+	if script == "" {
+		return
+	}
+	key := collectKey{addr(script, 0), len(script), base, every}
+	got, ok := a.collected[key]
+	if !ok {
+		outer := a.distrustCapture
+		got = bodyBindings{keep: script, distrusts: -1}
+		a.distrustCapture = &got.distrusts
+		gens := reachSet{}
+		a.collectBindings(a.parse(script), base, &gens, every)
+		got.gens = gens
+		a.distrustCapture = outer
+		if a.collected == nil {
+			a.collected = map[collectKey]bodyBindings{}
+		}
+		a.collected[key] = got
+	}
+	if got.distrusts >= 0 {
+		a.distrust(got.distrusts, flowDistrusted)
+	}
+	*into = joinSets([]reachSet{*into, got.gens})
 }
 
 // visitBodyHoldingUse walks the same-scope body of a passed-over command that holds
@@ -580,9 +636,8 @@ func (a *analyzer) visitBodyHoldingUse(c Command, base int, in reachSet) {
 // recordSkipped records the bindings in the same-scope bodies of a command the
 // analyzer passes over without descending.
 func (a *analyzer) recordSkipped(c Command, base int) {
-	everyBody := func(Command) bool { return true }
 	for _, b := range a.sameScopeBodies(c, base) {
-		a.collectBindings(a.parse(b.Inner), b.Base, &a.skipped, everyBody)
+		a.collectScript(b.Inner, b.Base, &a.skipped, true)
 	}
 }
 
