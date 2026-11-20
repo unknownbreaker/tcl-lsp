@@ -92,15 +92,26 @@ func TestReachingUsesInBracedExpressions(t *testing.T) {
 }
 
 // A multi-word expr substitutes its unbraced words before it evaluates the joined
-// expression, so a braced $x sees an unbraced [script] written after it, and an
-// unbraced $x does not see a braced one. An operator that arrives through a
-// substitution may short-circuit. Checked against tclsh 8.6 and 9.0.
+// expression, and its braced words mean what the join means, so a braced word may
+// be a literal or may run (TestReachingMultiWordExprBracedWordsSilent). A use in a
+// braced word is silent, and so is any use after a braced word with a script.
+// Checked against tclsh 8.6 and 9.0.
 func TestReachingMultiWordExprOrder(t *testing.T) {
-	runReachCases(t, []reachCase{
-		{"braced use after a later unbraced bracket", "proc f {} {\n  set x 0\n  set y [expr {$x} + [\n    set x 1]]\n}", "$x}", []int{4}},
-		{"braced use after a later unbraced incr", "proc f {} {\n  set x 0\n  return [expr {$x} + [\n    incr x]]\n}", "$x}", []int{4}},
-		{"unbraced use before a braced conditional bracket", "proc f {c} {\n  set x 0\n  return [expr {$c && [\n    set x 1]} + $x]\n}", "$x]", []int{2}},
-	})
+	for _, c := range []struct{ name, src, mark string }{
+		{"braced use after a later unbraced bracket", "proc f {} {\n  set x 0\n  set y [expr {$x} + [\n    set x 1]]\n}", "$x}"},
+		{"braced use after a later unbraced incr", "proc f {} {\n  set x 0\n  return [expr {$x} + [\n    incr x]]\n}", "$x}"},
+		{"unbraced use after a braced bracket", "proc f {c} {\n  set x 0\n  return [expr {$c && [\n    set x 1]} + $x]\n}", "$x]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			off := strings.Index(c.src, c.mark)
+			if off < 0 {
+				t.Fatalf("mark %q not in source", c.mark)
+			}
+			if defs, _ := ReachingAt(c.src, off); len(defs) > 0 {
+				t.Errorf("ReachingAt(%q) = %+v, want silent", c.mark, defs)
+			}
+		})
+	}
 }
 
 // An operator can arrive through a substitution (`$op` may be `?`), so a later

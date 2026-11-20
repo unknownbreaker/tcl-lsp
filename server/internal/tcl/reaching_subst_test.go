@@ -51,7 +51,6 @@ func TestReachingExpressionLiteralsAndDeadBrackets(t *testing.T) {
 	runReachCases(t, []reachCase{
 		{"a braced literal in an expression is not a script", "proc f {s} {\n  set y 0\n  if {$s eq {[set y 1]}} {}\n  puts $y\n}", "$y", []int{2}},
 		{"a ? in a quoted string is not an operator", "proc f {} {\n  set x 0\n  if {\"?\" eq [set x 1]} {}\n  puts $x\n}", "$x", []int{3}},
-		{"&& between expr words", "proc f {c} {\n  set x 0\n  set r [expr {$c} && {[set x 1]}]\n  puts $x\n}", "$x", []int{2, 3}},
 		{"a bracket that returns ends the path", "proc f {c} {\n  set y 0\n  if {$c} {\n    set z [return [set y 1]]\n  }\n  puts $y\n}", "$y", []int{2}},
 	})
 }
@@ -158,7 +157,6 @@ func TestReachingFlatScanDistrustsHiddenBracket(t *testing.T) {
 		{"a braced variable name", "proc f {n} {\n  set x 0\n  if {[list [set ${n}(k)] ${n}] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
 		{"a bracket nested in an array index", "proc f {} {\n  set x 0; array set a {k 5}\n  if {[list $a([string trim k])] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
 		{"balanced array indexes in quoted words", "proc f {} {\n  set x 0; set k k; set l {5}\n  if {[list \"$::b($k)\" \"$::b([lindex $l 0])\"] ne {} && $x == 0} {}\n}", "$x ==", []int{2}},
-		{"a balanced script in a multi-word expr", "proc f {} {\n  set x 0\n  expr {[string length \"[set x 1]\"]} + {$x}\n}", "$x}", []int{3}},
 	})
 }
 
