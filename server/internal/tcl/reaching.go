@@ -152,7 +152,7 @@ type analyzer struct {
 	ends scriptEnds
 	// collected remembers each script's bindings (collectScript), and
 	// distrustCapture, while one is collected, the first distrusted word in it.
-	collected       map[collectKey]collected
+	collected       map[collectKey]bodyBindings
 	distrustCapture *int
 }
 
@@ -577,9 +577,9 @@ type collectKey struct {
 	every   bool
 }
 
-// collected is a script's bindings, found once per walk, and the start of the
+// bodyBindings is a script's bindings, found once per walk, and the start of the
 // first word in it the substitution walk distrusts, or -1.
-type collected struct {
+type bodyBindings struct {
 	keep      string // the script, held so its memory stays put (scriptends.go)
 	gens      reachSet
 	distrusts int
@@ -600,14 +600,14 @@ func (a *analyzer) collectScript(script string, base int, into *reachSet, every 
 	got, ok := a.collected[key]
 	if !ok {
 		outer := a.distrustCapture
-		got = collected{keep: script, distrusts: -1}
+		got = bodyBindings{keep: script, distrusts: -1}
 		a.distrustCapture = &got.distrusts
 		gens := reachSet{}
 		a.collectBindings(a.parse(script), base, &gens, every)
 		got.gens = gens
 		a.distrustCapture = outer
 		if a.collected == nil {
-			a.collected = map[collectKey]collected{}
+			a.collected = map[collectKey]bodyBindings{}
 		}
 		a.collected[key] = got
 	}

@@ -7,10 +7,10 @@ import (
 )
 
 // nestedBodySource returns a proc that nests open n deep around a binding of o to
-// an object of class ::C, closes each level with close, then uses $o. It returns the
+// an object of class ::C, closes each level with closer, then uses $o. It returns the
 // offset of the use.
-func nestedBodySource(n int, open, close string) (src string, use int) {
-	src = "proc p {} {\n set r " + strings.Repeat(open, n) + "[set o [::C #auto]]" + strings.Repeat(close, n) + "\n $o m\n}\n"
+func nestedBodySource(n int, open, closer string) (src string, use int) {
+	src = "proc p {} {\n set r " + strings.Repeat(open, n) + "[set o [::C #auto]]" + strings.Repeat(closer, n) + "\n $o m\n}\n"
 	return src, strings.LastIndex(src, "$o") + 1
 }
 
