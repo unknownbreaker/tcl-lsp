@@ -46,7 +46,7 @@ func isCmd(words []Word, name string) bool {
 }
 
 // isSwitch reports whether a command is switch. Parse spells a literal switch head
-// bare (bareControlHead), so `::switch` and `"switch"` arrive as `switch`.
+// bare (bareModeledHead), so `::switch` and `"switch"` arrive as `switch`.
 func isSwitch(words []Word) bool {
 	return isCmd(words, "switch")
 }

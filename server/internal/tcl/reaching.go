@@ -353,7 +353,8 @@ func (a *analyzer) runScript(script *Word, base int, in reachSet) (reachSet, boo
 // evaluates the test, runs the body, then next, so `continue` still runs next. Loop
 // variables (foreach/lmap/dict-for) are rebound at the top of every pass, so a
 // reassignment below a use does not reach that use on the next iteration.
-// break/continue exits are accumulated in a per-loop frameAcc pushed onto loopStack.
+// break/continue exits are accumulated in a per-loop frameAcc pushed onto loopStack,
+// which also holds the trap frames of catch, try and timerate bodies (runTrapped).
 func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool) {
 	acc := &frameAcc{brk: reachSet{}, cont: reachSet{}}
 	a.loopStack = append(a.loopStack, acc)
@@ -589,7 +590,7 @@ func (a *analyzer) runTrapped(body conservativeBody, base int) {
 // generated anywhere in them. Entry is precise: a catch body or a switch arm sees
 // only what precedes the command, and a try's parts see what tryEntries gives them.
 // So a binding below a use, or in a sibling arm, reaches it only through a loop's
-// back edge. A try handler's variable list binds when the handler starts; catch's
+// back edge, or timerate's, which reruns its script. A try handler's variable list binds when the handler starts; catch's
 // variables are written after its body, whatever it did.
 func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachSet, bool) {
 	bodyScripts := scriptBodies(c.Words)
@@ -603,11 +604,20 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 	if isCmd(c.Words, "try") {
 		bodies = a.tryEntries(c.Words, base, in)
 	} else {
-		// catch traps every completion code, so a break or continue in its script
-		// ends there (tclsh 8.6 and 9.0).
-		traps := exitTraps{brk: isCatch, cont: isCatch}
+		// catch traps every completion code, and timerate ends its timing on a break
+		// or continue, so either exit ends there; time passes both to the enclosing
+		// loop (tclsh 8.6 and 9.0).
+		isTimerate := isCmd(c.Words, "timerate")
+		trapsExits := isCatch || isTimerate
+		traps := exitTraps{brk: trapsExits, cont: trapsExits}
+		// timerate reruns its script until its time is up, so a pass also sees
+		// whatever an earlier pass bound (the back edge).
+		entry := in
+		if isTimerate {
+			entry = joinSets([]reachSet{in, gens})
+		}
 		for _, script := range bodyScripts {
-			bodies = append(bodies, conservativeBody{script, in, traps})
+			bodies = append(bodies, conservativeBody{script, entry, traps})
 		}
 	}
 	for _, body := range bodies {

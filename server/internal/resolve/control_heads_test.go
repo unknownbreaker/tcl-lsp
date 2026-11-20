@@ -121,6 +121,15 @@ func TestModeledHeadsThroughResolver(t *testing.T) {
 	for _, h := range []string{`"break"`, "{*}{continue}"} {
 		runControlHead(t, h, "  while {[helper]} {\n    "+h+"\n    set x 1\n  }\n  puts $x\n", "$x\n}", []string{"x 0"})
 	}
+	for _, h := range []string{`"eval"`, "::time"} {
+		runControlHead(t, h, "  "+h+" {set x [helper]}\n  puts $x\n", "$x\n}", []string{"x 0", "x [helper]"})
+	}
+	// return ends the path, so the set before it never reaches past the loop.
+	runControlHead(t, `"return"`, "  while {[helper]} {\n    set x 1\n    \"return\"\n  }\n  puts $x\n", "$x\n}", []string{"x 0"})
+	// timerate traps the break in its script, as catch does.
+	runControlHead(t, "{timerate}", "  while {[helper]} {\n    {timerate} {set x 1; break}\n    set x 2\n  }\n  puts $x\n", "$x\n}", []string{"x 0", "x 2"})
+	// timerate reruns its script, so a use in it sees an earlier pass's binding.
+	runControlHead(t, "::timerate", "  ::timerate {\n    puts $x\n    set x [helper]\n  }\n", "$x\n    set", []string{"x 0", "x [helper]"})
 	// catch traps the break in its script, so the loop runs on to set x 2.
 	for _, h := range []string{`"catch"`, "catch", "::try"} {
 		trap := ""

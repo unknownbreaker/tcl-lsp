@@ -2,8 +2,8 @@ package tcl
 
 import "testing"
 
-// A catch traps every completion code, and a try the codes its `on` clauses name,
-// so a break or continue they trap ends there: it never carries the bindings before
+// A catch traps every completion code, a timerate break and continue, and a try the
+// codes its `on` clauses name, so a break or continue they trap ends there: it never carries the bindings before
 // it to the loop's exit or next pass (tclsh 8.6 and 9.0). An exit they do not trap,
 // or one from a handler, still leaves for the enclosing loop.
 func TestReachingTrappedLoopExits(t *testing.T) {
@@ -14,6 +14,19 @@ func TestReachingTrappedLoopExits(t *testing.T) {
 		runReachCases(t, []reachCase{
 			{h + "/traps break", loop(h + " { set x 1; break }"), "$x\n}", []int{2, 6}},
 			{h + "/traps continue", loop(h + " { set x 1; continue }"), "$x\n}", []int{2, 6}},
+		})
+	}
+	// timerate ends its timing on a break or continue; time passes both on.
+	for _, h := range controlHeads("timerate") {
+		runReachCases(t, []reachCase{
+			{h + "/traps break", loop(h + " { set x 1; break }"), "$x\n}", []int{2, 6}},
+			{h + "/traps continue", loop(h + " { set x 1; continue }"), "$x\n}", []int{2, 6}},
+		})
+	}
+	for _, h := range controlHeads("time") {
+		runReachCases(t, []reachCase{
+			{h + "/lets break out", loop(h + " { set x 1; break }"), "$x\n}", []int{2, 5, 6}},
+			{h + "/lets continue out", loop(h + " { set x 1; continue }"), "$x\n}", []int{2, 5, 6}},
 		})
 	}
 	for _, h := range controlHeads("try") {
@@ -34,5 +47,22 @@ func TestReachingTrappedLoopExits(t *testing.T) {
 		{"a loop inside catch takes its own break", loop("catch { while 1 { set x 1; break } }"), "$x\n}", []int{2, 6}},
 		{"a catch inside a loop inside catch", "proc f {} {\n  set x 9\n  catch {\n    while {[incr n] < 3} {\n      catch { set x 1; break }\n      set x 2\n    }\n    puts $x\n  }\n}", "$x\n  }", []int{2, 6}},
 		{"a break out of a loop in catch", "proc f {} {\n  set x 9\n  catch {\n    while {[incr n] < 3} {\n      set x 1\n      break\n    }\n  }\n  puts $x\n}", "$x\n}", []int{2, 5}},
+	})
+}
+
+// timerate reruns its script until its time is up, so a use in it also sees what an
+// earlier pass bound below it (tclsh 8.6 and 9.0). time without a count runs it once.
+func TestReachingTimerateBackEdge(t *testing.T) {
+	rerun := func(h string) string {
+		return "proc f {} {\n  set x 0\n  " + h + " {\n    puts $x\n    set x 1\n  }\n}"
+	}
+	for _, h := range controlHeads("timerate") {
+		runReachCases(t, []reachCase{
+			{h + "/reruns its script", rerun(h), "$x\n    set", []int{2, 5}},
+		})
+	}
+	runReachCases(t, []reachCase{
+		{"timerate -direct reruns its script", rerun("timerate -direct"), "$x\n    set", []int{2, 5}},
+		{"time runs its script once", rerun("time"), "$x\n    set", []int{2}},
 	})
 }

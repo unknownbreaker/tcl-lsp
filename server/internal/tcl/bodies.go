@@ -572,7 +572,8 @@ type exitTraps struct {
 
 // onCodeTraps returns the exits a try `on CODE` clause catches. Tcl takes a code's
 // name or an integer (`on break`, `on 3`, tclsh 8.6 and 9.0). Only a name or plain
-// digits are read here, whose value is the same in 8.6 and 9.0. Any other code
+// digits are read here. Plain digits can read as octal in 8.6 and decimal in 9.0,
+// but only codes 3 and 4 matter, and their value agrees in both. Any other code
 // traps nothing, so its exits still leave the try (the conservative policy).
 func onCodeTraps(code Word) exitTraps {
 	v, ok := literalValue(code)
