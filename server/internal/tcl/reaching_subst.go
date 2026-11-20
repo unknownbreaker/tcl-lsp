@@ -86,11 +86,11 @@ func (a *analyzer) recordUseAt(name string, start, end int, in reachSet) {
 
 // collectSubstBindings unions the bindings made in every [script] substituted in
 // c's words, including expression words, which may be evaluated.
-func (a *analyzer) collectSubstBindings(c Command, base int, into *reachSet, follow func(Command) bool) {
+func (a *analyzer) collectSubstBindings(c Command, base int, into *reachSet, every bool) {
 	exprWords := exprWordStarts(c)
 	for idx := range c.Words {
 		flow := walkWordSubst(c, exprWords, idx, base, flowAlways, &a.ends, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
-			a.collectBindings(a.parse(inner), innerBase, into, follow)
+			a.collectScript(inner, innerBase, into, every)
 		})
 		a.distrust(base+c.Words[idx].Start, flow)
 	}
