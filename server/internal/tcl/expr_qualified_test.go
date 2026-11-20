@@ -8,7 +8,7 @@ import (
 // exprHeads are the heads Tcl runs as the expr builtin. Tcl names a command by
 // its word's value, so `::expr`, `"expr"`, `{expr}` and `{*}expr` all run expr
 // (#114). Each case below leaves the same x in tclsh 8.6 and 9.0 for every head.
-var exprHeads = []string{"expr", "::expr", `"expr"`, "{expr}", "{*}expr", "{*}::expr"}
+var exprHeads = []string{"expr", "::expr", `"expr"`, "{expr}", "{*}expr", "{*}::expr", "{*}{ expr }"}
 
 // A braced word of any expr head is an expression: its scripts run, and their
 // bindings reach later uses.

@@ -36,8 +36,8 @@ func CommandRefs(c Command) []Reference {
 // ends through ends. Every nested script appends to the one slice at its absolute
 // offset, so a reference is not copied once per enclosing level.
 func commandRefs(c Command, base int, ends *scriptEnds, refs *[]Reference) {
-	if len(c.Words) > 0 && isLiteralName(c.Words[0]) {
-		w := c.Words[0]
+	if len(c.Words) > 0 && isLiteralName(c.sourceHead()) {
+		w := c.sourceHead()
 		*refs = append(*refs, Reference{Kind: RefCommand, Name: w.Text, Start: base + w.Start, End: base + w.End})
 	}
 	// Braced expression words (expr args, if/while/for conditions) yield their
