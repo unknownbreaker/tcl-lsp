@@ -133,6 +133,8 @@ func (m *scriptEnds) spanMemo(tab *map[uintptr]spanEnd, s string, i int, scan fu
 	if *tab == nil {
 		*tab = map[uintptr]spanEnd{}
 	}
+	// A miss on an open entry means s runs past where a shorter text stopped, so
+	// this entry, from the longer s, replaces it.
 	stored := e
 	stored.keep = s
 	if closed {

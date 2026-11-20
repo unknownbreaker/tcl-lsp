@@ -191,3 +191,30 @@ func TestSpanMemoSubstrings(t *testing.T) {
 		}
 	}
 }
+
+// TestSpanMemoHandWritten runs shapes the random alphabet reaches only rarely
+// through the same comparison, over every prefix with one memo: a `}` inside a
+// nested span that the plain scan reads as closing an outer brace group, and
+// `${...}` names inside nested spans.
+func TestSpanMemoHandWritten(t *testing.T) {
+	for _, full := range []string{
+		"list {[a}] [set x 1]",
+		"list [list {[a}]}] [set x 1]",
+		"expr {[a}]} ; set x 1",
+		"list [list [list {[}]}]]] x",
+		"list [set ${a}] ${b} [set x 1]",
+		"list [list ${a[}] x]",
+		"list [list ${a]}] x]",
+		"list [list \"${a}\" [list ${b}]] ${c}(",
+		"list [expr {${a} + [list ${b}]}] x",
+	} {
+		m := &scriptEnds{}
+		for cut := len(full); cut >= 0; cut-- {
+			checkSpanMemo(t, m, full[:cut])
+		}
+		m = &scriptEnds{}
+		for cut := range len(full) + 1 {
+			checkSpanMemo(t, m, full[:cut])
+		}
+	}
+}

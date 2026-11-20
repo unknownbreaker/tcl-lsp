@@ -54,12 +54,25 @@ func TestNestedExprScalesLinearly(t *testing.T) {
 			t.Errorf("ReachingAt(%d) = %v, %v; want the one `set x 1`", off, defs, ok)
 		}
 	}
+
+	// A `$obj method` call at the bottom of the same nesting. ObjMethodAt does
+	// not look inside braced expressions, so it stays silent, as on main.
+	objSrc := "proc p {} {\n set o [C #auto]\n set r " + strings.Repeat("[expr {1+", depth) + "[$o m]" + strings.Repeat("}]", depth) + "\n}\n"
+	start = time.Now()
+	_, name, ok := ObjMethodAt(objSrc, strings.Index(objSrc, "$o m")+3)
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("ObjMethodAt took %v, want well under 2s", took)
+	}
+	if ok {
+		t.Errorf("ObjMethodAt = %q, true; want silence, as on main", name)
+	}
 }
 
 // TestNestedIfScalesLinearly bounds FileRefs over `if {1} {list ...}` nested
-// 4,000 deep in a bracket script, the condition shape of #95.
+// 8,000 deep in a bracket script, the condition shape of #95. Before #95 this
+// took well over 2s.
 func TestNestedIfScalesLinearly(t *testing.T) {
-	const depth = 4000
+	const depth = 8000
 	src := "proc p {} {\n set x 1\n set r " + strings.Repeat("[if {[string length 1]} {list ", depth) + "$x" + strings.Repeat("}]", depth) + "\n puts $x\n}\n"
 	start := time.Now()
 	refs := FileRefs(src)
@@ -94,6 +107,7 @@ func TestNestedExprShapesScaleLinearly(t *testing.T) {
 		{"array index", "[expr {$a([", "])}]", false},
 		{"quoted", "[expr {\"[", "]\"}]", false},
 		{"if condition", "[if {[string length ", "]} {list 1}]", false},
+		{"while condition", "[while {[string length ", "]} {break}]", false},
 		{"brace literal", "[expr {{[}+", "}]", true},
 		{"command word", "[list [expr {1+", "}]]", false},
 	} {
