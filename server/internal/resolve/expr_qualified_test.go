@@ -39,6 +39,16 @@ func TestExprHeadsThroughResolver(t *testing.T) {
 				if locs := r.Definition(c.file, c.src, at("$x\n}")+1); len(locs) != 1 || locs[0].NameStart != at("x 1") {
 					t.Errorf("Definition after the expr = %v, want the set at %d", locs, at("x 1"))
 				}
+				use := at("$x +") // a variable reference starts at its $
+				seen := false
+				for _, l := range r.References(c.file, c.src, at("x 0")) {
+					if l.NameStart == use {
+						seen = true
+					}
+				}
+				if !seen {
+					t.Errorf("References to x miss the use at %d in the expression", use)
+				}
 				call := at("helper]")
 				found := false
 				for _, l := range r.References(c.file, c.src, at("helper")) {

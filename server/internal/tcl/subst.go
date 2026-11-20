@@ -207,12 +207,12 @@ func mayRunExpr(c Command) bool {
 // its expression words, their join and flow, and their substitution order (#114).
 // A dynamic head (`{*}$cmd`) may run anything, so like any dynamic call it is out
 // of reach.
-func exprHead(w []Word) (h int, ok bool) {
+func exprHead(w []Word) (int, bool) {
 	name, h, ok := globalHead(w)
 	return h, ok && name == "expr"
 }
 
-// globalHead returns the value of c's literal head with a leading `::` dropped,
+// globalHead returns the value of w's literal head with a leading `::` dropped,
 // and the index of the head word, past a `{*}` (`{*}::while` names while at 1).
 // Tcl names the command by the word's value, so `"if"` and `{while}` count. An
 // expanded head of several words (`{*}{if $c}`) shifts every role, so it does not.

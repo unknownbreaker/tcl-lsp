@@ -465,8 +465,8 @@ func scriptBodies(w []Word) []Word {
 }
 
 // exprBodies returns the braced words a command evaluates as *expressions* (not
-// scripts): every braced argument of expr (any head exprHead accepts), the conditions of if/elseif, the
-// test of while, and the test clause of for. Tcl's expr engine evaluates
+// scripts): every braced argument of expr (any head exprHead accepts), the
+// conditions of if/elseif, the test of while, and the test clause of for. Tcl's expr engine evaluates
 // [command substitutions] inside these braces even though braces normally
 // suppress substitution, so the reference walker must scan them for embedded
 // calls -- a proc called only inside `if {[ready]} { ... }` is otherwise
@@ -525,11 +525,12 @@ func ifConditions(w []Word) []Word {
 	return conds
 }
 
-// dataBraceCommands are builtins whose braced arguments hold data or an
-// expression -- never a script body -- so they are excluded from the
-// trailing-braced-argument script heuristic in scriptBodies.
+// dataBraceCommands are builtins whose braced arguments hold data -- never a
+// script body -- so they are excluded from the trailing-braced-argument script
+// heuristic in scriptBodies. expr, whose braced words are expressions, is
+// excluded earlier, for every head exprHead accepts.
 var dataBraceCommands = map[string]bool{
-	"expr": true, "set": true, "list": true, "lappend": true, "lset": true,
+	"set": true, "list": true, "lappend": true, "lset": true,
 	"append": true, "incr": true, "array": true, "string": true,
 	"global": true, "variable": true, "common": true, "return": true,
 }

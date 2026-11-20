@@ -396,8 +396,8 @@ func TestSubstScriptBody_DictForInsideSubst(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ATTACK 18: expr {[myproc]} inside a [subst] — expr is in dataBraceCommands
-// so scriptBodies returns nil for it; but exprBodies handles it. The call
+// ATTACK 18: expr {[myproc]} inside a [subst] — scriptBodies returns nil for
+// an expr head (exprHead); exprBodies handles it. The call
 // inside expr's bracketed substitution must be found exactly once.
 // ---------------------------------------------------------------------------
 
@@ -406,7 +406,7 @@ func TestSubstScriptBody_ExprInsideSubst_NoDuplicate(t *testing.T) {
 	refs := FileRefs(src)
 
 	// exprBracketRefs handles {[myproc] + 1}, finding myproc via substRefs.
-	// childBodies for expr returns nil (dataBraceCommands). So exactly once.
+	// childBodies for expr returns nil (exprHead). So exactly once.
 	if n := countCommandRefs(refs, "myproc"); n != 1 {
 		t.Errorf("want 1 ref to 'myproc' (expr bracket inside subst), got %d; refs=%+v", n, refs)
 	}
