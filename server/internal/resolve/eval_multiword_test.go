@@ -53,3 +53,98 @@ func TestMultiWordEvalThroughResolver(t *testing.T) {
 		}
 	}
 }
+
+// The braced words of a multi-word eval are part of its joined script, never a
+// decorated proc's body or a scope of their own, so goto-definition on a use in one
+// stays silent, in a .tcl file and an .rvt page, inside a proc and at page level
+// (#140). tclsh 8.6 and 9.0: x is 0 at each puts, and no proc g exists.
+func TestMultiWordEvalBracedWordThroughResolver(t *testing.T) {
+	for _, c := range []struct{ name, code string }{
+		{"decorator in a proc", "proc f {} {\n  set x 0\n  eval DECO proc g {} {set x 1; puts $x}\n}\n"},
+		{"decorator at page level", "set x 0\neval DECO proc g {} {set x 1; puts $x}\n"},
+		{"list in a proc", "proc f {} {\n  set x 0\n  eval list {set x 1; puts $x}\n}\n"},
+		{"list at page level", "set x 0\neval list {set x 1; puts $x}\n"},
+		{"list in a namespace", "namespace eval ns {\n  set x 0\n  eval list {set x 1; puts $x}\n}\n"},
+	} {
+		for _, f := range []struct{ name, file, src string }{
+			{"tcl", "a.tcl", c.code},
+			{"rvt", "p.rvt", "<h1>x</h1>\n<?\n" + c.code + "?>\n"},
+		} {
+			t.Run(c.name+"/"+f.name, func(t *testing.T) {
+				ix := index.New()
+				ix.IndexFile(f.file, f.src)
+				use := strings.LastIndex(f.src, "$x}")
+				if use < 0 {
+					t.Fatalf("mark $x} not in source")
+				}
+				if locs := New(ix).Definition(f.file, f.src, use+1); len(locs) != 0 {
+					t.Errorf("Definition at $x = %v, want silent\nsource:\n%s", locs, f.src)
+				}
+			})
+		}
+	}
+}
+
+// `eval DECO proc g {} {...}` defines no proc g, so a call to g resolves to nothing
+// in either file kind (#140).
+func TestMultiWordEvalDecoratorDefinesNoProcThroughResolver(t *testing.T) {
+	for _, f := range []struct{ name, file, src string }{
+		{"tcl", "a.tcl", "eval DECO proc g {} {set x 1}\ng\n"},
+		{"rvt", "p.rvt", "<?\neval DECO proc g {} {set x 1}\n?>\n<? g ?>\n"},
+	} {
+		t.Run(f.name, func(t *testing.T) {
+			ix := index.New()
+			ix.IndexFile(f.file, f.src)
+			call := strings.LastIndex(f.src, "g\n")
+			if strings.HasSuffix(f.file, ".rvt") {
+				call = strings.LastIndex(f.src, " g ") + 1
+			}
+			if locs := New(ix).Definition(f.file, f.src, call); len(locs) != 0 {
+				t.Errorf("Definition at the call to g = %v, want none\nsource:\n%s", locs, f.src)
+			}
+		})
+	}
+}
+
+// A binding in a multi-word eval's braced word may be argument text: `eval DECO
+// proc g {} {set x 1}` runs `DECO proc g {} set x 1`, and `eval list {set x 1}`
+// runs `list set x 1`, so x is never written there (tclsh 8.6 and 9.0, write
+// trace). `eval {set y 1;} {set x 1}` does write x, but the analysis does not read
+// the joined script, so it stays silent rather than tell the two apart. References
+// and highlight on p's x leave the word's set out, and goto-definition on it
+// answers nothing, in a .tcl proc and an .rvt page proc (#140).
+func TestMultiWordEvalBracedWordBindsNothingThroughResolver(t *testing.T) {
+	for _, line := range []string{"eval DECO proc g {} {set x 1}", "eval list {set x 1}", "eval {set y 1;} {set x 1}"} {
+		body := "proc p {} {\n  set x 0\n  " + line + "\n  return\n}\n"
+		for _, f := range []struct{ name, file, src string }{
+			{"tcl", "a.tcl", body},
+			{"rvt", "p.rvt", "<h1>x</h1>\n<?\n" + body + "?>\n"},
+		} {
+			t.Run(line+"/"+f.name, func(t *testing.T) {
+				ix := index.New()
+				ix.IndexFile(f.file, f.src)
+				r := New(ix)
+				outer := strings.Index(f.src, "set x 0") + len("set ")
+				inner := strings.Index(f.src, "set x 1") + len("set ")
+				for label, locs := range map[string][]index.Location{
+					"FileHighlights": r.FileHighlights(f.file, f.src, outer),
+					"References":     r.References(f.file, f.src, outer),
+				} {
+					found := false
+					for _, l := range locs {
+						found = found || l.NameStart == outer
+						if l.NameStart == inner {
+							t.Errorf("%s on p's x = %v, includes the eval word's set x 1", label, locs)
+						}
+					}
+					if !found {
+						t.Errorf("%s on p's x = %v, missing p's own set x 0", label, locs)
+					}
+				}
+				if locs := r.Definition(f.file, f.src, inner); len(locs) != 0 {
+					t.Errorf("Definition on the eval word's set x 1 = %v, want none", locs)
+				}
+			})
+		}
+	}
+}

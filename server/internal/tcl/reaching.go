@@ -15,7 +15,10 @@ import "strings"
 // Intraprocedural and may-reach. Also supports namespace-level variables (used by RVT
 // templates).
 func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
-	inner, innerBase, argsWord, argsBase, ns, frame, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, useOff)
+	inner, innerBase, argsWord, argsBase, ns, frame, found, useInEvalWord := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, useOff, false)
+	if useInEvalWord {
+		return nil, true // part of a script no analysis reads (#140)
+	}
 	if !found {
 		return nil, false
 	}
@@ -66,30 +69,41 @@ func (a *analyzer) skippedAboveUse() []Definition {
 // proc's args Word and base for interpreting it (empty/zero for the others). Also
 // returns the scope's namespace and frame kind (FrameProc, FrameNamespace or
 // FrameOpaque).
-func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int) (inner string, innerBase int, argsWord Word, argsBase int, scopeNS string, frameKind FrameKind, found bool) {
+//
+// The braced words of an eval the analysis does not read (joinsWords) are part of
+// its joined script, so they are never a scope, and neither is any body in them
+// short of a proc's (#140). inEvalWord says cmds are inside one. When the use is
+// too, found and useInEvalWord are both true and there is no scope to analyze.
+func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int, inEvalWord bool) (inner string, innerBase int, argsWord Word, argsBase int, scopeNS string, frameKind FrameKind, found, useInEvalWord bool) {
 	for _, c := range cmds {
+		cmdJoined := inEvalWord || joinsWords(c, frame)
 		for _, b := range childBodies(c, base, ns, frame, scope, "") {
 			if useOff < b.Base || useOff >= b.Base+len(b.Inner) {
 				continue
 			}
+			procScope := b.Frame == FrameProc && b.Scope == b.Base
+			bodyJoined := cmdJoined && !procScope
 			// Try to find a deeper (more nested) scope first.
-			if in2, base2, aw2, ab2, ns2, fk2, ok2 := enclosingProcOrScope(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, useOff); ok2 {
-				return in2, base2, aw2, ab2, ns2, fk2, true
+			if in2, base2, aw2, ab2, ns2, fk2, ok2, j2 := enclosingProcOrScope(Parse(b.Inner), b.Base, b.NS, b.Frame, b.Scope, useOff, bodyJoined); ok2 {
+				return in2, base2, aw2, ab2, ns2, fk2, true, j2
+			}
+			if bodyJoined {
+				return "", 0, Word{}, 0, "::", FrameNamespace, true, true
 			}
 			// This body is the innermost one containing useOff. Accept it if it's
 			// a scope-introducing frame (proc or namespace), or a body of unknown frame,
 			// so `$o m` stays typed inside a wrapper.
-			if b.Frame == FrameProc && b.Scope == b.Base {
+			if procScope {
 				// Recover the args word from the proc command.
 				aw, ab := procArgsWord(c, base, frame)
-				return b.Inner, b.Base, aw, ab, b.NS, FrameProc, true
+				return b.Inner, b.Base, aw, ab, b.NS, FrameProc, true, false
 			}
 			if (b.Frame == FrameNamespace || b.Frame == FrameOpaque) && b.Scope == 0 {
-				return b.Inner, b.Base, Word{}, base, b.NS, b.Frame, true
+				return b.Inner, b.Base, Word{}, base, b.NS, b.Frame, true, false
 			}
 		}
 	}
-	return "", 0, Word{}, 0, "::", FrameNamespace, false
+	return "", 0, Word{}, 0, "::", FrameNamespace, false, false
 }
 
 // procArgsWord returns the args Word and base for the proc command c (a decorated
@@ -484,6 +498,13 @@ func unreadEval(c Command, frame FrameKind) bool {
 	return false
 }
 
+// joinsWords reports whether c is an eval whose braced words are part of a script
+// the analysis does not read (unreadEval), so none of them is a body of its own:
+// reaching never takes one as a scope, and the index binds no local in one (#140).
+func joinsWords(c Command, frame FrameKind) bool {
+	return isCmd(c.Words, "eval") && unreadEval(c, frame)
+}
+
 // tclSpace is the space Tcl trims around an integer: ASCII only, unlike
 // strings.TrimSpace.
 const tclSpace = " \t\n\v\f\r"
@@ -538,9 +559,10 @@ func upLevelMayBeHere(w Word, frame FrameKind) bool {
 
 // distrustEval distrusts the code after an eval the analysis does not read
 // or uplevel the analysis does not read (unreadEval), whose bindings are unknown
-// (#132, #139). In a proc, a use in a braced word of a multi-word eval or
-// uplevel is part of the joined script, so no analysis visits it and it stays
-// silent too.
+// (#132, #139). In a proc, a use in a braced word of a multi-word eval or uplevel
+// is part of the joined script, so no analysis visits it and it stays silent too.
+// An eval's word is silent at every level: enclosingProcOrScope never takes it as
+// a scope (#140).
 func (a *analyzer) distrustEval(c Command, base int) {
 	a.distrust(base+c.Words[len(c.Words)-1].End, flowDistrusted)
 }

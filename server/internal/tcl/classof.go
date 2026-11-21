@@ -17,8 +17,8 @@ func ClassOf(src string, receiverUseOff int) []string {
 
 	// Get the enclosing scope (proc, namespace or unknown command's body) so we can
 	// walk its commands.
-	inner, innerBase, _, _, _, _, found := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, receiverUseOff)
-	if !found {
+	inner, innerBase, _, _, _, _, found, useInEvalWord := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, receiverUseOff, false)
+	if !found || useInEvalWord {
 		return nil
 	}
 	var ends scriptEnds // script ends found once (scriptends.go)

@@ -110,6 +110,15 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 			}
 		}
 
+		// An eval the analysis does not read joins its words into one script, so a
+		// binding in one of its braced words may be argument text (`eval list {set x
+		// 1}` runs `list set x 1`). Reaching never enters the word (#140), so the
+		// index binds no local of this scope there either; a proc's own scope in the
+		// word keeps its locals. Namespace variables keep today's wrapper ruling.
+		joinedFrom := -1
+		if c.defs != nil && joinsWords(cmd, frame) {
+			joinedFrom = len(*c.defs)
+		}
 		for _, b := range bodies {
 			// A body keeping the frame inherits wrapped. So does an unqualified proc
 			// defined in a wrapper's body in a class-namespace frame: Tcl creates it
@@ -125,7 +134,23 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 			}
 			walkAll(parseWith(b.Inner, c.ends), b.Base, b.NS, b.Frame, b.Scope, b.Class, b.Wrapped || inherit, bodyInClassNS, c)
 		}
+		if joinedFrom >= 0 {
+			*c.defs = append((*c.defs)[:joinedFrom], dropLocals((*c.defs)[joinedFrom:], scope)...)
+		}
 	}
+}
+
+// dropLocals returns defs without the local bindings (DefLocal, DefGlobalLink)
+// made in scope.
+func dropLocals(defs []Definition, scope int) []Definition {
+	var kept []Definition
+	for _, d := range defs {
+		if (d.Kind == DefLocal || d.Kind == DefGlobalLink) && d.Scope == scope {
+			continue
+		}
+		kept = append(kept, d)
+	}
+	return kept
 }
 
 // FileAll parses src once and returns all four per-file analyses together. It is
