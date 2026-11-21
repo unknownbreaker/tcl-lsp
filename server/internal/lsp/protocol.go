@@ -1,6 +1,9 @@
 package lsp
 
-import "net/url"
+import (
+	"encoding/json"
+	"net/url"
+)
 
 // Position is an LSP position (UTF-16 character units).
 type Position struct {
@@ -239,10 +242,36 @@ type InitializeParams struct {
 // out of reach by design: color and jumps mean "there is source".
 //
 // Diagnostics is the master switch for the Checks (package check). Absent means
-// on; false publishes no diagnostics at all.
+// on; false publishes no diagnostics at all. Checks turns single Checks off: an
+// id mapped to false publishes none of that Check's findings, and every other
+// Check stays on (CheckToggles).
 type InitializationOptions struct {
-	ExtraIndexPaths []string `json:"extraIndexPaths"`
-	Diagnostics     *bool    `json:"diagnostics"`
+	ExtraIndexPaths []string     `json:"extraIndexPaths"`
+	Diagnostics     *bool        `json:"diagnostics"`
+	Checks          CheckToggles `json:"checks"`
+}
+
+// CheckToggles maps a Check id to whether that Check is on. It decodes from a
+// JSON object, keeping only the entries whose value is a JSON boolean: any other
+// value, or a value that is not an object, leaves its Checks on rather than
+// failing the rest of the options. Ids no Check has are kept and ignored.
+type CheckToggles map[string]bool
+
+// UnmarshalJSON decodes the entries of b that are JSON booleans; it never fails.
+func (t *CheckToggles) UnmarshalJSON(b []byte) error {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(b, &raw) != nil || raw == nil {
+		return nil
+	}
+	out := CheckToggles{}
+	for id, v := range raw {
+		var on bool
+		if string(v) != "null" && json.Unmarshal(v, &on) == nil {
+			out[id] = on
+		}
+	}
+	*t = out
+	return nil
 }
 
 // ClientCapabilities is the subset of client capabilities we read.

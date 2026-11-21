@@ -25,6 +25,8 @@ type Server struct {
 	nextID int               // id for server-initiated requests (registerCapability)
 	// diagnostics is the Checks' master switch (InitializationOptions.Diagnostics).
 	diagnostics bool
+	// checks turns single Checks off (InitializationOptions.Checks).
+	checks CheckToggles
 	// found holds each open .tcl/.rvt document's findings before the filter for
 	// redefined builtins, and shown what was last published for it, so a change
 	// to the index anywhere republishes exactly the documents it affects.
@@ -84,6 +86,7 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 		if d := p.InitializationOptions.Diagnostics; d != nil {
 			s.diagnostics = *d
 		}
+		s.checks = p.InitializationOptions.Checks
 		root := p.RootPath
 		if root == "" && p.RootURI != "" {
 			root = uriToPath(p.RootURI)
@@ -244,7 +247,7 @@ func (s *Server) setDoc(uri, text string) {
 // or restored in one file silences or revives a finding in another.
 func (s *Server) refreshDiagnostics(changed string) {
 	for uri, raw := range s.found {
-		fs := check.Unshadowed(raw, s.ix.DefinesCommand)
+		fs := check.Unshadowed(check.Enabled(raw, s.checks), s.ix.DefinesCommand)
 		if uri != changed && reflect.DeepEqual(fs, s.shown[uri]) {
 			continue
 		}

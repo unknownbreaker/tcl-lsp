@@ -130,6 +130,22 @@ next:
 	return out
 }
 
+// Enabled returns the findings of the Checks that toggles leaves on. toggles
+// maps a Check id to whether that Check is on: false turns it off, and an id it
+// does not hold, or one no Check has, changes nothing.
+func Enabled(fs []Finding, toggles map[string]bool) []Finding {
+	if len(toggles) == 0 {
+		return fs
+	}
+	var out []Finding
+	for _, f := range fs {
+		if on, set := toggles[f.Check]; !set || on {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // commandSpan returns c's byte range, from its first word's start to its last
 // word's end.
 func commandSpan(c tcl.Command, base int) (int, int) {

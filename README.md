@@ -31,9 +31,10 @@ cross-file, `.rvt`-aware, Itcl-aware — rather than a broad, shallow set.
 **Certain-only diagnostics.** Built-in Checks flag code that is valid but
 cannot mean anything sensible, such as `set x $x`. A Check ships only if it can
 never fire on correct code, and stays silent when in doubt. They appear as
-ordinary LSP diagnostics, and `tcl-lsp check <paths>` runs them in CI. See
+ordinary LSP diagnostics, and `tcl-lsp check <paths>` runs them in CI. Each
+Check can be turned off on its own, in the editor and in `tcl-lsp check`. See
 [docs/CHECKS.md](docs/CHECKS.md) for every Check, with flagged and silent
-examples.
+examples, and for the toggles.
 
 **Out of scope by design** (see [Why a v2 reset](#why-a-v2-reset)):
 
@@ -181,6 +182,7 @@ require("tcl-lsp").setup({
   extra_index_paths = {}, -- e.g. { "/opt/fa/tcl-lib", vim.fn.expand("~/Repos/fa-tcl") }
 
   diagnostics = true, -- false: no diagnostics (navigation only); see docs/CHECKS.md
+  checks = {}, -- per-Check toggles, e.g. { ["unreachable-code"] = false }; see docs/CHECKS.md
 })
 ```
 
@@ -194,7 +196,7 @@ Notes:
   `vim.wo.foldexpr = "v:lua.vim.lsp.foldexpr()"` (+ `foldmethod=expr`) in your
   own `LspAttach`.
 - Classic Vim options: `g:tcl_lsp_cmd`, `g:tcl_lsp_auto_build`,
-  `g:tcl_lsp_extra_index_paths`, `g:tcl_lsp_diagnostics` — documented in
+  `g:tcl_lsp_extra_index_paths`, `g:tcl_lsp_diagnostics`, `g:tcl_lsp_checks` — documented in
   [`editors/vim/tcl-lsp.vim`](editors/vim/tcl-lsp.vim).
 
 ## External packages & the Tcl library

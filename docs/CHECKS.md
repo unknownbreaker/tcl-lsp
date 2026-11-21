@@ -31,6 +31,22 @@ One switch turns every Check off, leaving tcl-lsp navigation-only:
 - Vim: `let g:tcl_lsp_diagnostics = 0` before sourcing `editors/vim/tcl-lsp.vim`.
 - Any other client: `"diagnostics": false` in `initializationOptions`.
 
+Each Check also has its own toggle, keyed by its id. Every Check is on while
+diagnostics are on, and turning one off silences only that Check. The master
+switch wins: with diagnostics off, no Check runs, whatever its toggle says.
+Unknown ids are ignored, so one config works across server versions.
+
+- Neovim: `checks = { ["unreachable-code"] = false }` in `opts` (`0` also
+  means off).
+- Vim: `let g:tcl_lsp_checks = {'unreachable-code': 0}` (`0` or `v:false`).
+- Any other client: `"checks": {"unreachable-code": false}` in
+  `initializationOptions`. Only a JSON `false` turns a Check off.
+- `tcl-lsp check`: `--disable unreachable-code`, before the paths. It takes a
+  comma-separated list and can be repeated, as in
+  `tcl-lsp check --disable self-assignment,unreachable-code src/`. A disabled
+  Check's findings are neither printed nor counted toward the exit status, so
+  CI agrees with the editor.
+
 ## What a Check looks at
 
 - **Only code that certainly runs as Tcl:** the top level, the bodies of
