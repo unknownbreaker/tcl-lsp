@@ -1,0 +1,21 @@
+testdata/fixtures/constant_transform_flagged.tcl:2:1: hint constant-transform string toupper has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:3:1: hint constant-transform string tolower has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:4:1: hint constant-transform string totitle has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:5:1: hint constant-transform string trim has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:6:1: hint constant-transform string trim has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:7:1: hint constant-transform string trimleft has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:8:1: hint constant-transform string trimleft has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:9:1: hint constant-transform string trimright has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:10:1: hint constant-transform string trimright has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:11:1: hint constant-transform string reverse has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:12:1: hint constant-transform string range has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:13:1: hint constant-transform lsort has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:14:1: hint constant-transform lreverse has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:15:1: hint constant-transform lrange has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:16:1: hint constant-transform string toupper has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:17:1: hint constant-transform lsort has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:19:8: hint constant-transform string toupper has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:21:10: hint constant-transform string trim has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:22:17: hint constant-transform lsort has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform_flagged.tcl:25:25: hint constant-transform lreverse has only literal arguments, so it always returns the same result
+exit 0

@@ -332,7 +332,7 @@ string index "\u00e9" 0         ;# not ASCII
 lindex {{a b} c} 0              ;# not a plain list
 list a b                        ;# constructors
 format %d 1
-string toupper abc              ;# transforms
+string toupper abc              ;# transforms: see constant-transform
 after 10 {lindex {a b} 0}       ;# a deferred script
 ```
 
@@ -348,5 +348,68 @@ command is run twice on tclsh 8.6 and 9.0, and shown to change no variable,
 command or namespace and to give one result in both. Each shape is also
 fuzzed: every short word over an alphabet of the characters that matter is
 run in both versions, and the outputs agree on every word the table accepts.
+
+### `constant-transform` (hint)
+
+A pure transform builtin called with only literal arguments, so its result
+could be written in its place. It uses `constant-query`'s literal rule and
+shapes, with its own purity table; any other call is silent:
+
+| Transform | Arguments |
+| --- | --- |
+| `string toupper S`, `string tolower S`, `string totitle S` | text |
+| `string trim S ?S?`, `string trimleft S ?S?`, `string trimright S ?S?` | text, optional text |
+| `string reverse S` | text |
+| `string range S I I` | text, index, index |
+| `lsort L`, `lreverse L` | plain list |
+| `lrange L I I` | plain list, index, index |
+
+Flagged:
+
+```tcl
+string toupper abc
+string totitle {hELLO wORLD}
+string trim "  x  "
+string trimleft xxa x
+string range abcdef 1 end-1
+lsort {c b a}
+lreverse {a b c}
+set s [::string tolower ABC]
+```
+
+Not flagged:
+
+```tcl
+string toupper $x               ;# a substitution
+lrange {a b c} $i end
+string toup abc                 ;# a prefix: only full names count
+lsort -unique {b a b}           ;# options
+string toupper abc 0 0          ;# a form not in the table
+string range abc 0 e            ;# end in 8.6, an error in 9.0
+lrange {a b c} 010 end          ;# octal in 8.6
+string toupper "\u00e9"         ;# not ASCII
+lsort {{b a} c}                 ;# not a plain list
+set usage [string trim {
+    usage: tool ?-v? file
+}]                              ;# a block of lines: a newline is not text
+string repeat - 40              ;# constructors
+string map {a b} abc
+split a,b ,
+join {a b} ,
+after 10 {lsort {b a}}          ;# a deferred script
+```
+
+It is a hint, not a warning: a constant transform is harmless, only longer
+than its result. Constructors (`list`, `join`, `split`, `string repeat`,
+`string map`, `format`, `concat`) are left out on purpose, since building a
+value from parts is a readable way to write it. So is trimming a braced block
+of lines, the usual way to lay out long text; text must be printable ASCII, so
+a newline keeps it silent. A table entry goes in only if its result is the
+same in Tcl 8.6 and 9.0. A redefined `string`, `lsort`, `lreverse`, `lrange`,
+or a command named after the subcommand (`toupper`, `trim`, …) silences the
+finding (see Redefined builtins). The evidence is
+`server/internal/checkcmd/testdata/tclsh/constant_transform.tcl`, run the same
+way as `constant-query`'s: each flagged command twice on tclsh 8.6 and 9.0,
+and each shape fuzzed over every short word of an alphabet.
 
 More Checks are on the way; #93 lists them.

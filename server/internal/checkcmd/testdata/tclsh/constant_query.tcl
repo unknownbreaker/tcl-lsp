@@ -29,21 +29,7 @@
 # Check flags exactly the accepted words (TestConstantQueryTranscript).
 set x abc
 proc f {} { return abc }
-proc state {} {
-  list [lsort [info vars ::*]] [lsort [info commands ::*]] [lsort [namespace children ::]]
-}
-proc run1 {cmd} {
-  set c [catch {uplevel #0 $cmd} res]
-  if {$c} { return "ERR [lindex [split $res \n] 0]" }
-  return $res
-}
-proc row {kind cmd} {
-  set before [state]
-  set r1 [run1 $cmd]
-  set r2 [run1 $cmd]
-  set pure [expr {$r1 eq $r2 && [state] eq $before ? "pure" : "impure"}]
-  puts [join [list $kind $cmd $pure [list $r1]] \t]
-}
+source [file join [file dirname [info script]] purity.tcl]
 puts "== Tcl [info patchlevel]"
 foreach cmd {
   {string index "a b" 1}
@@ -137,32 +123,6 @@ foreach cmd {
   {after 0 {string length abc}}
 } { row exempt $cmd }
 
-# words returns every word over alpha, shortest first, up to n chars.
-proc words {alpha n} {
-  set out [list ""]
-  set cur [list ""]
-  for {set i 0} {$i < $n} {incr i} {
-    set nxt {}
-    foreach w $cur { foreach c $alpha { lappend nxt $w$c } }
-    lappend out {*}$nxt
-    set cur $nxt
-  }
-  return $out
-}
-# fuzz runs body with v bound to each word that accept takes, and prints the
-# count and CRC-32 of those words, one per line, and of their results.
-proc fuzz {name alpha n accept body} {
-  set in {}
-  set out {}
-  set k 0
-  foreach v [words $alpha $n] {
-    if {![apply [list v $accept] $v]} continue
-    incr k
-    append in $v\n
-    append out [apply [list v $body] $v]\n
-  }
-  puts [join [list fuzz $name [list $alpha] $n $k [zlib crc32 $in] [zlib crc32 $out]] \t]
-}
 set ascii {}
 for {set c 0x20} {$c < 0x7f} {incr c} { lappend ascii [format %c $c] }
 set classes {alnum alpha ascii control digit graph lower print punct space upper wordchar xdigit}
