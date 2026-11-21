@@ -266,13 +266,17 @@ func (s *Server) publishDiagnostics(uri, text string, findings []check.Finding) 
 		if f.Severity == check.Hint {
 			sev = DiagnosticSeverityHint
 		}
-		diags = append(diags, Diagnostic{
+		d := Diagnostic{
 			Range:    Range{Start: lines.position(f.Start), End: lines.position(f.End)},
 			Severity: sev,
 			Code:     f.Check,
 			Source:   "tcl-lsp",
 			Message:  f.Message + " (" + f.Check + ")",
-		})
+		}
+		if f.Unnecessary {
+			d.Tags = []int{DiagnosticTagUnnecessary}
+		}
+		diags = append(diags, d)
 	}
 	params, _ := json.Marshal(PublishDiagnosticsParams{URI: uri, Diagnostics: diags})
 	if err := s.conn.Write(&Message{Method: "textDocument/publishDiagnostics", Params: params}); err != nil {

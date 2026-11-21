@@ -38,6 +38,8 @@ type collectors struct {
 	// assumes lists the builtins whose bodies the walk trusted to reach here.
 	visit   *Visit
 	assumes []string
+	// loop says a break or continue in these commands ends a loop (scriptLoop).
+	loop bool
 	// created collects the tails of the command names commands may create
 	// (createdNames), in every body, run or not.
 	created *[]string
@@ -63,6 +65,16 @@ func walkFile(src string, c collectors) {
 // commands are looked up from class's namespace (see bodyScope.InClassNS).
 func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, wrapped, inClassNS bool, c collectors) {
 	var refs []Reference
+	// An unterminated last word means Tcl rejects the last command, so neither
+	// it nor anything in it runs. Found once, for the visitor's two uses.
+	lastOpen := false
+	if c.visit != nil && len(cmds) > 0 {
+		lw := cmds[len(cmds)-1].Words
+		lastOpen = !wordComplete(lw[len(lw)-1])
+		if c.visit.Script != nil && frame != FrameClass {
+			visitScript(cmds, base, lastOpen, c)
+		}
+	}
 	for i, cmd := range cmds {
 		w := cmd.Words
 		bodies := childBodies(cmd, base, ns, frame, scope, class)
@@ -105,7 +117,7 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 
 		bc := c
 		if c.visit != nil {
-			bc.visit, bc.assumes = visitCommand(cmd, base, i == len(cmds)-1, ns, frame, scope, class, wrapped, inClassNS, c)
+			bc.visit, bc.assumes = visitCommand(cmd, base, lastOpen && i == len(cmds)-1, ns, frame, scope, class, wrapped, inClassNS, c)
 		}
 
 		if c.classes != nil && frame == FrameClass && class != "" {
@@ -151,6 +163,9 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 			bodyInClassNS := inClassNS
 			if b.InClassNS != classNSInherit {
 				bodyInClassNS = b.InClassNS == classNSOn
+			}
+			if bc.visit != nil {
+				bc.loop = scriptLoop(cmd, base, b, c.loop)
 			}
 			walkAll(parseWith(b.Inner, c.ends), b.Base, b.NS, b.Frame, b.Scope, b.Class, b.Wrapped || inherit, bodyInClassNS, bc)
 		}

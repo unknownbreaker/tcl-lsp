@@ -1,0 +1,10 @@
+testdata/fixtures/unreachable_code_flagged.tcl:5:5: hint unreachable-code code after return never runs
+testdata/fixtures/unreachable_code_flagged.tcl:10:22: hint unreachable-code code after error never runs
+testdata/fixtures/unreachable_code_flagged.tcl:17:13: hint unreachable-code code after break never runs
+testdata/fixtures/unreachable_code_flagged.tcl:20:9: hint unreachable-code code after continue never runs
+testdata/fixtures/unreachable_code_flagged.tcl:23:5: hint unreachable-code code after return never runs
+testdata/fixtures/unreachable_code_flagged.tcl:29:9: hint unreachable-code code after return never runs
+testdata/fixtures/unreachable_code_flagged.tcl:32:9: hint unreachable-code code after return never runs
+testdata/fixtures/unreachable_code_flagged.tcl:37:22: hint unreachable-code code after return never runs
+testdata/fixtures/unreachable_code_flagged.tcl:42:5: hint unreachable-code code after return never runs
+exit 0

@@ -27,6 +27,14 @@ type Visit struct {
 	// Its [scripts] are still substituted, so they are visited; it and its
 	// bodies are not.
 	Data func(c Command, base int) bool
+	// Script, when set, receives each script certain to run as Tcl before its
+	// commands go to Command: its commands in order, without the ones Data
+	// reports or an unterminated last command, with the offset they are relative
+	// to and the builtins assumed to reach it (as for Command). An Itcl class
+	// body is not a script. loop says a break or continue in the script ends a
+	// loop rather than being rejected (scriptLoop). The slice is shared; copy it
+	// to keep it.
+	Script func(cmds []Command, base int, assumes []string, loop bool)
 }
 
 // VisitCommands calls v for every command of src certain to run as Tcl.
@@ -56,11 +64,11 @@ func FileAllVisit(src string, v *Visit) FileIndex {
 
 // visitCommand visits cmd, a command of a body the visitor trusts, and its
 // substituted scripts, and returns the visitor and assumed builtins its own bodies
-// get: none unless they certainly run as scripts. last says cmd is its script's
-// last command, the only one whose last word may be unterminated. An unterminated
-// word means Tcl rejects the command, so neither it nor anything in it runs.
-func visitCommand(cmd Command, base int, last bool, ns string, frame FrameKind, scope int, class string, wrapped, inClassNS bool, c collectors) (*Visit, []string) {
-	if last && !wordComplete(cmd.Words[len(cmd.Words)-1]) {
+// get: none unless they certainly run as scripts. open says cmd's last word is
+// unterminated (only a script's last command can be), so Tcl rejects cmd and
+// neither it nor anything in it runs.
+func visitCommand(cmd Command, base int, open bool, ns string, frame FrameKind, scope int, class string, wrapped, inClassNS bool, c collectors) (*Visit, []string) {
+	if open {
 		return nil, nil
 	}
 	if frame == FrameClass {
@@ -80,6 +88,51 @@ func visitCommand(cmd Command, base int, last bool, ns string, frame FrameKind, 
 		return nil, nil
 	}
 	return c.visit, assume(c.assumes, cmd)
+}
+
+// visitScript passes cmds, a script the visitor trusts, to c.visit.Script.
+// lastOpen says the last command's last word is unterminated.
+func visitScript(cmds []Command, base int, lastOpen bool, c collectors) {
+	if lastOpen {
+		cmds = cmds[:len(cmds)-1]
+	}
+	if c.visit.Data != nil {
+		var run []Command
+		for i, cmd := range cmds {
+			if c.visit.Data(cmd, base) {
+				if run == nil {
+					run = append(make([]Command, 0, len(cmds)-1), cmds[:i]...)
+				}
+				continue
+			}
+			if run != nil {
+				run = append(run, cmd)
+			}
+		}
+		if run != nil {
+			cmds = run
+		}
+	}
+	c.visit.Script(cmds, base, c.assumes, c.loop)
+}
+
+// scriptLoop reports whether a break or continue in body b of cmd ends a loop
+// rather than being an error: b is the body of while, for, foreach, lmap, dict
+// for or dict map, or for's next script, or inLoop holds and cmd runs b in place
+// (bodiesRunHere, or a namespace eval), which passes a break or continue on. A
+// proc's or an Itcl member's body is a frame of its own, where Tcl rejects them
+// (tclsh 8.6 and 9.0, testdata/tclsh/unreachable_code.tcl in package checkcmd).
+func scriptLoop(cmd Command, base int, b bodyScope, inLoop bool) bool {
+	w := cmd.Words
+	if loopHead(cmd) {
+		last := w[len(w)-1]
+		next := isCmd(w, "for") && len(w) == 5 && base+w[3].Start+1 == b.Base
+		if base+last.Start+1 == b.Base || next {
+			return true
+		}
+	}
+	isNSEval := isCmd(w, "namespace") && len(w) == 4 && w[1].Text == "eval"
+	return inLoop && (bodiesRunHere(cmd) || isNSEval)
 }
 
 // assume returns assumes plus the builtins cmd's head names: its last name
@@ -252,8 +305,8 @@ func visitSubst(cmd Command, base int, ns string, frame FrameKind, scope int, cl
 	}
 	v := *c.visit
 	v.Data = nil // a substituted script's commands all run
-	words := collectors{visit: &v, assumes: c.assumes, ends: c.ends}
-	exprs := collectors{visit: &v, assumes: assume(c.assumes, cmd), ends: c.ends}
+	words := collectors{visit: &v, assumes: c.assumes, ends: c.ends, loop: c.loop}
+	exprs := collectors{visit: &v, assumes: assume(c.assumes, cmd), ends: c.ends, loop: c.loop}
 	walk := func(sub collectors) scriptFunc {
 		return func(inner string, innerBase int, _ bool) {
 			walkAll(parseWith(inner, c.ends), innerBase, ns, frame, scope, class, wrapped, inClassNS, sub)

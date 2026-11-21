@@ -30,6 +30,9 @@ type Finding struct {
 	Start    int // byte range [Start,End) in the source
 	End      int
 	Message  string
+	// Unnecessary marks code that has no effect, so an editor fades its range
+	// rather than underlining it.
+	Unnecessary bool
 	// Assumes names, by last name segment, every builtin whose meaning the
 	// finding relies on: the command it reports on, and each command whose body
 	// the visitor entered to reach it. A finding is dropped when user code
@@ -73,6 +76,17 @@ func (col *Collector) Visit(c tcl.Command, base int, assumes []string) {
 			f.Check = ch.id
 			f.Assumes = append(append([]string(nil), assumes...), f.Assumes...)
 		}
+	}
+}
+
+// Script runs the Checks that read a whole script (unreachableCode) on cmds. It
+// is a tcl.Visit's Script.
+func (col *Collector) Script(cmds []tcl.Command, base int, assumes []string, loop bool) {
+	from := len(col.findings)
+	col.findings = unreachableCode(cmds, base, loop, col.findings)
+	for i := from; i < len(col.findings); i++ {
+		f := &col.findings[i]
+		f.Assumes = append(append([]string(nil), assumes...), f.Assumes...)
 	}
 }
 
