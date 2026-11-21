@@ -50,6 +50,7 @@ var checks = []check{
 	{id: selfAssignmentID, run: selfAssignment},
 	{id: constantConditionID, run: constantCondition},
 	{id: selfComparisonID, run: selfComparison},
+	{id: duplicateLogicID, run: duplicateLogic},
 }
 
 // Collector gathers the findings of every Check over the commands it visits.

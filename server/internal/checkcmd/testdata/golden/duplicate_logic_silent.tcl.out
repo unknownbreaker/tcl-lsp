@@ -1,0 +1,3 @@
+testdata/fixtures/duplicate_logic_silent.tcl:12:4: hint constant-condition condition is always false
+testdata/fixtures/duplicate_logic_silent.tcl:12:19: hint constant-condition condition is always false
+exit 0

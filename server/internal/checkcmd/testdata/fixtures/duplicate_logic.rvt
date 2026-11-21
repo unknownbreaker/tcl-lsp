@@ -1,0 +1,10 @@
+<html>
+<? if {$x == 1} { ?>
+<p>one</p>
+<? } elseif {$x == 1} { ?>
+<p>never</p>
+<? } ?>
+<?= [expr {$y && $y}] ?>
+<?= $x || $x ?>
+<? while {$y || $z || $y} { break } ?>
+</html>

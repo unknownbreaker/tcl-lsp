@@ -1,0 +1,4 @@
+testdata/fixtures/duplicate_logic.rvt:4:13: warning duplicate-logic repeats an earlier condition, which was false, so this branch never runs
+testdata/fixtures/duplicate_logic.rvt:7:18: warning duplicate-logic repeats an earlier operand of &&, so it changes nothing
+testdata/fixtures/duplicate_logic.rvt:9:23: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+exit 1

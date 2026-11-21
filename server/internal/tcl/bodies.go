@@ -560,6 +560,36 @@ func AppendConditions(dst []Word, w []Word) []Word {
 	}
 }
 
+// AppendIfBodies appends to dst the body words of an if command Tcl accepts
+// (controlArity, separated), in order: the body of each if and elseif clause,
+// then the else body if there is one, with or without the else keyword. So the
+// command has an else body exactly when it appends one more word than
+// AppendConditions. It appends nothing for any other command.
+func AppendIfBodies(dst []Word, w []Word) []Word {
+	if len(w) == 0 || w[0].Kind != WordBare || w[0].Text != "if" || !controlArity(w) || !separated(w) {
+		return dst
+	}
+	// ifArity holds, so this walk stays in range.
+	for i := 2; ; {
+		if keyword(w[i]) == "then" {
+			i++
+		}
+		dst = append(dst, w[i])
+		i++
+		if i == len(w) {
+			return dst
+		}
+		switch keyword(w[i]) {
+		case "elseif":
+			i += 2
+			continue
+		case "else":
+			i++
+		}
+		return append(dst, w[i])
+	}
+}
+
 // separated reports whether no two of a command's words abut. Tcl rejects a
 // command whose braced or quoted word has text right after its close
 // (`if {1}{x}`, `if "1"x`) with "extra characters after close-brace" (or

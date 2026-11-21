@@ -25,24 +25,13 @@ const selfComparisonID = "self-comparison"
 func selfComparison(c tcl.Command, base int, out []Finding) []Finding {
 	out = selfCompareCommand(c, base, out)
 	var buf [4]tcl.Word
-	conds := tcl.AppendConditions(buf[:0], c.Words)
-	head := c.Words[0].Text
-	if len(conds) == 0 {
-		w := c.Words
-		if len(w) != 2 || builtinHead(c) != "expr" || w[1].Kind != tcl.WordBraced {
-			return out
-		}
-		conds, head = append(conds, w[1]), "expr"
-	}
+	conds, head := appendExprWords(buf[:0], c)
 	for _, w := range conds {
 		text, ok := exprText(w)
 		if !ok || !strings.Contains(text, "$") || !mayCompare(text) {
 			continue // nothing to compare with itself, so skip the parse
 		}
-		off := base + w.Start
-		if w.Kind != tcl.WordBare {
-			off++ // past the opening brace or quote
-		}
+		off := exprOffset(w, base)
 		n, ok := expr.Parse(text, off)
 		if !ok {
 			continue
@@ -50,6 +39,29 @@ func selfComparison(c tcl.Command, base int, out []Finding) []Finding {
 		out = appendSelfComparisons(out, n, text, off, head)
 	}
 	return out
+}
+
+// appendExprWords appends to dst the words c hands to expr, with the name of
+// the command that evaluates them: every if and elseif condition, a while or
+// for test (tcl.AppendConditions), or the one braced argument of `expr {…}`.
+func appendExprWords(dst []tcl.Word, c tcl.Command) ([]tcl.Word, string) {
+	if conds := tcl.AppendConditions(dst, c.Words); len(conds) > len(dst) {
+		return conds, c.Words[0].Text
+	}
+	w := c.Words
+	if len(w) != 2 || builtinHead(c) != "expr" || w[1].Kind != tcl.WordBraced {
+		return dst, ""
+	}
+	return append(dst, w[1]), "expr"
+}
+
+// exprOffset is the absolute offset of the text exprText returns for w, a word
+// of a command whose offsets are relative to base.
+func exprOffset(w tcl.Word, base int) int {
+	if w.Kind != tcl.WordBare {
+		return base + w.Start + 1 // past the opening brace or quote
+	}
+	return base + w.Start
 }
 
 // selfResult is the fixed result of comparing a value with itself, by operator.

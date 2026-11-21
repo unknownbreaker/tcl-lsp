@@ -1,0 +1,20 @@
+testdata/fixtures/duplicate_logic_flagged.tcl:2:16: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:3:14: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:4:21: warning duplicate-logic repeats an earlier operand of &&, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:5:27: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:6:26: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:7:13: warning duplicate-logic repeats an earlier operand of &&, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:8:22: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:9:17: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:10:18: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:11:11: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:12:25: warning duplicate-logic repeats an earlier condition, which was false, so this branch never runs
+testdata/fixtures/duplicate_logic_flagged.tcl:13:36: warning duplicate-logic repeats an earlier condition, which was false, so this branch never runs
+testdata/fixtures/duplicate_logic_flagged.tcl:14:25: warning duplicate-logic repeats an earlier condition, which was false, so this branch never runs
+testdata/fixtures/duplicate_logic_flagged.tcl:15:24: warning duplicate-logic the else body repeats the if body, so the condition changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:16:29: warning duplicate-logic the else body repeats the if body, so the condition changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:17:19: warning duplicate-logic the else body repeats the if body, so the condition changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:18:34: warning duplicate-logic every branch runs the same body, so the conditions change nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:21:8: warning duplicate-logic the else body repeats the if body, so the condition changes nothing
+testdata/fixtures/duplicate_logic_flagged.tcl:25:25: warning duplicate-logic repeats an earlier operand of ||, so it changes nothing
+exit 1
