@@ -34,6 +34,16 @@ func TestReachingUnreadEvalSilent(t *testing.T) {
 		// An absolute level names this frame when the proc runs at that depth:
 		// `#1` does for a proc called from the top level.
 		"uplevel #1 {set x 1}",
+		// Tcl reads an absolute level as an integer, hex included: `#0xa` names a
+		// proc that runs at depth 10.
+		"uplevel #0xa {set x 1}",
+		"uplevel #0XA {set x 1}",
+		// Tcl decodes escapes in the level and trims space around it.
+		`uplevel \x30 {set x 1}`,
+		`uplevel "\x30" {set x 1}`,
+		`uplevel #\x31 {set x 1}`,
+		`uplevel " 0" set x 1`,
+		`uplevel "\t0" "set x 1"`,
 	} {
 		cases = append(cases, silentReachCase{line, proc(line), "$x\n}"})
 	}
@@ -73,6 +83,10 @@ func TestReachingOneWordEvalAnswersKept(t *testing.T) {
 		{"uplevel 1 with words", "proc f {} {\n  set x 0\n  uplevel 1 set x 1\n  puts $x\n}", "$x\n}", []int{2}},
 		{"space before an absolute level", "proc f {} {\n  set x 0\n  uplevel { #1} {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
 		{"uplevel #0 in a proc", "proc f {} {\n  set x 0\n  uplevel #0 {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
+		{"uplevel #00 in a proc", "proc f {} {\n  set x 0\n  uplevel #00 {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
+		{"uplevel #+0 in a proc", "proc f {} {\n  set x 0\n  uplevel #+0 {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
+		{"uplevel # 0 in a proc", "proc f {} {\n  set x 0\n  uplevel {# 0} {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
+		{"uplevel #0 with space after in a proc", "proc f {} {\n  set x 0\n  uplevel {#0 } {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
 		{"uplevel 0 in a loop", "proc f {} {\n  set x 0\n  while {[incr n] < 3} {\n    puts $x\n    uplevel 0 {set x 1}\n  }\n}", "$x\n", []int{2, 5}},
 		{"use after a binding in uplevel 0's script", "proc f {} {\n  set x 0\n  uplevel 0 {\n    set x 1\n    puts $x\n  }\n}", "$x\n", []int{4}},
 	}...))

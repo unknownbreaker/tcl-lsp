@@ -505,21 +505,23 @@ func upLevelHere(c Command) bool {
 }
 
 // upLevelMayBeHere reports whether uplevel's first word, followed by a script, is a
-// literal level that may name this frame. Tcl also reads integer prefixes as
-// level 0 (`0x0`, `0o0`, and `0_0` in 9.0), so any value of zeros, signs and such
-// marks counts; one that is no integer makes uplevel fail, so counting it costs
-// nothing. An absolute level `#N` names this frame when the code runs at depth N,
-// except that a proc never runs at `#0`; Tcl reads it only with `#` first, so
-// ` #1` is a script. Any other literal is a script run in the
-// caller's frame, or a level that names another frame. A substituted level is out
-// of reach, as other dynamic call sites are.
+// literal level that may name this frame. Tcl decodes its escapes (`\x30`) and
+// reads integer prefixes as level 0 (`0x0`, `0o0`, and `0_0` in 9.0), so any value
+// of zeros, signs and such marks counts; one that is no integer makes uplevel
+// fail, so counting it costs nothing. An absolute level `#N` names this frame when
+// the code runs at depth N, hex included (`#0xa`), except that a proc never runs
+// at `#0`: only a value of zeros, signs and space is read as `#0` there, and any
+// other spelling of it (`#0x0`) counts as this frame. Tcl reads an absolute level
+// only with `#` first, so ` #1` is a script. Any other literal is a script run in
+// the caller's frame, or a level that names another frame. A substituted level is
+// out of reach, as other dynamic call sites are.
 func upLevelMayBeHere(w Word, frame FrameKind) bool {
-	v, ok := literalValue(w)
+	v, ok := decodedLiteral(w)
 	if !ok {
 		return false
 	}
 	if abs, ok := strings.CutPrefix(v, "#"); ok {
-		return frame != FrameProc || strings.ContainsAny(abs, "123456789")
+		return frame != FrameProc || strings.Trim(abs, "0+- \t\n\v\f\r") != ""
 	}
 	v = strings.TrimLeft(strings.TrimSpace(v), "+-")
 	return strings.HasPrefix(v, "0") && !strings.ContainsAny(v, "123456789")
