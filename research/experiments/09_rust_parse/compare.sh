@@ -4,6 +4,8 @@
 # its first differing command and word. ROOT defaults to $TCL_CORPUS, else the
 # Homebrew Tcl library; a missing ROOT skips. The Rust dumps of the golden
 # fixtures (server/internal/tcl/testdata/parsedump) are checked first.
+# The dumps (which hold the corpus source) and logs go in a $TMPDIR directory,
+# deleted on success and kept on failure; KEEP_DUMPS=1 keeps them either way.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -14,7 +16,18 @@ if [[ -e $root && ! -d $root ]]; then
 	echo "corpus: $root is not a directory" >&2
 	exit 2
 fi
+# Absolute, so Go (run from its package directory) and Rust read the same tree.
+if [[ -d $root ]]; then root=$(cd "$root" && pwd); fi
 out=$(mktemp -d "${TMPDIR:-/tmp}/parsedump.XXXXXX")
+cleanup() {
+	local status=$?
+	if [[ $status -eq 0 && ${KEEP_DUMPS:-} != 1 ]]; then
+		rm -rf "$out"
+	else
+		echo "dumps and logs kept in $out" >&2
+	fi
+}
+trap cleanup EXIT
 
 cargo build --quiet --release --manifest-path "$here/Cargo.toml"
 dump="$here/target/release/parsedump"
@@ -40,11 +53,15 @@ first_diff() {
 	echo "  go:   ${a:-(none)}"
 	echo "  rust: ${b:-(none)}"
 	if command -v jq >/dev/null; then
-		jq -rn --argjson a "${a:-null}" --argjson b "${b:-null}" '
-			if ($a|type) == "array" and ($b|type) == "array" then
+		# Through files: a command can exceed the argument-size limit.
+		printf '%s' "$a" >"$out/diff-go.json"
+		printf '%s' "$b" >"$out/diff-rust.json"
+		jq -rn --slurpfile a "$out/diff-go.json" --slurpfile b "$out/diff-rust.json" '
+			($a[0]) as $a | ($b[0]) as $b
+			| if ($a|type) == "array" and ($b|type) == "array" then
 				[range([($a|length), ($b|length)] | max)] | map(select($a[.] != $b[.])) | first
 				| "  first differing word: \(.)\n  go:   \($a[.] | tojson)\n  rust: \($b[.] | tojson)"
-			else empty end' 2>/dev/null || true
+			else empty end' 2>/dev/null || echo "  (jq could not read the command; compare the lines above)"
 	fi
 }
 
@@ -72,10 +89,10 @@ check() {
 		fi
 		n=$((n + 1))
 	done < <(dumps "$a")
-	local extra
-	extra=$(dumps "$b" | tr -cd '\0' | wc -c | tr -d ' ')
-	if [[ $extra != "$n" ]]; then
-		echo "MISMATCH: $n Go dumps, $extra Rust dumps" >&2
+	local nrust
+	nrust=$(dumps "$b" | tr -cd '\0' | wc -c | tr -d ' ')
+	if [[ $nrust != "$n" ]]; then
+		echo "MISMATCH: $n Go dumps, $nrust Rust dumps" >&2
 		exit 1
 	fi
 	echo "$n files identical"
@@ -112,7 +129,8 @@ check "$out/golden-go" "$out/golden-rust"
 # compare_tree ROOT LABEL: Go and Rust dumps of every *.tcl file under ROOT agree.
 compare_tree() {
 	local dir="$out/$2"
-	if [[ -z $(find "$1" -type f -name '*.tcl' -print -quit) ]]; then
+	# "$1/": BSD find doesn't descend into a symlinked root otherwise.
+	if [[ -z $(find "$1/" -type f -name '*.tcl' -print -quit) ]]; then
 		echo "$2 $1: no .tcl files; skipping"
 		return
 	fi
@@ -137,7 +155,8 @@ for f in "$golden"/*.tcl; do
 done
 awk -v dir="$fuzz" 'BEGIN {
 	srand(80)
-	n = split("{ } [ ] \" $ \\ ; # ( ) * : x y {*} ${ $a( \\\n set puts list", a, " ")
+	# "|"-separated: awk splits on any whitespace when the separator is " ".
+	n = split("{|}|[|]|\"|$|\\|;|#|(|)|*|:|x|y|{*}|${|$a(|\\\n|set|puts|list", a, "|")
 	for (k = 0; k < 4; k++) { a[++n] = " "; a[++n] = "\n"; a[++n] = "x"; a[++n] = "}" }
 	a[++n] = "\t"; a[++n] = "\r"
 	for (f = 0; f < 4000; f++) {
@@ -154,4 +173,3 @@ if [[ ! -e $root ]]; then
 	exit 0
 fi
 compare_tree "$root" corpus
-echo "dumps left in $out"

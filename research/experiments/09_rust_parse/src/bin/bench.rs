@@ -1,8 +1,8 @@
 //! bench: scanner and parser throughput over the corpus ($TCL_CORPUS, else the
 //! Homebrew Tcl library), for research/09. Each stage runs one warm-up pass and
-//! then $BENCH_PASSES timed passes (default 20) over the whole corpus ("all") and
-//! over its largest file ("largest"), and prints the median MB/s (1 MB = 10^6
-//! bytes, as Go reports it) with the allocations of one pass.
+//! then $BENCH_PASSES timed passes (default 20, at least 1) over the whole
+//! corpus ("all") and over its largest file ("largest"), and prints the median
+//! MB/s (1 MB = 10^6 bytes, as Go reports it) with the allocations of one pass.
 //!
 //!   cargo run --release --bin bench
 
@@ -39,7 +39,8 @@ fn main() {
     let passes: usize = std::env::var("BENCH_PASSES")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(20);
+        .unwrap_or(20)
+        .max(1);
     tclparse::with_big_stack(move || {
         let files = match tclparse::load_corpus(&root) {
             Ok(f) if !f.is_empty() => f,
