@@ -31,7 +31,7 @@ string equal -nocase $x $x
 string compare -length 1 $x $x
 string equal -length 0 $x $x
 string equal $x $y
-string equal {$x} {$x}
+string equal -length $n {$x} {$x}
 string equal [f] [f]
 string eq $x $x
 string first $x $x

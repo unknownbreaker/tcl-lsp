@@ -1,2 +1,1 @@
-testdata/fixtures/self_comparison_silent.tcl:34:1: warning constant-query string equal has only literal arguments, so it always returns the same result
-exit 1
+exit 0

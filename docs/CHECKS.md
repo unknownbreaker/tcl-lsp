@@ -37,10 +37,10 @@ One switch turns every Check off, leaving tcl-lsp navigation-only:
   `proc`, `namespace eval`, Itcl methods, constructors, destructors, class procs
   and `itcl::body`, the bodies of control-flow builtins (`if`, `while`, `for`,
   `foreach`, `lmap`, `switch`, `catch`, `try`, `time`, `dict for`, `dict map`,
-  `dict with`, `dict update`, `eval` of one braced word, `uplevel 0`), and every `[command substitution]` inside
-  those. The braced argument of any other command (`after 10 {…}`, your own
-  wrapper, a TclOO definition) may be data or deferred code, so nothing inside
-  it is checked. An Itcl class body's own lines declare members, so they are
+  `dict with`, `dict update`, `eval` of one braced word, `uplevel 0`), and
+  every `[command substitution]` inside those. The braced argument of any other
+  command (`after 10 {…}`, your own wrapper, a TclOO definition) may be data or
+  deferred code, so nothing inside it is checked. An Itcl class body's own lines declare members, so they are
   not checked either; the member bodies are.
   Each of those must have words Tcl accepts: `namespace eval ns a b` joins its
   words into a script of its own, and `proc p a b {…}`, `if {$c} {…} else`,

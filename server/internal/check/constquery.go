@@ -34,7 +34,7 @@ var (
 		"compare": {argText, argText},
 	}
 	listQueries = map[string][]argShape{
-		"lindex":  {argList, argIndex},
+		"lindex": {argList, argIndex},
 	}
 )
 
@@ -105,7 +105,10 @@ func constantQuery(c tcl.Command, base int, out []Finding) []Finding {
 // stringIs reports whether args, the words after `string is`, are a class the
 // table holds, an optional -strict and one value of the class's shape.
 func stringIs(args []tcl.Word) bool {
-	if len(args) == 3 && (args[1].Kind != tcl.WordBare || args[1].Text != "-strict") || len(args) != 2 && len(args) != 3 {
+	if len(args) != 2 && len(args) != 3 {
+		return false
+	}
+	if len(args) == 3 && (args[1].Kind != tcl.WordBare || args[1].Text != "-strict") {
 		return false
 	}
 	cls := args[0]

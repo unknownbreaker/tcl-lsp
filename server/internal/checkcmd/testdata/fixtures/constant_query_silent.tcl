@@ -10,6 +10,13 @@ lindex {a b c} $i
 llength [list a b]
 string is integer $v
 string equal abc $y
+string first $x abc
+string last b [f]
+string match $p abc
+string compare abc $y
+string index abc $i
+string is alpha $v
+string is xdigit -strict [f]
 # Expansion, a prefix, a quoted head, options, forms not in the table.
 string index {*}{abc 0}
 string ind abc 0
