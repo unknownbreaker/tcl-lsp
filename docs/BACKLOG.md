@@ -113,11 +113,11 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   `eval list {proc h {} {...}}` runs `list proc h {} ...`, so no `h` exists, yet `h` is indexed and
   its body answers as a proc's, as a wrapper's body is (`with {proc h ...}`). `eval foo {set ::x 1}`
   still defines `::x`, though `foo` gets the words as arguments. Only the eval's word itself is never
-  a scope, and binds no local (#140).
+  a scope, and binds no local (#140; #151).
 - **Multi-word `uplevel` words read as a body.** `uplevel 0 DECO proc g {} {set x 1; puts $x}` in a
   proc, and `uplevel #0 list {set x 1; puts $x}` at page level, answer `set x 1` though uplevel joins
   its words as eval does and x stays 0 (tclsh 8.6 and 9.0); `uplevel #0 DECO proc g {} {...}` defines
-  `g`. Same on v0.6.40.
+  `g`. Same on v0.6.40 (#150).
 - **Reaching, an `uplevel` with a substituted level.** `uplevel $l {set x 1}; puts $x` answers only
   the earlier `set x`, though `$l` may be `0` at run time and Tcl then sets `x` here. A level is read
   only when it is literal (since v0.6.40), as other dynamic call sites are out of reach.
