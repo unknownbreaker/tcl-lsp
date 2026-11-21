@@ -211,4 +211,61 @@ evaluated with `$x` bound to NaN, Inf, empty, lists and other values on tclsh
 8.6 and 9.0, is
 `server/internal/checkcmd/testdata/tclsh/self_comparison.tcl`.
 
+### `duplicate-logic` (warning)
+
+Logic that repeats itself, so the repeat changes nothing. It works on three
+shapes:
+
+- an operand of a chain of `||` or `&&` that repeats an earlier operand of the
+  same chain, in an `if` or `elseif` condition, a `while` or `for` test, or
+  `expr {…}`. The earlier copy already decided the chain if it could.
+- an `elseif` condition that repeats an earlier condition of the same `if`.
+  The earlier one was false, so the repeat is false too and its branch never
+  runs.
+- an `if` with an `else` whose bodies are all the same braced text, so the
+  branch taken does not matter.
+
+A repeat must be written like the earlier copy, up to spaces and parentheses,
+and hold a `$var`. Nothing from the earlier copy to the repeat may call a
+command or a math function, since a call may return something new each time
+or change a variable the repeat reads.
+
+Flagged:
+
+```tcl
+if {$a == 1 || $a == 1} {…}         ;# the second $a == 1
+while {$x && ($y && $x)} {…}        ;# the second $x
+set r [expr {$x || $y || $x}]
+if {$x != $x || $x != $x} {…}       ;# NaN or not, the same value twice
+if {[f] || $x || $x} {…}            ;# the call comes before both copies
+if {$x} {…} elseif {$y} {…} elseif {($x)} {…}   ;# the last condition
+if {$x} {set r a} else {set r a}    ;# the else body
+if {$x} {a} elseif {$y} {a} else {a}
+```
+
+Not flagged:
+
+```tcl
+if {$x || [set x 1; expr 0] || $x} {…}   ;# a script between the copies
+if {$x || g() || $x} {…}            ;# so is a math function: it may set x
+if {[f] || [f]} {…}                 ;# f may return something new
+if {rand() < 0.5 || rand() < 0.5} {…}
+if {$x && $y || $x} {…}             ;# ($x && $y) || $x: different operands
+if {$x || ${x}} {…}                 ;# only repeats written alike
+if {1 || 1} {…}                     ;# no variable: see constant-condition
+if {$x} {a} elseif {[set x 1; expr 0]} {b} elseif {$x} {c}
+if $x {a} elseif $x {b}             ;# substituted before if runs
+if {$x} "set r [incr n]" else "set r [incr n]"   ;# two different bodies
+if {$x} {a} elseif {$y} {b} else {a}   ;# not every body
+if {$x} {a} else { a}               ;# bodies written differently
+expr {$x ? $y : $y}                 ;# ?: is left alone
+```
+
+A read trace on a variable runs at each read and may change its value, and
+`[info frame]` or an error's line number tells two equal bodies apart; those
+are the ways a flagged repeat can matter. The evidence, each flagged command
+run beside its form with the repeat dropped, for every pair of values of `$x`
+and `$y` (NaN, Inf, empty, non-booleans and others), on tclsh 8.6 and 9.0, is
+`server/internal/checkcmd/testdata/tclsh/duplicate_logic.tcl`.
+
 More Checks are on the way; #93 lists them.

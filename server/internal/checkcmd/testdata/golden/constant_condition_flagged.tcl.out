@@ -9,6 +9,7 @@ testdata/fixtures/constant_condition_flagged.tcl:9:4: warning constant-condition
 testdata/fixtures/constant_condition_flagged.tcl:10:4: warning constant-condition condition compares only literals, so its value never changes
 testdata/fixtures/constant_condition_flagged.tcl:11:4: warning constant-condition condition compares only literals, so its value never changes
 testdata/fixtures/constant_condition_flagged.tcl:12:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:12:26: warning duplicate-logic the else body repeats the if body, so which branch runs makes no difference
 testdata/fixtures/constant_condition_flagged.tcl:13:4: warning constant-condition condition compares only literals, so its value never changes
 testdata/fixtures/constant_condition_flagged.tcl:14:4: warning constant-condition condition compares only literals, so its value never changes
 testdata/fixtures/constant_condition_flagged.tcl:15:4: warning constant-condition condition compares only literals, so its value never changes

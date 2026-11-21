@@ -1,0 +1,72 @@
+== Tcl 8.6.18
+flagged	agree	expr {$x == 1 || $x == 1}	expr {$x == 1 || 0}
+flagged	agree	expr {$x && $x}	expr {$x && 1}
+flagged	agree	expr {$x != $x || $x != $x}	expr {$x != $x || 0}
+flagged	agree	expr {$x || $y || $x}	expr {$x || $y}
+flagged	agree	expr {$x && ($y && $x)}	expr {$x && $y}
+flagged	agree	expr {($x eq "a") || ($x eq "a")}	expr {($x eq "a") || 0}
+flagged	agree	expr {$x eq "a" || $x  eq  "a"}	expr {$x eq "a" || 0}
+flagged	agree	expr {[f] || $x || $x}	expr {[f] || $x}
+flagged	agree	expr {$x || $x || [f]}	expr {$x || [f]}
+flagged	agree	if {$x == 1} {set r a} elseif {$x == 1} {set r b}	if {$x == 1} {set r a}
+flagged	agree	if {$x} {set r a} elseif {$y} {set r b} elseif {$x} {set r c}	if {$x} {set r a} elseif {$y} {set r b}
+flagged	agree	if {$x eq "a"} {set r a} elseif {($x eq "a")} {set r b} else {set r c}	if {$x eq "a"} {set r a} else {set r c}
+flagged	agree	if {$x} {set r a} else {set r a}	if {$x} {}; set r a
+flagged	agree	if {$x} then {set r a} else {set r a}	if {$x} {}; set r a
+flagged	agree	if {$x} {set r a} {set r a}	if {$x} {}; set r a
+flagged	agree	if {$x} {set r a} elseif {$y} {set r a} else {set r a}	if {$x} {} elseif {$y} {}; set r a
+flagged	agree	if {[f]} {set r a} else {set r a}	if {[f]} {}; set r a
+exempt	differ	expr {$x || [set x 1; expr 0] || $x}	expr {$x || [set x 1; expr 0]}
+exempt	differ	expr {$x || g() || $x}	expr {$x || g()}
+exempt	differ	expr {[f] || [f]}	expr {[f] || 0}
+exempt	differ	expr {rand() < 0.5 || rand() < 0.5}	expr {rand() < 0.5 || 0}
+exempt	differ	expr {$x && $y || $x}	expr {$x && $y || 0}
+exempt	differ	expr {$y && $x || $x}	expr {$y && $x || 0}
+exempt	agree	expr {$x || $y && $x}	expr {$x || $y && 0}
+exempt	agree	expr {$x || ${x}}	expr {$x || 0}
+exempt	agree	expr {1 || 1}	expr {1 || 0}
+exempt	differ	if {$x} {set r a} elseif {[set x 1; expr 0]} {set r b} elseif {$x} {set r c}	if {$x} {set r a} elseif {[set x 1; expr 0]} {set r b}
+exempt	differ	if {$x} {set r a} elseif {g()} {set r b} elseif {$x} {set r c}	if {$x} {set r a} elseif {g()} {set r b}
+exempt	differ	if {[f]} {set r a} elseif {[f]} {set r b}	if {[f]} {set r a}
+exempt	differ	if {$x} {set r a} elseif $x {set r b}	if {$x} {set r a}
+exempt	agree	if {$x} {set r a} elseif {${x}} {set r b}	if {$x} {set r a}
+exempt	differ	if {$x} "set r [incr n]" else "set r [incr n]"	if {$x} {}; set r [incr n]
+exempt	differ	if {$x} {set r a} elseif {$y} {set r b} else {set r a}	if {$x} {} elseif {$y} {}; set r a
+exempt	agree	if {$x} {set r a} else { set r a}	if {$x} {}; set r a
+exempt	differ	if {$x} {set r a}	set r a
+== Tcl 9.0.3
+flagged	agree	expr {$x == 1 || $x == 1}	expr {$x == 1 || 0}
+flagged	agree	expr {$x && $x}	expr {$x && 1}
+flagged	agree	expr {$x != $x || $x != $x}	expr {$x != $x || 0}
+flagged	agree	expr {$x || $y || $x}	expr {$x || $y}
+flagged	agree	expr {$x && ($y && $x)}	expr {$x && $y}
+flagged	agree	expr {($x eq "a") || ($x eq "a")}	expr {($x eq "a") || 0}
+flagged	agree	expr {$x eq "a" || $x  eq  "a"}	expr {$x eq "a" || 0}
+flagged	agree	expr {[f] || $x || $x}	expr {[f] || $x}
+flagged	agree	expr {$x || $x || [f]}	expr {$x || [f]}
+flagged	agree	if {$x == 1} {set r a} elseif {$x == 1} {set r b}	if {$x == 1} {set r a}
+flagged	agree	if {$x} {set r a} elseif {$y} {set r b} elseif {$x} {set r c}	if {$x} {set r a} elseif {$y} {set r b}
+flagged	agree	if {$x eq "a"} {set r a} elseif {($x eq "a")} {set r b} else {set r c}	if {$x eq "a"} {set r a} else {set r c}
+flagged	agree	if {$x} {set r a} else {set r a}	if {$x} {}; set r a
+flagged	agree	if {$x} then {set r a} else {set r a}	if {$x} {}; set r a
+flagged	agree	if {$x} {set r a} {set r a}	if {$x} {}; set r a
+flagged	agree	if {$x} {set r a} elseif {$y} {set r a} else {set r a}	if {$x} {} elseif {$y} {}; set r a
+flagged	agree	if {[f]} {set r a} else {set r a}	if {[f]} {}; set r a
+exempt	differ	expr {$x || [set x 1; expr 0] || $x}	expr {$x || [set x 1; expr 0]}
+exempt	differ	expr {$x || g() || $x}	expr {$x || g()}
+exempt	differ	expr {[f] || [f]}	expr {[f] || 0}
+exempt	differ	expr {rand() < 0.5 || rand() < 0.5}	expr {rand() < 0.5 || 0}
+exempt	differ	expr {$x && $y || $x}	expr {$x && $y || 0}
+exempt	differ	expr {$y && $x || $x}	expr {$y && $x || 0}
+exempt	agree	expr {$x || $y && $x}	expr {$x || $y && 0}
+exempt	agree	expr {$x || ${x}}	expr {$x || 0}
+exempt	agree	expr {1 || 1}	expr {1 || 0}
+exempt	differ	if {$x} {set r a} elseif {[set x 1; expr 0]} {set r b} elseif {$x} {set r c}	if {$x} {set r a} elseif {[set x 1; expr 0]} {set r b}
+exempt	differ	if {$x} {set r a} elseif {g()} {set r b} elseif {$x} {set r c}	if {$x} {set r a} elseif {g()} {set r b}
+exempt	differ	if {[f]} {set r a} elseif {[f]} {set r b}	if {[f]} {set r a}
+exempt	differ	if {$x} {set r a} elseif $x {set r b}	if {$x} {set r a}
+exempt	agree	if {$x} {set r a} elseif {${x}} {set r b}	if {$x} {set r a}
+exempt	differ	if {$x} "set r [incr n]" else "set r [incr n]"	if {$x} {}; set r [incr n]
+exempt	differ	if {$x} {set r a} elseif {$y} {set r b} else {set r a}	if {$x} {} elseif {$y} {}; set r a
+exempt	agree	if {$x} {set r a} else { set r a}	if {$x} {}; set r a
+exempt	differ	if {$x} {set r a}	set r a

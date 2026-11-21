@@ -25,24 +25,13 @@ const selfComparisonID = "self-comparison"
 func selfComparison(c tcl.Command, base int, out []Finding) []Finding {
 	out = selfCompareCommand(c, base, out)
 	var buf [4]tcl.Word
-	conds := tcl.AppendConditions(buf[:0], c.Words)
-	head := c.Words[0].Text
-	if len(conds) == 0 {
-		w := c.Words
-		if len(w) != 2 || builtinHead(c) != "expr" || w[1].Kind != tcl.WordBraced {
-			return out
-		}
-		conds, head = append(conds, w[1]), "expr"
-	}
+	conds, head := appendExprWords(buf[:0], c)
 	for _, w := range conds {
 		text, ok := exprText(w)
 		if !ok || !strings.Contains(text, "$") || !mayCompare(text) {
 			continue // nothing to compare with itself, so skip the parse
 		}
-		off := base + w.Start
-		if w.Kind != tcl.WordBare {
-			off++ // past the opening brace or quote
-		}
+		off := exprOffset(w, base)
 		n, ok := expr.Parse(text, off)
 		if !ok {
 			continue
