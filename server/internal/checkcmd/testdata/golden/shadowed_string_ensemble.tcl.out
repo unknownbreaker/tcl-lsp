@@ -1,0 +1,2 @@
+testdata/fixtures/shadowed_string_ensemble.tcl:6:5: warning self-comparison compares $x with itself, so it is always true
+exit 1

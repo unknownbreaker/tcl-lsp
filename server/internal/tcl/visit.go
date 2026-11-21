@@ -343,22 +343,23 @@ func NameTail(name string) string {
 	return name
 }
 
-// collectCreated appends the tails of the command names cmd may create, and
-// those of the commands in its substituted scripts that name a creating command.
-func collectCreated(cmd Command, base int, ends *scriptEnds, out *[]string) {
-	*out = append(*out, createdNames(cmd.Words)...)
+// collectCreated appends the tails of the command names cmd, run in namespace
+// ns, may create, and those of the commands in its substituted scripts that name
+// a creating command.
+func collectCreated(cmd Command, base int, ns string, ends *scriptEnds, out *[]string) {
+	*out = append(*out, createdNames(cmd.Words, ns)...)
 	for _, w := range cmd.Words {
 		if w.Kind != WordBraced && strings.IndexByte(w.Text, '[') >= 0 && mayNameCreator(w.Text) {
 			sub := collectors{created: out, ends: ends}
 			walkSubst(w.Text, base+w.Start, false, flowAlways, ends, func(VarRef) {}, func(inner string, innerBase int, _ bool) {
-				walkAll(parseWith(inner, ends), innerBase, "::", FrameNamespace, 0, "", false, false, sub)
+				walkAll(parseWith(inner, ends), innerBase, ns, FrameNamespace, 0, "", false, false, sub)
 			})
 		}
 	}
 }
 
 // creators are the words that may start or select a command-creating command.
-var creators = []string{"proc", "rename", "alias", "create"}
+var creators = []string{"proc", "rename", "alias", "create", "ensemble"}
 
 func mayNameCreator(text string) bool {
 	for _, k := range creators {
@@ -372,10 +373,16 @@ func mayNameCreator(text string) bool {
 // createdNames returns the tails of the literal command names w may create,
 // redefine or rename away: the word after any `proc` word (a plain, member or
 // decorated proc), both names of `rename OLD NEW`, the alias of `interp alias
-// PATH NAME ...`, and the object of `CMD create NAME` (TclOO and Itcl). A name
-// braced, quoted or bare counts; one with a substitution or a backslash is
-// unknown and gives nothing. Reading too many words only silences more.
-func createdNames(w []Word) []string {
+// PATH NAME ...`, the object of `CMD create NAME` (TclOO and Itcl), and the
+// ensemble of `namespace ensemble configure NAME ...` (its -map may send a
+// subcommand to user code) or `namespace ensemble create ?-command NAME?`, which
+// with no -command is named after ns, the namespace it runs in. Since that
+// namespace may be reached by a script the walk does not enter, `namespace eval
+// NS …` and `namespace inscope NS …` with any later word naming an ensemble
+// count as creating NS too. A name braced, quoted or bare counts; one with a
+// substitution or a backslash is unknown and gives nothing. Reading too many
+// words only silences more.
+func createdNames(w []Word, ns string) []string {
 	var out []string
 	val := func(x Word) string {
 		v, _ := literalValue(x)
@@ -397,6 +404,31 @@ func createdNames(w []Word) []string {
 		add(w[2])
 	case head == "interp" && len(w) >= 4 && val(w[1]) == "alias":
 		add(w[3])
+	case head == "namespace" && len(w) >= 4 && (val(w[1]) == "eval" || val(w[1]) == "inscope"):
+		for _, x := range w[3:] {
+			if strings.Contains(x.Text, "ensemble") {
+				add(w[2])
+				break
+			}
+		}
+	case head == "namespace" && len(w) >= 3 && val(w[1]) == "ensemble":
+		switch val(w[2]) {
+		case "configure":
+			if len(w) >= 4 {
+				add(w[3])
+			}
+		case "create":
+			named := false
+			for k := 3; k+1 < len(w); k++ {
+				if val(w[k]) == "-command" {
+					add(w[k+1])
+					named = true
+				}
+			}
+			if t := NameTail(ns); !named && t != "" {
+				out = append(out, t)
+			}
+		}
 	}
 	if len(w) >= 3 && val(w[1]) == "create" {
 		add(w[2])

@@ -57,10 +57,13 @@ One switch turns every Check off, leaving tcl-lsp navigation-only:
   dropped when any indexed file defines, creates, renames or aliases a command
   with one of those names, in any namespace: `proc set`, `proc {set}`,
   `rename myset set`, `rename set {}`, `interp alias {} set {} myset`,
-  `oo::class create set`, an Itcl method `set`. A redefinition typed in one open
-  buffer updates the diagnostics of every other open buffer at once, as does one
-  saved to disk. Names built at run time (`proc $name`) are not seen; see
-  `docs/BACKLOG.md`.
+  `oo::class create set`, an Itcl method `set`, an ensemble made or remapped
+  with `namespace ensemble create -command set`, `namespace ensemble configure
+  set -map …`, or `namespace ensemble create` run in namespace `set` (by
+  `namespace eval set …` or `namespace inscope set …`). A redefinition typed in
+  one open buffer updates the diagnostics of every other open buffer at once, as
+  does one saved to disk. Names built at run time (`proc $name`) are not seen;
+  see `docs/BACKLOG.md`.
 - **Half-typed code:** a command whose last word never closes (a brace, quote or
   bracket left open) is rejected by Tcl, so neither it nor anything in it gives a
   finding.
@@ -159,5 +162,53 @@ Text the expression parser cannot read for certain (a malformed or half-typed
 condition, an unknown bareword, a `#` comment, `${name}` with a `{` or `\` in
 it) gives no finding. The evidence, each condition evaluated in four settings
 on tclsh 8.6 and 9.0, is `server/internal/checkcmd/testdata/tclsh/constant_condition.tcl`.
+
+### `self-comparison` (warning)
+
+A comparison of a value with itself, whose result is fixed. It works on any
+comparison inside an `if` or `elseif` condition, a `while` or `for` test, or
+`expr {…}`, and on the commands `string equal` and `string compare`. The two
+operands must be written alike. Each must hold a `$var` and no `[script]`.
+
+Flagged:
+
+```tcl
+if {$x eq $x} {…}                 ;# always true
+if {$x ne $x} {…}                 ;# always false
+while {$i < $i} {…}               ;# < and > are always false
+if {$a($i) eq $a($i) || $y} {…}   ;# the first comparison
+set r [expr {"a$x" ne "a$x"}]
+string equal $x $x                ;# always 1
+string compare $x $x              ;# always 0
+```
+
+Not flagged:
+
+```tcl
+if {$x != $x} {…}                 ;# true when x is NaN: a NaN test
+if {$x == $x} {…}                 ;# so are ==, <= and >=
+if {$x in $x} {…}                 ;# depends on the value
+if {$x eq $y} {…}
+if {[f] eq [f]} {…}               ;# f may return something new each call
+if {$x eq ${x}} {…}               ;# only operands written alike
+string equal -nocase $x $x        ;# no options
+string equal {$x} {$x}            ;# braced words substitute nothing
+expr $x eq $x                     ;# substituted twice
+string equal $y(a $y(a            ;# the index runs on to the next `)`, as in Tcl
+```
+
+`set x NaN` makes `$x == $x` false and `$x != $x` true in Tcl 8.6 and 9.0,
+which is why only `eq`, `ne`, `<` and `>` count. A read trace on the variable
+could change its value between the two reads; that is the one way a flagged
+comparison can vary. To compare across such a trace on purpose, write
+`[set x] eq [set x]`, which says so and is not flagged. A command-form operand counts only when it has no
+backslash and closes every `(` it opens: Tcl reads an array index across
+spaces, newlines and `;` to its `)`, and a backslash-newline splits a word. A
+redefined `string`, `equal` or `compare` silences the command form (see
+Redefined builtins). The message names the operand when it is short and
+printable ASCII, and says "a value" otherwise. The evidence, each comparison
+evaluated with `$x` bound to NaN, Inf, empty, lists and other values on tclsh
+8.6 and 9.0, is
+`server/internal/checkcmd/testdata/tclsh/self_comparison.tcl`.
 
 More Checks are on the way; #93 lists them.

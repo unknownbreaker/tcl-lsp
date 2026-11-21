@@ -100,7 +100,7 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 		}
 
 		if c.created != nil {
-			collectCreated(cmd, base, c.ends, c.created)
+			collectCreated(cmd, base, ns, c.ends, c.created)
 		}
 
 		bc := c

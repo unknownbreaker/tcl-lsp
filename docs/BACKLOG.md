@@ -243,6 +243,8 @@ redefinitions still slip past it, so a finding can be wrong:
 
 - a name built at run time: `proc $name …`, `rename a $b`, `interp alias {} $n …`;
 - a name with a backslash escape: `proc s\x65t …`;
+- an abbreviated subcommand or option: `namespace ens cre -c set` (tclsh 8.6
+  and 9.0 accept it);
 - an Itcl object created without `create`: `Widget set`;
 - a command from outside the workspace and `extra_index_paths`: a package's
   `namespace export`ed `set` brought in by `namespace import` or `namespace path`;

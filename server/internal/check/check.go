@@ -49,6 +49,7 @@ type check struct {
 var checks = []check{
 	{id: selfAssignmentID, run: selfAssignment},
 	{id: constantConditionID, run: constantCondition},
+	{id: selfComparisonID, run: selfComparison},
 }
 
 // Collector gathers the findings of every Check over the commands it visits.
@@ -110,4 +111,10 @@ func builtinHead(c tcl.Command) string {
 		return h.Text[2:]
 	}
 	return h.Text
+}
+
+// quoteCloses reports whether quoted word w ends with its closing quote; a word
+// left open runs to the end of the script and is rejected by Tcl.
+func quoteCloses(w tcl.Word) bool {
+	return len(w.Text) >= 2 && w.Text[len(w.Text)-1] == '"'
 }

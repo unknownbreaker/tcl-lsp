@@ -9,20 +9,28 @@ import "testing"
 func TestEachRedefinitionFormSilences(t *testing.T) {
 	use := "set x $x\nforeach i {1} { set y $y }\n"
 	for name, other := range map[string]string{
-		"proc":               "proc set {args} {}\n",
-		"proc braced":        "proc {set} {args} {}\n",
-		"proc quoted":        "proc \"set\" {args} {}\n",
-		"proc qualified":     "proc ::util::set {args} {}\n",
-		"proc in a deferred": "after 10 { proc set {args} {} }\n",
-		"proc in a subst":    "puts [proc set {args} {}]\n",
-		"decorated proc":     "CACHE_PROC proc set {args} {}\n",
-		"rename to":          "rename myset set\n",
-		"rename away":        "rename set {}\n",
-		"interp alias":       "interp alias {} set {} myset\n",
-		"oo create":          "oo::class create set\n",
-		"object create":      "Widget create set\n",
-		"itcl method":        "itcl::class K { method set {args} {} }\n",
-		"itcl class":         "itcl::class set {}\n",
+		"proc":                   "proc set {args} {}\n",
+		"proc braced":            "proc {set} {args} {}\n",
+		"proc quoted":            "proc \"set\" {args} {}\n",
+		"proc qualified":         "proc ::util::set {args} {}\n",
+		"proc in a deferred":     "after 10 { proc set {args} {} }\n",
+		"proc in a subst":        "puts [proc set {args} {}]\n",
+		"decorated proc":         "CACHE_PROC proc set {args} {}\n",
+		"rename to":              "rename myset set\n",
+		"rename away":            "rename set {}\n",
+		"interp alias":           "interp alias {} set {} myset\n",
+		"oo create":              "oo::class create set\n",
+		"object create":          "Widget create set\n",
+		"itcl method":            "itcl::class K { method set {args} {} }\n",
+		"itcl class":             "itcl::class set {}\n",
+		"ensemble command":       "namespace eval ns { namespace ensemble create -map {} -command ::ns::set }\n",
+		"ensemble namespace":     "namespace eval ::ns::set { namespace ensemble create }\n",
+		"ensemble in subst":      "puts [namespace eval set {namespace ensemble create}]\n",
+		"ensemble configure":     "namespace ensemble configure set -map {}\n",
+		"ensemble inscope":       "namespace inscope ::set {namespace ensemble create}\n",
+		"ensemble inscope words": "namespace inscope ::set namespace ensemble create\n",
+		"ensemble quoted body":   "namespace eval ::set \"namespace ensemble create\"\n",
+		"ensemble list body":     "namespace eval ::set [list namespace ensemble create]\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, _, code := attackRun(t, map[string]string{"a.tcl": "set x $x\n", "z.tcl": other})
@@ -48,12 +56,14 @@ func TestEachRedefinitionFormSilences(t *testing.T) {
 // A name built at run time is unknown, and an unrelated command is not `set`.
 func TestUnrelatedDefinitionsKeepFindings(t *testing.T) {
 	for name, other := range map[string]string{
-		"other proc":     "proc setup {args} {}\n",
-		"dynamic proc":   "proc $name {args} {}\n",
-		"set variable":   "set set 1\n",
-		"constructor":    "itcl::class K { constructor {} {} }\n",
-		"rename other":   "rename a b\n",
-		"set in comment": "# proc set {} {}\n",
+		"other proc":       "proc setup {args} {}\n",
+		"dynamic proc":     "proc $name {args} {}\n",
+		"set variable":     "set set 1\n",
+		"constructor":      "itcl::class K { constructor {} {} }\n",
+		"rename other":     "rename a b\n",
+		"set in comment":   "# proc set {} {}\n",
+		"global ensemble":  "namespace ensemble create\n",
+		"dynamic ensemble": "namespace ensemble create -command $c\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, _, code := attackRun(t, map[string]string{"a.tcl": "set x $x\n", "z.tcl": other})
