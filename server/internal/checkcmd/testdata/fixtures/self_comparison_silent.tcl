@@ -43,3 +43,15 @@ string {equal} $x $x
 # Rejected by Tcl: words that abut.
 string equal "$x""$x"
 if {$x eq $x}{}
+# An array index that does not close in its word runs on past it, across
+# spaces, newlines and semicolons, and a backslash-newline splits a word.
+string equal $x( $x(
+string equal "$x(" "$x("
+string equal $y(a $y(a
+) b) c
+puts [string equal $y(a $y(a;)) c]
+string equal $y(a$z(b) $y(a$z(b)
+string equal $x\
+y $x\
+y
+string equal $x\  $x\ 

@@ -36,8 +36,8 @@ func selfComparison(c tcl.Command, base int, out []Finding) []Finding {
 	}
 	for _, w := range conds {
 		text, ok := exprText(w)
-		if !ok || !strings.Contains(text, "$") {
-			continue // nothing to compare with itself
+		if !ok || !strings.Contains(text, "$") || !mayCompare(text) {
+			continue // nothing to compare with itself, so skip the parse
 		}
 		off := base + w.Start
 		if w.Kind != tcl.WordBare {
@@ -80,7 +80,7 @@ func appendSelfComparisons(out []Finding, n *expr.Node, text string, off int, he
 			Severity: Warning,
 			Start:    n.Start,
 			End:      n.End,
-			Message:  fmt.Sprintf("compares %s with itself, so it is always %s", lt, res),
+			Message:  fmt.Sprintf("compares %s with itself, so it is always %s", operandName(lt), res),
 			Assumes:  []string{head},
 		})
 	}
@@ -103,7 +103,7 @@ func selfCompareCommand(c tcl.Command, base int, out []Finding) []Finding {
 	if !ok || w[1].End >= w[2].Start || w[2].End >= w[3].Start {
 		return out
 	}
-	if !sameSubst(substWord(w[2]), w[2].Text, w[3].Text) {
+	if !sameSubst(substWord(w[2]) && wordAsTcl(w[2].Text), w[2].Text, w[3].Text) {
 		return out
 	}
 	start, end := commandSpan(c, base)
@@ -111,7 +111,7 @@ func selfCompareCommand(c tcl.Command, base int, out []Finding) []Finding {
 		Severity: Warning,
 		Start:    start,
 		End:      end,
-		Message:  fmt.Sprintf("compares %s with itself, so it always returns %s", w[2].Text, res),
+		Message:  fmt.Sprintf("compares %s with itself, so it always returns %s", operandName(w[2].Text), res),
 		Assumes:  []string{"string", sub},
 	})
 }
@@ -133,4 +133,73 @@ func substWord(w tcl.Word) bool {
 // substitutes, and both are the same text holding a $ and no [script].
 func sameSubst(kindOK bool, a, b string) bool {
 	return kindOK && a == b && strings.Contains(a, "$") && !strings.Contains(a, "[")
+}
+
+// mayCompare reports whether expression text may hold an operator selfResult
+// knows outside any [script]. A script's own comparisons are its command's, met
+// when the visitor reaches it; skipping them keeps nested `[expr {…}]` from being
+// parsed again at every level. Each operator's places are found, and the bracket
+// depth before each counted, with the strings package's vectorized search, so
+// the scan stays cheap beside the parse it saves. A `[` or `]` escaped or in
+// braces is counted too: a wrong depth only costs a parse, or a finding missed.
+func mayCompare(text string) bool {
+	for _, op := range [...]string{"eq", "ne", "<", ">"} {
+		depth, from := 0, 0
+		for {
+			k := strings.Index(text[from:], op)
+			if k < 0 {
+				break
+			}
+			seg := text[from : from+k]
+			depth += strings.Count(seg, "[") - strings.Count(seg, "]")
+			if depth <= 0 {
+				return true
+			}
+			from += k + len(op)
+		}
+	}
+	return false
+}
+
+// wordAsTcl reports whether a command-form operand ends where Tcl ends it. Tcl
+// reads `$name(` on to the `)` that closes the index, across spaces, newlines,
+// semicolons and quotes, so a word with a `(` left open runs into the next one
+// (`string equal $y(a $y(a<newline>) b) c` compares two other strings); and a
+// backslash-newline splits a word. A word with a backslash, or a `(` its own
+// text does not close, is not read. Counting every `(`, not only an index's,
+// asks for at least the closes Tcl needs.
+func wordAsTcl(text string) bool {
+	if strings.IndexByte(text, '\\') >= 0 {
+		return false
+	}
+	depth := 0
+	for i := 0; i < len(text); i++ {
+		switch text[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return depth == 0
+}
+
+// maxOperandName is the longest operand a message names.
+const maxOperandName = 40
+
+// operandName is how a message names an operand: as written, when it is short
+// and has no control character, so the finding stays one short line; otherwise
+// "a value".
+func operandName(text string) string {
+	if len(text) > maxOperandName {
+		return "a value"
+	}
+	for i := 0; i < len(text); i++ {
+		if text[i] < 0x20 || text[i] == 0x7f {
+			return "a value"
+		}
+	}
+	return text
 }

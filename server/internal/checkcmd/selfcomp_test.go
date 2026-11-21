@@ -63,3 +63,49 @@ func TestSelfComparisonShadowed(t *testing.T) {
 		}
 	}
 }
+
+// Each finding stays on its one output line, and names its operand only when
+// that is short and printable.
+func TestSelfComparisonMessageNamesOnlyShortOperands(t *testing.T) {
+	long := "\"$x" + strings.Repeat("a", 60) + "\""
+	dir := t.TempDir()
+	for src, want := range map[string]string{
+		"if {\"$x\n\" eq \"$x\n\"} {}\n":           "compares a value with itself, so it is always true",
+		"if {\"$x\t\" ne \"$x\t\"} {}\n":           "compares a value with itself, so it is always false",
+		"if {" + long + " eq " + long + "} {}\n":   "compares a value with itself, so it is always true",
+		"string equal " + long + " " + long + "\n": "compares a value with itself, so it always returns 1",
+		"if {$x eq $x} {}\n":                       "compares $x with itself, so it is always true",
+	} {
+		path := filepath.Join(dir, "m.tcl")
+		write(t, path, src)
+		out, _, _ := run(path)
+		if strings.Count(out, "\n") != 1 || !strings.HasSuffix(out, " self-comparison "+want+"\n") {
+			t.Errorf("%q: got %q, want one line ending %q", src, out, want)
+		}
+	}
+}
+
+// Shapes a fix must not silence: precedence groups the left comparison first,
+// and an expression index may hold spaces.
+func TestSelfComparisonStillFlagged(t *testing.T) {
+	dir := t.TempDir()
+	for src, n := range map[string]int{
+		"if {$x eq $x in $y} {}\n":             1, // ($x eq $x) in $y
+		"if {$x < $x <= $y} {}\n":              1,
+		"if {$y?$x eq $x:0} {}\n":              1,
+		"if {$x eq$x} {}\n":                    1,
+		"if {$x(a b) eq $x(a b)} {}\n":         1,
+		"string equal $x(a) $x(a)\n":           1,
+		"string equal $y(a$z(b)) $y(a$z(b))\n": 1,
+		"if {$y < $x < $x} {}\n":               0, // ($y < $x) < $x
+		"if {0 == $x eq $x} {}\n":              0,
+		"if {$y ne $x ne $x} {}\n":             0,
+	} {
+		path := filepath.Join(dir, "f.tcl")
+		write(t, path, src)
+		out, _, _ := run(path)
+		if got := strings.Count(out, " warning self-comparison "); got != n {
+			t.Errorf("%q: got %d findings, want %d:\n%s", src, got, n, out)
+		}
+	}
+}
