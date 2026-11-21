@@ -105,3 +105,46 @@ func TestMultiWordEvalDecoratorDefinesNoProcThroughResolver(t *testing.T) {
 		})
 	}
 }
+
+// A binding in a multi-word eval's braced word may be argument text: `eval DECO
+// proc g {} {set x 1}` runs `DECO proc g {} set x 1`, and `eval list {set x 1}`
+// runs `list set x 1`, so x is never written there (tclsh 8.6 and 9.0, write
+// trace). `eval {set y 1;} {set x 1}` does write x, but the analysis does not read
+// the joined script, so it stays silent rather than tell the two apart. References
+// and highlight on p's x leave the word's set out, and goto-definition on it
+// answers nothing, in a .tcl proc and an .rvt page proc (#140).
+func TestMultiWordEvalBracedWordBindsNothingThroughResolver(t *testing.T) {
+	for _, line := range []string{"eval DECO proc g {} {set x 1}", "eval list {set x 1}", "eval {set y 1;} {set x 1}"} {
+		body := "proc p {} {\n  set x 0\n  " + line + "\n  return\n}\n"
+		for _, f := range []struct{ name, file, src string }{
+			{"tcl", "a.tcl", body},
+			{"rvt", "p.rvt", "<h1>x</h1>\n<?\n" + body + "?>\n"},
+		} {
+			t.Run(line+"/"+f.name, func(t *testing.T) {
+				ix := index.New()
+				ix.IndexFile(f.file, f.src)
+				r := New(ix)
+				outer := strings.Index(f.src, "set x 0") + len("set ")
+				inner := strings.Index(f.src, "set x 1") + len("set ")
+				for label, locs := range map[string][]index.Location{
+					"FileHighlights": r.FileHighlights(f.file, f.src, outer),
+					"References":     r.References(f.file, f.src, outer),
+				} {
+					found := false
+					for _, l := range locs {
+						found = found || l.NameStart == outer
+						if l.NameStart == inner {
+							t.Errorf("%s on p's x = %v, includes the eval word's set x 1", label, locs)
+						}
+					}
+					if !found {
+						t.Errorf("%s on p's x = %v, missing p's own set x 0", label, locs)
+					}
+				}
+				if locs := r.Definition(f.file, f.src, inner); len(locs) != 0 {
+					t.Errorf("Definition on the eval word's set x 1 = %v, want none", locs)
+				}
+			})
+		}
+	}
+}

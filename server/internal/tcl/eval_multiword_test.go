@@ -1,6 +1,7 @@
 package tcl
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -79,7 +80,7 @@ func TestReachingMultiWordEvalNeighboursKept(t *testing.T) {
 }
 
 // Definitions indexing agrees with reaching: `eval DECO proc g {} {...}` defines no
-// proc g and no scope for its braced word, while the brace still folds as the word
+// proc g and no local in its braced word, while the brace still folds as the word
 // the walkers descend for calls (#140).
 func TestDefsMultiWordEvalDecoratorDefinesNoProc(t *testing.T) {
 	for _, c := range []struct {
@@ -94,15 +95,9 @@ func TestDefsMultiWordEvalDecoratorDefinesNoProc(t *testing.T) {
 		{"namespace eval ns {\n  eval CACHE_PROC proc g {} {\n    set x 1\n  } -ttl 60\n}\n", false},
 	} {
 		src := c.src
-		// In proc p the word is walked as a wrapper's body, so a local it binds
-		// belongs to p's scope, never to a scope of g's.
-		pScope := -1
-		if i := strings.Index(src, "proc p {} {"); i >= 0 {
-			pScope = i + len("proc p {} {")
-		}
 		for _, d := range FileDefs(src) {
-			if d.Name == "::g" || d.Name == "::ns::g" || d.Name == "a" || (d.Name == "x" && d.Kind == DefLocal && d.Scope != pScope) {
-				t.Errorf("FileDefs(%q) has %+v, want no proc g and no local in a scope of its own", src, d)
+			if d.Name == "::g" || d.Name == "::ns::g" || d.Name == "a" || (d.Name == "x" && d.Kind == DefLocal) {
+				t.Errorf("FileDefs(%q) has %+v, want no proc g and no local", src, d)
 			}
 		}
 		open := strings.LastIndex(src, "{\n")
@@ -112,6 +107,32 @@ func TestDefsMultiWordEvalDecoratorDefinesNoProc(t *testing.T) {
 		}
 		if found != c.fold {
 			t.Errorf("FileFolds(%q) = %v, fold at the braced word (offset %d) = %v, want %v", src, FileFolds(src), open, found, c.fold)
+		}
+	}
+}
+
+// A binding in a multi-word eval's braced word is no local of the enclosing proc:
+// the word may be argument text in the joined script (#140). A proc's own scope in
+// the word keeps its locals, and a namespace variable keeps the wrapper ruling.
+func TestDefsMultiWordEvalWordBindsNoLocal(t *testing.T) {
+	src := "proc p {} {\n  set x 0\n  eval list {set x 1; global gl; upvar 1 u v; proc h {a} {set b 1}; set ::n 1}\n}\n"
+	pScope := strings.Index(src, "{\n") + 1
+	word := strings.Index(src, "eval list")
+	want := map[string]bool{"x@" + strconv.Itoa(strings.Index(src, "x 0")): true, "a": true, "b": true, "::n": true, "::p": true, "::h": true}
+	got := map[string]bool{}
+	for _, d := range FileDefs(src) {
+		key := d.Name
+		if d.Name == "x" {
+			key += "@" + strconv.Itoa(d.NameStart)
+		}
+		if (d.Kind == DefLocal || d.Kind == DefGlobalLink) && d.Scope == pScope && d.NameStart > word {
+			t.Errorf("FileDefs has %+v, a local of p bound in the eval's word", d)
+		}
+		got[key] = true
+	}
+	for k := range want {
+		if !got[k] {
+			t.Errorf("FileDefs is missing %s: %v", k, FileDefs(src))
 		}
 	}
 }
