@@ -484,10 +484,14 @@ func unreadEval(c Command, frame FrameKind) bool {
 	return false
 }
 
+// tclSpace is the space Tcl trims around an integer: ASCII only, unlike
+// strings.TrimSpace.
+const tclSpace = " \t\n\v\f\r"
+
 // upLevelHere reports whether c is `uplevel 0 {script}`, which runs its one braced
 // script in this frame as `eval {script}` does. Tcl reads the level with
 // surrounding space, one sign and leading zeros (` 0`, `+0`, `00`; tclsh 8.6 and
-// 9.0).
+// 9.0). Only ASCII space counts: a no-break space makes the level a script.
 func upLevelHere(c Command) bool {
 	w := c.Words
 	if !isCmd(w, "uplevel") || len(w) != 3 || w[2].Kind != WordBraced {
@@ -497,7 +501,7 @@ func upLevelHere(c Command) bool {
 	if !ok {
 		return false
 	}
-	v = strings.TrimSpace(v)
+	v = strings.Trim(v, tclSpace)
 	if v != "" && (v[0] == '+' || v[0] == '-') {
 		v = v[1:]
 	}
@@ -509,22 +513,26 @@ func upLevelHere(c Command) bool {
 // reads integer prefixes as level 0 (`0x0`, `0o0`, and `0_0` in 9.0), so any
 // value that starts with a zero and has no other nonzero digit counts. That also
 // counts some nonzero levels (`0xa`) and values that are no integer, which only
-// adds silence. An absolute level `#N` names this frame when
-// the code runs at depth N, hex included (`#0xa`), except that a proc never runs
-// at `#0`: only a value of zeros, signs and space is read as `#0` there, and any
-// other spelling of it (`#0x0`) counts as this frame. Tcl reads an absolute level
-// only with `#` first, so ` #1` is a script. Any other literal is a script run in
-// the caller's frame, or a level that names another frame. A substituted level is
-// out of reach, as other dynamic call sites are.
+// adds silence. In braces a backslash-newline reads as a space (`{\<newline>0}`
+// is ` 0`), so a braced level holding one counts too. An absolute level `#N`
+// names this frame when the code runs at depth N, hex included (`#0xa`), except
+// that a proc never runs at `#0`: only a value of zeros, signs and space is read
+// as `#0` there, and any other spelling of it (`#0x0`) counts as this frame. Tcl
+// reads an absolute level only with `#` first, so ` #1` is a script. Any other
+// literal is a script run in the caller's frame, or a level that names another
+// frame. A substituted level is out of reach, as other dynamic call sites are.
 func upLevelMayBeHere(w Word, frame FrameKind) bool {
 	v, ok := decodedLiteral(w)
 	if !ok {
 		return false
 	}
-	if abs, ok := strings.CutPrefix(v, "#"); ok {
-		return frame != FrameProc || strings.Trim(abs, "0+- \t\n\v\f\r") != ""
+	if w.Kind == WordBraced && strings.Contains(v, "\\\n") {
+		return true
 	}
-	v = strings.TrimLeft(strings.TrimSpace(v), "+-")
+	if abs, ok := strings.CutPrefix(v, "#"); ok {
+		return frame != FrameProc || strings.Trim(abs, "0+-"+tclSpace) != ""
+	}
+	v = strings.TrimLeft(strings.Trim(v, tclSpace), "+-")
 	return strings.HasPrefix(v, "0") && !strings.ContainsAny(v, "123456789")
 }
 

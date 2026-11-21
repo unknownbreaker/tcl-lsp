@@ -45,6 +45,9 @@ func TestReachingUnreadEvalSilent(t *testing.T) {
 		`uplevel #\x31 {set x 1}`,
 		`uplevel " 0" set x 1`,
 		`uplevel "\t0" "set x 1"`,
+		// In braces, a backslash-newline is read as a space, so this level is ` 0`.
+		"uplevel {\\\n0} {set x 1}",
+		"uplevel {#\\\n1} {set x 1}",
 	} {
 		cases = append(cases, silentReachCase{line, proc(line), "$x\n}"})
 	}
@@ -84,6 +87,9 @@ func TestReachingOneWordEvalAnswersKept(t *testing.T) {
 		{"uplevel 1 with words", "proc f {} {\n  set x 0\n  uplevel 1 set x 1\n  puts $x\n}", "$x\n}", []int{2}},
 		{"space before an absolute level", "proc f {} {\n  set x 0\n  uplevel { #1} {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
 		{"uplevel #0 in a proc", "proc f {} {\n  set x 0\n  uplevel #0 {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
+		// Tcl trims only ASCII space around a level, so this one is a script that
+		// fails, and catch traps it (tclsh 8.6 and 9.0: x stays 0).
+		{"no-break space before a level", "proc f {} {\n  set x 0\n  catch {uplevel \"\u00a00\" {set x 1}}\n  puts $x\n}", "$x\n}", []int{2}},
 		{"uplevel #00 in a proc", "proc f {} {\n  set x 0\n  uplevel #00 {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
 		{"uplevel #+0 in a proc", "proc f {} {\n  set x 0\n  uplevel #+0 {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
 		{"uplevel # 0 in a proc", "proc f {} {\n  set x 0\n  uplevel {# 0} {set x 1}\n  puts $x\n}", "$x\n}", []int{2}},
