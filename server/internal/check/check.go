@@ -130,6 +130,22 @@ next:
 	return out
 }
 
+// Enabled returns the findings of the Checks that off does not turn off. off
+// maps a Check id to false to turn that Check off; any other entry, including an
+// id no Check has, changes nothing.
+func Enabled(fs []Finding, off map[string]bool) []Finding {
+	if len(off) == 0 {
+		return fs
+	}
+	var out []Finding
+	for _, f := range fs {
+		if on, set := off[f.Check]; !set || on {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // commandSpan returns c's byte range, from its first word's start to its last
 // word's end.
 func commandSpan(c tcl.Command, base int) (int, int) {

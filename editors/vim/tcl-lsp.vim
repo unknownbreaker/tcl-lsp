@@ -20,6 +20,8 @@
 "       sources indexed read-only at startup (goto-def reaches into them)
 "   let g:tcl_lsp_diagnostics = 0                " turn off the certain-only
 "       diagnostics (docs/CHECKS.md); on by default
+"   let g:tcl_lsp_checks = {'unreachable-code': 0}  " turn single Checks off,
+"       by Check id (docs/CHECKS.md); every Check is on by default
 "
 " Use :LspDefinition and :LspReferences (or your vim-lsp keymaps).
 
@@ -70,18 +72,9 @@ function! s:tcl_lsp_register() abort
     \ 'allowlist': ['tcl', 'rvt'],
     \ 'root_uri': function('s:tcl_lsp_root_uri'),
     \ }
-  " External TCL source dirs/files to index in addition to the workspace
-  " (static, read-only; missing paths skipped). Mirror of the Neovim plugin's
-  " extra_index_paths option.
-  let l:init = {}
-  let l:extra = get(g:, 'tcl_lsp_extra_index_paths', [])
-  if !empty(l:extra)
-    let l:init['extraIndexPaths'] = l:extra
-  endif
-  " Certain-only diagnostics are on unless turned off; send only the off switch.
-  if !get(g:, 'tcl_lsp_diagnostics', 1)
-    let l:init['diagnostics'] = v:false
-  endif
+  " g:tcl_lsp_extra_index_paths, g:tcl_lsp_diagnostics and g:tcl_lsp_checks,
+  " mirroring the Neovim plugin's options (autoload/tcl_lsp.vim).
+  let l:init = tcl_lsp#init_options()
   if !empty(l:init)
     let l:server['initialization_options'] = l:init
   endif

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/check"
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
@@ -22,7 +23,7 @@ const (
 	exitUsage    = 2
 )
 
-const usage = "usage: tcl-lsp check <file or directory>...\n"
+const usage = "usage: tcl-lsp check [--disable check-id[,check-id...]]... [--] <file or directory>...\n"
 
 // Run checks the files and directories named by args and prints one line per
 // finding to stdout: `file:line:col: severity check-id message`, with a 1-based
@@ -30,13 +31,15 @@ const usage = "usage: tcl-lsp check <file or directory>...\n"
 // .git); a file named directly is checked whatever its extension, as .rvt when it
 // has that one. Every file is indexed before any finding is reported, so a
 // builtin one file redefines silences the Checks that assume it in all of them.
+// Leading `--disable ids` or `--disable=ids` flags, each a comma-separated list
+// of Check ids (spaces around an id are dropped), turn those Checks off: their findings are neither printed nor
+// counted, and ids no Check has are ignored. `--` ends the flags, as does the
+// first other argument; every argument after them is a path.
 // It returns 1 if any warning was found, 2 for a usage error or a path that could
 // not be read, and 0 otherwise.
 func Run(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "--" {
-		args = args[1:]
-	}
-	if len(args) == 0 {
+	off, args, ok := parseFlags(args)
+	if !ok || len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return exitUsage
 	}
@@ -63,7 +66,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	warned := false
 	for _, f := range files {
-		findings := check.Unshadowed(raw[f], ix.DefinesCommand)
+		findings := check.Unshadowed(check.Enabled(raw[f], off), ix.DefinesCommand)
 		sort.SliceStable(findings, func(i, j int) bool { return findings[i].Start < findings[j].Start })
 		lines := lineStarts(src[f])
 		for _, fd := range findings {
@@ -78,6 +81,36 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		status = exitWarnings
 	}
 	return status
+}
+
+// parseFlags splits args into the Checks the leading --disable flags turn off
+// (each id mapped to false, the shape check.Enabled reads) and the paths after
+// the flags. ok is false when a --disable has no value.
+func parseFlags(args []string) (off map[string]bool, paths []string, ok bool) {
+	off = map[string]bool{}
+	for len(args) > 0 {
+		a := args[0]
+		var ids string
+		switch {
+		case a == "--":
+			return off, args[1:], true
+		case a == "--disable":
+			if len(args) < 2 {
+				return off, nil, false
+			}
+			ids, args = args[1], args[2:]
+		case strings.HasPrefix(a, "--disable="):
+			ids, args = strings.TrimPrefix(a, "--disable="), args[1:]
+		default:
+			return off, args, true
+		}
+		for _, id := range strings.Split(ids, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				off[id] = false
+			}
+		}
+	}
+	return off, nil, true
 }
 
 // collect returns the files args name, each once however it is spelled (by its

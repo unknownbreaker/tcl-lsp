@@ -5,6 +5,40 @@
 
 let s:repo = 'unknownbreaker/tcl-lsp'
 
+" tcl_lsp#init_options: the initializationOptions for the user's globals, {}
+" when every option is at the server's default (mirroring _init_options in
+" lua/tcl-lsp/init.lua). Only options turned away from the default are sent:
+" non-empty extraIndexPaths, diagnostics off, and each Check g:tcl_lsp_checks
+" turns off, as false. g:tcl_lsp_diagnostics is off when Vim reads it as false
+" (0, '0', v:false), as it always has been. A Check is off only for v:false or
+" the number 0; any other value, or a g:tcl_lsp_checks that is not a dict,
+" leaves it on.
+function! tcl_lsp#init_options() abort
+  let l:init = {}
+  let l:extra = get(g:, 'tcl_lsp_extra_index_paths', [])
+  if !empty(l:extra)
+    let l:init['extraIndexPaths'] = l:extra
+  endif
+  if !get(g:, 'tcl_lsp_diagnostics', 1)
+    let l:init['diagnostics'] = v:false
+  endif
+  let l:toggles = get(g:, 'tcl_lsp_checks', {})
+  let l:checks = {}
+  for [l:id, l:v] in items(type(l:toggles) == v:t_dict ? l:toggles : {})
+    if s:off(l:v)
+      let l:checks[l:id] = v:false
+    endif
+  endfor
+  if !empty(l:checks)
+    let l:init['checks'] = l:checks
+  endif
+  return l:init
+endfunction
+
+function! s:off(v) abort
+  return (type(a:v) == v:t_bool || type(a:v) == v:t_number) && !a:v
+endfunction
+
 " tcl_lsp#sources: the server files whose change warrants a rebuild — every .go
 " file plus the build inputs.
 function! tcl_lsp#sources(server_dir) abort

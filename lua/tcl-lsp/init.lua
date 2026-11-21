@@ -61,6 +61,10 @@ local defaults = {
   -- cannot mean anything sensible (see docs/CHECKS.md). Set false to keep the
   -- server navigation-only.
   diagnostics = true,
+  -- Per-Check toggles, by Check id (docs/CHECKS.md): every Check is on while
+  -- diagnostics are; false (or 0) turns one off. Unknown ids are ignored. Example:
+  --   checks = { ["unreachable-code"] = false }
+  checks = {},
 }
 
 -- _init_options returns the initializationOptions for opts, or nil when every
@@ -68,13 +72,24 @@ local defaults = {
 -- empty Lua table JSON-encodes as an object ({}), which would not decode into
 -- the server's []string field. diagnostics is sent only when turned off, since
 -- the server defaults it on. 0 counts as off too, since Vim users write it so.
+-- checks likewise sends only the Checks turned off, each as false; a checks
+-- that is not a table turns nothing off (setup warns about it).
 function M._init_options(opts)
+  local function off(v)
+    return v == false or v == 0
+  end
   local init = {}
   if #opts.extra_index_paths > 0 then
     init.extraIndexPaths = opts.extra_index_paths
   end
-  if opts.diagnostics == false or opts.diagnostics == 0 then
+  if off(opts.diagnostics) then
     init.diagnostics = false
+  end
+  for id, v in pairs(type(opts.checks) == "table" and opts.checks or {}) do
+    if off(v) then
+      init.checks = init.checks or {}
+      init.checks[id] = false
+    end
   end
   if next(init) == nil then
     return nil
@@ -209,6 +224,9 @@ function M.setup(opts)
       ["callHierarchy/outgoingCalls"] = outgoing_calls_handler,
     },
   }
+  if type(opts.checks) ~= "table" then
+    vim.notify("tcl-lsp: checks must be a table of Check ids, e.g. { [\"unreachable-code\"] = false }", vim.log.levels.WARN)
+  end
   config.init_options = M._init_options(opts)
   vim.lsp.config("tcl_lsp", config)
   vim.lsp.enable("tcl_lsp")
