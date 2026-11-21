@@ -14,6 +14,8 @@ flagged  [string equal $x $x]                     same   1
 flagged  [string compare $x $x]                   same   0
 flagged  [::string equal $x $x]                   same   1
 flagged  [string equal "$x" "$x"]                 same   1
+flagged  [string equal $x$i $x$i]                 same   1
+flagged  [string equal $a($i) $a($i)]             same   1
 exempt   $x == $x                                 varies 0 1
 exempt   $x != $x                                 varies 0 1
 exempt   $x <= $x                                 varies 0 1
@@ -30,6 +32,8 @@ exempt   [string equal -nocase $x $x]             same   1
 exempt   [string compare -length 1 $x $x]         same   0
 exempt   [string equal $x $y]                     varies 0 1
 exempt   [string equal {$x} {$x}]                 same   1
+exempt   [string equal -length 0 $x $x]           same   1
+remapped [string equal $x $x]                     same   0
 == Tcl 9.0.3
 flagged  $x eq $x                                 same   1
 flagged  $x ne $x                                 same   0
@@ -46,6 +50,8 @@ flagged  [string equal $x $x]                     same   1
 flagged  [string compare $x $x]                   same   0
 flagged  [::string equal $x $x]                   same   1
 flagged  [string equal "$x" "$x"]                 same   1
+flagged  [string equal $x$i $x$i]                 same   1
+flagged  [string equal $a($i) $a($i)]             same   1
 exempt   $x == $x                                 varies 0 1
 exempt   $x != $x                                 varies 0 1
 exempt   $x <= $x                                 varies 0 1
@@ -62,3 +68,5 @@ exempt   [string equal -nocase $x $x]             same   1
 exempt   [string compare -length 1 $x $x]         same   0
 exempt   [string equal $x $y]                     varies 0 1
 exempt   [string equal {$x} {$x}]                 same   1
+exempt   [string equal -length 0 $x $x]           same   1
+remapped [string equal $x $x]                     same   0

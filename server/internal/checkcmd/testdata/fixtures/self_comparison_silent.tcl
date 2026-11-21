@@ -29,6 +29,7 @@ list {$x eq $x}
 # Options, other subcommands, prefixes, literals, expansion, other arities.
 string equal -nocase $x $x
 string compare -length 1 $x $x
+string equal -length 0 $x $x
 string equal $x $y
 string equal {$x} {$x}
 string equal [f] [f]

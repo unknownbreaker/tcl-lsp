@@ -29,7 +29,7 @@ func selfAssignment(c tcl.Command, base int, out []Finding) []Finding {
 	case tcl.WordBare:
 		val = v.Text
 	case tcl.WordQuoted:
-		if len(v.Text) < 2 || v.Text[len(v.Text)-1] != '"' {
+		if !quoteCloses(v) {
 			return out
 		}
 		val = v.Text[1 : len(v.Text)-1]

@@ -78,7 +78,7 @@ func exprText(w tcl.Word) (text string, ok bool) {
 		}
 		return t, true
 	case tcl.WordQuoted:
-		if len(t) < 2 || t[len(t)-1] != '"' || strings.ContainsAny(t, "$[\\") {
+		if !quoteCloses(w) || strings.ContainsAny(t, "$[\\") {
 			return "", false
 		}
 		return t[1 : len(t)-1], true

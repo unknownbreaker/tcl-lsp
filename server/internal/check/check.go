@@ -112,3 +112,9 @@ func builtinHead(c tcl.Command) string {
 	}
 	return h.Text
 }
+
+// quoteCloses reports whether quoted word w ends with its closing quote; a word
+// left open runs to the end of the script and is rejected by Tcl.
+func quoteCloses(w tcl.Word) bool {
+	return len(w.Text) >= 2 && w.Text[len(w.Text)-1] == '"'
+}

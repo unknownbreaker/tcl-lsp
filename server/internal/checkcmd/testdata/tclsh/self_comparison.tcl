@@ -2,8 +2,10 @@
 # evaluated at global level once for every value in $values, with x and a(k)
 # holding it, a(j) and (but for the first value) y holding something else, and
 # f returning k, k, j in turn. A flagged condition gives one result for every
-# value. An exempt one is shown varying, or is exempt by design: an option to string equal or string compare, or two
-# operands spelled differently, are left alone even where the result is fixed.
+# value. An exempt one is shown varying, or is exempt by design: an option to
+# string equal or string compare, or two operands spelled differently, are left
+# alone even where the result is fixed. Values that look like options
+# (-nocase, -length) show that four words are always two strings.
 #
 # NaN is why == != <= >= are exempt: `set x NaN` makes $x == $x false and
 # $x != $x true in both versions, so `$x != $x` is a correct NaN test. eq and
@@ -15,7 +17,7 @@ set n 0
 proc f {} { expr {[incr ::n] % 3 ? "k" : "j"} }
 set values {
   NaN nan -NaN +nan Inf -Inf {} { 1 } { NaN } 0x10 1e400 -1e400 abc {a b}
-  true 99999999999999999999 1.5 -0 010 0o7 {{a}b} "\{" ;
+  true 99999999999999999999 1.5 -0 010 0o7 {{a}b} "\{" ; -nocase -length
 }
 proc eval1 {cond v} {
   set ::x $v
@@ -42,11 +44,17 @@ foreach c {
   {$a($i) eq $a($i)} {($x) < ($x)} {!($x eq $x)} {"a$x" ne "a$x"}
   {$::x > $::x} {[string equal $x $x]} {[string compare $x $x]}
   {[::string equal $x $x]} {[string equal "$x" "$x"]}
+  {[string equal $x$i $x$i]} {[string equal $a($i) $a($i)]}
 } { row flagged $c }
 foreach c {
   {$x == $x} {$x != $x} {$x <= $x} {$x >= $x} {$x in $x} {$x ni $x}
   {$x eq $y} {[f] eq [f]} {$a([f]) eq $a([f])} {"[f]" eq "[f]"}
   {$x eq ${x}} {$x eq "$x"} {[string equal -nocase $x $x]}
   {[string compare -length 1 $x $x]} {[string equal $x $y]}
-  {[string equal {$x} {$x}]}
+  {[string equal {$x} {$x}]} {[string equal -length 0 $x $x]}
 } { row exempt $c }
+# Last, as it changes string for good: an ensemble map that sends string equal
+# to user code makes the command form the user's (the Check is silent then).
+proc myeq {a b} { return 0 }
+namespace ensemble configure string -map [dict replace [namespace ensemble configure string -map] equal ::myeq]
+row remapped {[string equal $x $x]}

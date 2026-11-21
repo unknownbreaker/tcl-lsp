@@ -103,7 +103,7 @@ func selfCompareCommand(c tcl.Command, base int, out []Finding) []Finding {
 	if !ok || w[1].End >= w[2].Start || w[2].End >= w[3].Start {
 		return out
 	}
-	if !sameSubst(substWord(w[2]) && wordAsTcl(w[2].Text), w[2].Text, w[3].Text) {
+	if !sameSubst(substWord(w[2]) && endsWhereTclEnds(w[2].Text), w[2].Text, w[3].Text) {
 		return out
 	}
 	start, end := commandSpan(c, base)
@@ -123,7 +123,7 @@ func substWord(w tcl.Word) bool {
 	case tcl.WordBare:
 		return true
 	case tcl.WordQuoted:
-		return len(w.Text) >= 2 && w.Text[len(w.Text)-1] == '"'
+		return quoteCloses(w)
 	}
 	return false
 }
@@ -161,14 +161,14 @@ func mayCompare(text string) bool {
 	return false
 }
 
-// wordAsTcl reports whether a command-form operand ends where Tcl ends it. Tcl
+// endsWhereTclEnds reports whether a command-form operand ends where Tcl ends it. Tcl
 // reads `$name(` on to the `)` that closes the index, across spaces, newlines,
 // semicolons and quotes, so a word with a `(` left open runs into the next one
 // (`string equal $y(a $y(a<newline>) b) c` compares two other strings); and a
 // backslash-newline splits a word. A word with a backslash, or a `(` its own
 // text does not close, is not read. Counting every `(`, not only an index's,
 // asks for at least the closes Tcl needs.
-func wordAsTcl(text string) bool {
+func endsWhereTclEnds(text string) bool {
 	if strings.IndexByte(text, '\\') >= 0 {
 		return false
 	}

@@ -60,10 +60,10 @@ One switch turns every Check off, leaving tcl-lsp navigation-only:
   `oo::class create set`, an Itcl method `set`, an ensemble made or remapped
   with `namespace ensemble create -command set`, `namespace ensemble configure
   set -map …`, or `namespace ensemble create` run in namespace `set` (by
-  `namespace eval set …` or `namespace inscope set …`). A
-  redefinition typed in one open buffer updates the diagnostics of every other
-  open buffer at once, as does one saved to disk. Names built at run time (`proc $name`) are not seen; see
-  `docs/BACKLOG.md`.
+  `namespace eval set …` or `namespace inscope set …`). A redefinition typed in
+  one open buffer updates the diagnostics of every other open buffer at once, as
+  does one saved to disk. Names built at run time (`proc $name`) are not seen;
+  see `docs/BACKLOG.md`.
 - **Half-typed code:** a command whose last word never closes (a brace, quote or
   bracket left open) is rejected by Tcl, so neither it nor anything in it gives a
   finding.
@@ -200,7 +200,8 @@ string equal $y(a $y(a            ;# the index runs on to the next `)`, as in Tc
 `set x NaN` makes `$x == $x` false and `$x != $x` true in Tcl 8.6 and 9.0,
 which is why only `eq`, `ne`, `<` and `>` count. A read trace on the variable
 could change its value between the two reads; that is the one way a flagged
-comparison can vary. A command-form operand counts only when it has no
+comparison can vary. To compare across such a trace on purpose, write
+`[set x] eq [set x]`, which says so and is not flagged. A command-form operand counts only when it has no
 backslash and closes every `(` it opens: Tcl reads an array index across
 spaces, newlines and `;` to its `)`, and a backslash-newline splits a word. A
 redefined `string`, `equal` or `compare` silences the command form (see
