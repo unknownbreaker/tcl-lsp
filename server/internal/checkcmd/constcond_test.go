@@ -45,3 +45,31 @@ func TestConstantConditionTranscript(t *testing.T) {
 		t.Fatal("no transcript rows")
 	}
 }
+
+// Tcl rejects each of these commands before it evaluates the condition ("extra
+// characters after close-brace" or "after close-quote", in 8.6 and 9.0), since
+// two of its words abut. The scanner splits the abutting text into a word of its
+// own, which must not pass for an else body. Each source is checked on its own,
+// so a stray quote or brace cannot hide the next case.
+func TestConstantConditionAbuttingWordsSilent(t *testing.T) {
+	dir := t.TempDir()
+	for _, src := range []string{
+		"if {1 == 1} {x}]\n",
+		"if {1 == 1} {x}}\n",
+		"if {1 == 1}x {x}\n",
+		"if {1 == 1}{x}\n",
+		"if {1 == 1} {x}{y}\n",
+		"if {1 == 1}\"x\"\n",
+		"if \"1 == 1\"{x}\n",
+		"if {0} {x}{y}\n",
+		"if {$a} {} elseif {1 == 1}{x}\n",
+		"while {1 < 2}{x}\n",
+		"for {} {1 < 2} {}{} {x}\n",
+	} {
+		path := filepath.Join(dir, "a.tcl")
+		write(t, path, src)
+		if out, _, _ := run(path); out != "" {
+			t.Errorf("%q: want no finding, got %q", src, out)
+		}
+	}
+}

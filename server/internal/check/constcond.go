@@ -17,7 +17,9 @@ const constantConditionID = "constant-condition"
 // tcl_precision, never does. The condition may join such comparisons with
 // `!`, `&&`, `||`, `?:` and parentheses, and nothing else: a $var, a [script]
 // or a math function call (rand(), or a user's tcl::mathfunc) leaves it
-// silent, as does any text the expression parser cannot read.
+// silent, as does any text the expression parser cannot read. Each operand of
+// a joiner, and each `?:` arm, is a comparison or a bare 0 or 1, so a condition
+// with no value (`"a" || 1 == 1` always errors) is not called constant.
 //
 // An if or elseif condition that is just `0` or `1` is the idiom that disables
 // or forces a block, so it is a hint. `while 1` and `for {} 1 {}`, the idiomatic
@@ -47,7 +49,7 @@ func constantCondition(c tcl.Command, base int, out []Finding) []Finding {
 			if lit == "1" {
 				f.Message = "condition is always true"
 			}
-		case comparesLiterals(n):
+		case comparesLiterals(text, n):
 			f.Severity = Warning
 			f.Message = "condition compares only literals, so its value never changes"
 		default:
@@ -87,30 +89,38 @@ func exprText(w tcl.Word) (text string, ok bool) {
 // comparisons are the operators that compare their two operands.
 var comparisons = map[string]bool{
 	"==": true, "!=": true, "<": true, ">": true, "<=": true, ">=": true,
-	"eq": true, "ne": true, "lt": true, "gt": true, "le": true, "ge": true,
-	"in": true, "ni": true,
+	"eq": true, "ne": true, "in": true, "ni": true,
 }
 
-// comparesLiterals reports whether n holds at least one comparison and its
-// value is fixed by comparisons of literals alone (constantCondition).
-func comparesLiterals(n *expr.Node) bool {
-	fixed, compares := literalLogic(n)
+// comparesLiterals reports whether n, parsed from text at offset 0, holds at
+// least one comparison and its value is fixed by comparisons of literals alone
+// (constantCondition).
+func comparesLiterals(text string, n *expr.Node) bool {
+	fixed, compares := literalLogic(text, n)
 	return fixed && compares
 }
 
-// literalLogic reports whether n is built only from literals, comparisons of two
-// literals, and the logic operators over them, and whether it holds a comparison.
-func literalLogic(n *expr.Node) (fixed, compares bool) {
+// literalLogic reports whether n is built only from comparisons of two literals,
+// the bare literals 0 and 1, and the logic operators over them, and whether it
+// holds a comparison.
+func literalLogic(text string, n *expr.Node) (fixed, compares bool) {
+	n = unparen(n)
 	switch {
 	case n.Kind == expr.Literal:
-		return true, false
-	case n.Kind == expr.Paren, n.Kind == expr.Unary && n.Op == "!":
-		return literalLogic(n.Args[0])
+		lit := text[n.Start:n.End]
+		return lit == "0" || lit == "1", false
+	case n.Kind == expr.Unary && n.Op == "!":
+		return literalLogic(text, n.Args[0])
 	case n.Kind == expr.Binary && comparisons[n.Op]:
-		return isLiteral(n.Args[0]) && isLiteral(n.Args[1]), true
+		l, r := unparen(n.Args[0]), unparen(n.Args[1])
+		fixed = l.Kind == expr.Literal && r.Kind == expr.Literal
+		if n.Op == "in" || n.Op == "ni" {
+			fixed = fixed && plainList(text[r.Start:r.End])
+		}
+		return fixed, true
 	case n.Kind == expr.Binary && (n.Op == "&&" || n.Op == "||"), n.Kind == expr.Ternary:
 		for _, a := range n.Args {
-			f, c := literalLogic(a)
+			f, c := literalLogic(text, a)
 			if !f {
 				return false, false
 			}
@@ -121,10 +131,20 @@ func literalLogic(n *expr.Node) (fixed, compares bool) {
 	return false, false
 }
 
-// isLiteral reports whether n is a literal, possibly in parentheses.
-func isLiteral(n *expr.Node) bool {
+// plainList reports whether lit, a literal as written, is a list with no `{`,
+// `"` or `\` inside its delimiters, so it is certain to parse as a list: `{a b}`
+// does, and `"\{a"` or `{{a}b}` makes in and ni raise an error.
+func plainList(lit string) bool {
+	if lit[0] == '{' || lit[0] == '"' {
+		lit = lit[1 : len(lit)-1]
+	}
+	return !strings.ContainsAny(lit, "{\"\\")
+}
+
+// unparen returns n without the parentheses around it.
+func unparen(n *expr.Node) *expr.Node {
 	for n.Kind == expr.Paren {
 		n = n.Args[0]
 	}
-	return n.Kind == expr.Literal
+	return n
 }

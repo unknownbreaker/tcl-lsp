@@ -529,13 +529,13 @@ func ifConditions(w []Word) []Word {
 }
 
 // AppendConditions appends to dst the words an if, while or for command hands to
-// expr when Tcl accepts its words (controlArity): every if and elseif condition,
-// in order, the while test, or the for test. It appends nothing for any other
-// command, or for one Tcl rejects before evaluating anything. Parse spells a
-// literal head bare, so `::if` arrives as `if`. Appending lets a caller keep the
-// words in a buffer of its own, free of allocation.
+// expr when Tcl accepts its words (controlArity, separated): every if and elseif
+// condition, in order, the while test, or the for test. It appends nothing for
+// any other command, or for one Tcl rejects before evaluating anything. Parse
+// spells a literal head bare, so `::if` arrives as `if`. Appending lets a caller
+// keep the words in a buffer of its own, free of allocation.
 func AppendConditions(dst []Word, w []Word) []Word {
-	if len(w) == 0 || w[0].Kind != WordBare || !isControlName(w[0].Text) || !controlArity(w) {
+	if len(w) == 0 || w[0].Kind != WordBare || !isControlName(w[0].Text) || !controlArity(w) || !separated(w) {
 		return dst
 	}
 	switch w[0].Text {
@@ -558,6 +558,19 @@ func AppendConditions(dst []Word, w []Word) []Word {
 		}
 		i++
 	}
+}
+
+// separated reports whether no two of a command's words abut. Tcl rejects a
+// command whose braced or quoted word has text right after its close
+// (`if {1}{x}`, `if "1"x`) with "extra characters after close-brace" (or
+// close-quote), but the scanner splits that text into a word of its own.
+func separated(w []Word) bool {
+	for i := 1; i < len(w); i++ {
+		if w[i-1].End >= w[i].Start {
+			return false
+		}
+	}
+	return true
 }
 
 // dataBraceCommands are builtins whose braced arguments hold data -- never a

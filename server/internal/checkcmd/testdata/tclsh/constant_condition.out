@@ -14,9 +14,7 @@ flagged  0x10 == 16 || "a" ni {b}                 same   1
 flagged  1 == 1 ? 1 : 0                           same   1
 flagged  "x" eq "x"                               same   1
 flagged  1 == 2                                   same   0
-flagged  "a" lt "b"                               same   1
 flagged  1.0 eq 1.00                              same   0
-flagged  010 == 8                                 same   0
 flagged  "10" < "9"                               same   0
 flagged  true == 1                                same   0
 hint     0                                        same   0
@@ -29,6 +27,12 @@ exempt   rand() < 2                               same   1
 exempt   "a" eq "a" == 1                          same   1
 exempt   1 + 1 == 2                               same   1
 exempt   -1 < 0                                   same   1
+exempt   "a" lt "b"                               same   1
+exempt   010 == 8                                 same   0
+exempt   09 == 9                                  same   1
+exempt   1 == 1 ? "a" : "b"                       same   a
+exempt   "a" || 1 == 1                            same   {ERR expected boolean value but got "a"}
+exempt   "a" in {{a}b}                            same   {ERR list element in braces followed by "b" instead of space}
 == Tcl 8.6.18
 flagged  1 == 1                                   same   1
 flagged  "a" eq "a"                               same   1
@@ -45,9 +49,7 @@ flagged  0x10 == 16 || "a" ni {b}                 same   1
 flagged  1 == 1 ? 1 : 0                           same   1
 flagged  "x" eq "x"                               same   1
 flagged  1 == 2                                   same   0
-flagged  "a" lt "b"                               same   {ERR invalid bareword "lt"}
 flagged  1.0 eq 1.00                              same   0
-flagged  010 == 8                                 same   1
 flagged  "10" < "9"                               same   0
 flagged  true == 1                                same   0
 hint     0                                        same   0
@@ -60,3 +62,9 @@ exempt   rand() < 2                               same   1
 exempt   "a" eq "a" == 1                          same   1
 exempt   1 + 1 == 2                               same   1
 exempt   -1 < 0                                   same   1
+exempt   "a" lt "b"                               same   {ERR invalid bareword "lt"}
+exempt   010 == 8                                 same   1
+exempt   09 == 9                                  same   {ERR invalid bareword "09"}
+exempt   1 == 1 ? "a" : "b"                       same   a
+exempt   "a" || 1 == 1                            same   {ERR expected boolean value but got "a"}
+exempt   "a" in {{a}b}                            same   {ERR list element in braces followed by "b" instead of space}

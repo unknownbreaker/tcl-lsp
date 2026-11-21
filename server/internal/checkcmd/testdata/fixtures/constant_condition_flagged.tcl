@@ -25,4 +25,4 @@ namespace eval ns {
     while {0 != 0} {}
 }
 set n [if {1 == 2} {list a} else {list b}]
-foreach v {1} { if {"a" lt "b"} {} }
+foreach v {1} { if {"a" ne "b"} {} }

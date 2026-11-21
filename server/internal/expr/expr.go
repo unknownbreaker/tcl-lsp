@@ -4,13 +4,14 @@
 // with certainty gives no tree, and a Check that gets none stays silent. So it
 // rejects what Tcl rejects (a missing operand, an unbalanced paren, a `?` with
 // no `:`), and also what Tcl 8.6 and 9.0 read differently or what it does not
-// model: a `#` comment (9.0 only), a number with `_` (9.0 only), `${name}` with
-// a `{` or `\` in the name, an unknown bareword, an unclosed or distrusted
-// [script], and nesting deeper than maxDepth.
+// model: a `#` comment, a number with `_`, and the operators lt, gt, le and ge
+// (all 9.0 only), an integer with a leading zero (octal in 8.6, decimal in 9.0),
+// `${name}` with a `{` or `\` in the name, an unknown bareword, an unclosed or
+// distrusted [script], and nesting deeper than maxDepth.
 //
 // Operator precedence, lowest first, checked against tclsh 8.6 and 9.0: `?:`
 // (right to left), `||`, `&&`, `|`, `^`, `&`, `in ni`, `eq ne`, `== !=`,
-// `< > <= >= lt gt le ge`, `<< >>`, `+ -`, `* / %`, `**` (right to left), then
+// `< > <= >=`, `<< >>`, `+ -`, `* / %`, `**` (right to left), then
 // the unary `- + ~ !`, which bind tighter than `**` (`-2 ** 2` is 4).
 package expr
 
@@ -146,7 +147,7 @@ var levels = []map[string]bool{
 	{"in": true, "ni": true},
 	{"eq": true, "ne": true},
 	{"==": true, "!=": true},
-	{"<": true, ">": true, "<=": true, ">=": true, "lt": true, "gt": true, "le": true, "ge": true},
+	{"<": true, ">": true, "<=": true, ">=": true},
 	{"<<": true, ">>": true},
 	{"+": true, "-": true},
 	{"*": true, "/": true, "%": true},
@@ -198,7 +199,9 @@ var symbolOps = []string{
 	"*", "/", "%", "+", "-", "<", ">", "&", "^", "|", "?", ":",
 }
 
-var wordOps = []string{"eq", "ne", "in", "ni", "lt", "gt", "le", "ge"}
+// wordOps are the operators spelled as words. Tcl 9.0's lt, gt, le and ge are
+// left out: 8.6 rejects them as barewords, so text using them is unparsed.
+var wordOps = []string{"eq", "ne", "in", "ni"}
 
 // op returns the binary or ternary operator at the cursor without reading it, or
 // "" when there is none. A word operator followed by a name byte (`eqx`, `eq1`)
@@ -373,7 +376,9 @@ func (p *parser) variable() *Node {
 
 // number reads a numeric literal: decimal digits with an optional fraction and
 // exponent, or 0x, 0o or 0b digits. A name byte or `.` right after it (`1_000`,
-// `0d10`, `1eq`) fails the parse, since Tcl 8.6 and 9.0 read those differently.
+// `0d10`, `1eq`) fails the parse, since Tcl 8.6 and 9.0 read those differently,
+// as does an integer of two or more digits that starts with 0 (`010` is 8 in
+// 8.6 and 10 in 9.0). A fraction or exponent makes it decimal in both (`00.5`).
 func (p *parser) number() *Node {
 	start := p.i
 	t := p.text
@@ -401,14 +406,17 @@ func (p *parser) number() *Node {
 		}
 	} else {
 		n := digits(isDigit)
+		integer := true
 		if i < len(t) && t[i] == '.' {
 			i++
 			n += digits(isDigit)
+			integer = false
 		}
 		if n == 0 {
 			return p.fail()
 		}
 		if i < len(t) && (t[i] == 'e' || t[i] == 'E') {
+			integer = false
 			i++
 			if i < len(t) && (t[i] == '+' || t[i] == '-') {
 				i++
@@ -416,6 +424,9 @@ func (p *parser) number() *Node {
 			if digits(isDigit) == 0 {
 				return p.fail()
 			}
+		}
+		if integer && n > 1 && t[start] == '0' {
+			return p.fail() // octal in 8.6, decimal in 9.0
 		}
 	}
 	if i < len(t) && (isNameByte(t[i]) || t[i] == '.') {

@@ -104,7 +104,8 @@ An `if` or `elseif` condition, `while` test or `for` test whose value is fixed
 because it compares only literals. A literal is a number, a boolean word
 (`true`, `yes`, `on`, …), a quoted string with no `$` or `[`, or a braced
 string. The comparisons may be joined with `!`, `&&`, `||`, `?:` and
-parentheses.
+parentheses, and each operand of those (each `?:` arm too) is a comparison or
+a bare `0` or `1`.
 
 Flagged as a warning:
 
@@ -143,6 +144,12 @@ if {rand() < 2} {…}      ;# a math function, which may be your own
 if {1 == 1 && $x} {…}    ;# a variable anywhere
 if {1 == 1 # note} {…}   ;# a comment: Tcl 9.0 only
 if {1_000 == 1000} {…}   ;# a number Tcl 8.6 and 9.0 read differently
+if {010 == 8} {…}        ;# octal in 8.6, decimal in 9.0
+if {"a" lt "b"} {…}      ;# lt, gt, le and ge: Tcl 9.0 only
+if {"a" || 1 == 1} {…}   ;# no value: it always raises an error
+if {1 == 1 ? "a" : "b"} {…}   ;# gives a string, not a boolean
+if {"a" in {{a}b}} {…}   ;# a list that may not parse
+if {1 == 1}{…}           ;# words that touch: Tcl rejects the command
 if {1 ==} {…}            ;# malformed: Tcl rejects it
 ```
 

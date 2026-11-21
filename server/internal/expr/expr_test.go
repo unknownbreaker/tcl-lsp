@@ -33,8 +33,6 @@ func TestPrecedence(t *testing.T) {
 	for _, c := range []struct{ src, want string }{
 		{`"a" == "a" eq "1"`, `(("a" == "a") eq "1")`}, // 1; eq first gives 0
 		{`"a" eq "a" in {1}`, `(("a" eq "a") in {1})`}, // 1; in first gives 0
-		{`"b" lt "a" < 1`, `(("b" lt "a") < 1)`},       // 9.0: 1; < first gives 0
-		{`1 < "b" lt "a"`, `((1 < "b") lt "a")`},       // 9.0: 1; lt first gives 0
 		{`1 & 2 == 2`, `(1 & (2 == 2))`},               // 1
 		{`2 ** 3 ** 2`, `(2 ** (3 ** 2))`},             // 512
 		{`-2 ** 2`, `((-2) ** 2)`},                     // 4
@@ -80,7 +78,8 @@ func TestKinds(t *testing.T) {
 		want Kind
 	}{
 		{`1`, Literal}, {`0x1F`, Literal}, {`0o7`, Literal}, {`0b101`, Literal},
-		{`1.5e-3`, Literal}, {`.5`, Literal}, {`5.`, Literal}, {`08`, Literal},
+		{`1.5e-3`, Literal}, {`.5`, Literal}, {`5.`, Literal}, {`0`, Literal},
+		{`00.5`, Literal}, {`01e1`, Literal}, {`0.5`, Literal},
 		{`true`, Literal}, {`OFF`, Literal}, {`"a\x41"`, Literal}, {`"\$x"`, Literal},
 		{`{$x [y]}`, Literal}, {`""`, Literal}, {`{}`, Literal},
 		{`$x`, Var}, {`${x y}`, Var}, {`$a(1)`, Var}, {`$ns::x`, Var},
@@ -105,6 +104,11 @@ func TestUnparsed(t *testing.T) {
 		`f(1,`, `f(1 2)`, `f(,)`, `1 2`, `.`, `1..2`, `0b12`, `[string map {] x} $s]`,
 		`$x !`, `!`, `1 +`, `()`, `1 ? 2 : `, `"a" "b"`, `abc::d(1)`, `1 == 1;`,
 		"\\x31 == 1", `1 == [f] [g]`, `"\`, `$a(\`,
+		// Tcl 9.0 only: 8.6 rejects lt, le, gt and ge as barewords, and reads a
+		// leading-zero integer as octal (010 is 8, 09 an error), where 9.0 reads
+		// it as decimal.
+		`"a" lt "b"`, `"a" le "b"`, `"a" gt "b"`, `"a" ge "b"`, `1 < "b" lt "a"`,
+		`09 == 9`, `08`, `010 == 8`, `00`, `-07`,
 	} {
 		if n, ok := Parse(src, 0); ok {
 			t.Errorf("Parse(%q) = %+v, want unparsed", src, n)
