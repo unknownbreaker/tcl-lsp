@@ -36,11 +36,11 @@ One switch turns every Check off, leaving tcl-lsp navigation-only:
 - **Only code that certainly runs as Tcl:** the top level, the bodies of
   `proc`, `namespace eval`, Itcl methods, constructors, destructors, class procs
   and `itcl::body`, the bodies of control-flow builtins (`if`, `while`, `for`,
-  `foreach`, `lmap`, `switch`, `catch`, `try`, `dict for`, `dict with`, `eval`
-  of one braced word, `uplevel 0`), and every `[command substitution]` inside
-  those. The braced argument of any other command (`after 10 {…}`, your own
-  wrapper, a TclOO definition) may be data or deferred code, so nothing inside
-  it is checked. An Itcl class body's own lines declare members, so they are
+  `foreach`, `lmap`, `switch`, `catch`, `try`, `time`, `dict for`, `dict map`,
+  `dict with`, `dict update`, `eval` of one braced word, `uplevel 0`), and
+  every `[command substitution]` inside those. The braced argument of any other
+  command (`after 10 {…}`, your own wrapper, a TclOO definition) may be data or
+  deferred code, so nothing inside it is checked. An Itcl class body's own lines declare members, so they are
   not checked either; the member bodies are.
   Each of those must have words Tcl accepts: `namespace eval ns a b` joins its
   words into a script of its own, and `proc p a b {…}`, `if {$c} {…} else`,
@@ -267,5 +267,86 @@ are the ways a flagged repeat can matter. The evidence, each flagged command
 run beside its form with the repeat dropped, for every pair of values of `$x`
 and `$y` (NaN, Inf, empty, non-booleans and others), on tclsh 8.6 and 9.0, is
 `server/internal/checkcmd/testdata/tclsh/duplicate_logic.tcl`.
+
+### `constant-query` (warning)
+
+A pure query builtin called with only literal arguments, so it returns the same
+result on every run. A literal is a braced word with no backslash, or a bare or
+quoted word with no `$` or `[` (backslash escapes are decoded). The purity
+table lists each query and the shape each argument must have; any other call
+is silent:
+
+| Query | Arguments |
+| --- | --- |
+| `string index S I` | text, index |
+| `string first S S`, `string last S S` | text, text |
+| `string match S S` | text, text |
+| `string equal S S`, `string compare S S` | text, text |
+| `string is CLASS ?-strict? S` | a class below, text |
+| `lindex L I` | plain list, index |
+
+- **Text** is a literal whose value is printable ASCII. Other text can differ
+  between Tcl 8.6 and 9.0, through their Unicode tables and 8.6's UTF-16
+  strings.
+- **CLASS** is one of `alnum`, `alpha`, `ascii`, `control`, `digit`, `graph`,
+  `lower`, `print`, `punct`, `space`, `upper`, `wordchar`, `xdigit` and
+  `integer`. For `integer`, the value must also be a decimal of at most 9
+  digits with no leading zero (with an optional sign and spaces around it), or
+  hold no digit at all.
+- An **index** is `0`, a decimal of at most 9 digits with no leading zero,
+  `end`, or `end-` followed by such a decimal.
+- A **plain list** is text with no `{`, `}`, `"` or `\`, so its elements are
+  the words between its spaces.
+
+Flagged:
+
+```tcl
+string is integer 5
+string is alpha -strict abc
+string index abc end-1
+string first b abcb
+string match {a*[bc]?} abcd
+string equal abc abc
+lindex {a b c} 1
+set c [::string index abc 0]
+```
+
+Not flagged:
+
+```tcl
+set width [string length {Continue}]   ;# sizes are left out, see below
+llength {a b c}
+lindex $list 0                  ;# a substitution
+string index abc $i
+string index {*}{abc 0}         ;# expansion
+string ind abc 0                ;# a prefix: only full names count
+string equal -nocase A a        ;# options
+string first b abcb 2           ;# a form not in the table
+lindex {a b c} 0 0
+string is double 1.5            ;# a class not in the table
+string is integer 1_000         ;# 1 in Tcl 9.0, 0 in 8.6
+string is integer 09            ;# octal in 8.6
+lindex {a b c d e f g h i j} 010   ;# i in 8.6, empty in 9.0
+lindex {a b c} e                ;# end in 8.6, an error in 9.0
+string index "\u00e9" 0         ;# not ASCII
+lindex {{a b} c} 0              ;# not a plain list
+list a b                        ;# constructors
+format %d 1
+string toupper abc              ;# transforms
+after 10 {lindex {a b} 0}       ;# a deferred script
+```
+
+`string length` and `llength` are left out on purpose. Measuring a literal is
+a readable way to derive a number: `set width [string length {Continue}]`
+sizes a button from its label, where `set width 8` would hide where the 8
+comes from. A table entry goes in only if its result is the same in Tcl 8.6
+and 9.0, so a constant query is never a version test. A redefined `string`,
+`lindex`, or a command named after the subcommand (`index`, `is`, …) silences
+the finding (see Redefined builtins). The evidence is
+`server/internal/checkcmd/testdata/tclsh/constant_query.tcl`. Each flagged
+command is run twice on tclsh 8.6 and 9.0, and shown to change no variable,
+command or namespace and to give one result in both. Each shape is also
+fuzzed: every short word over an alphabet of the characters that matter is
+run in both versions, and the outputs agree on every word the table accepts.
 
 More Checks are on the way; #93 lists them.

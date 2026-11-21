@@ -10,7 +10,8 @@ import (
 
 // Every condition in the tclsh transcript (testdata/tclsh/self_comparison.out)
 // gets the finding its row names: one self-comparison warning for flagged, and
-// nothing for exempt. So the evidence and the Check cannot drift apart.
+// no finding but constant-query for exempt (`string equal {$x} {$x}` is a
+// constant query). So the evidence and the Check cannot drift apart.
 func TestSelfComparisonTranscript(t *testing.T) {
 	f, err := os.Open("testdata/tclsh/self_comparison.out")
 	if err != nil {
@@ -34,7 +35,8 @@ func TestSelfComparisonTranscript(t *testing.T) {
 		write(t, path, "if {"+cond+"} {}\n")
 		out, _, _ := run(path)
 		got := strings.Count(out, " warning self-comparison ")
-		if flagged && (got != 1 || strings.Count(out, "\n") != 1) || !flagged && out != "" {
+		others := strings.Count(out, "\n") - strings.Count(out, " warning constant-query ")
+		if flagged && (got != 1 || strings.Count(out, "\n") != 1) || !flagged && others != 0 {
 			t.Errorf("%s %q: got %q", kind, cond, out)
 		}
 	}

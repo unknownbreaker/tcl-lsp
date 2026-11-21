@@ -1,0 +1,4 @@
+testdata/fixtures/constant_query.rvt:2:11: warning constant-query string index has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query.rvt:3:6: warning constant-query lindex has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query.rvt:5:4: warning constant-query lindex has only literal arguments, so it always returns the same result
+exit 1
