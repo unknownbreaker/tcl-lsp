@@ -6,8 +6,9 @@ import "testing"
 // is braced, quoted or substituted, and `uplevel 0` runs its script here too:
 // `set x 0; eval "set x 1"; puts $x` prints 1, as do `eval [list set x 1]`,
 // `eval $s`, `uplevel 0 {set x 1}` and `uplevel 0 set x 1` (tclsh 8.6 and 9.0).
-// The analysis reads only a braced eval word, so uses after the others stay
-// silent: a missed answer, never only `set x 0` (#139).
+// The analysis reads only a braced eval word and `uplevel 0 {script}`
+// (TestReachingOneWordEvalAnswersKept), so uses after the others stay silent: a
+// missed answer, never only `set x 0` (#139).
 func TestReachingUnreadEvalSilent(t *testing.T) {
 	proc := func(line string) string { return "proc f {} {\n  set x 0\n  " + line + "\n  puts $x\n}" }
 	var cases []silentReachCase

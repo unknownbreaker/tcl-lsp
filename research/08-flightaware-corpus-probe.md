@@ -370,9 +370,10 @@ differs from this section, this section is right, and the plan lists the departu
 5. **Opaque frame for unknown bodies.** A new `FrameOpaque`: at namespace frame, a trailing-brace body of a
    command not known to run its script in the enclosing frame (`bodiesRunHere`). **Only absolute names count
    there,** as definitions and as uses: a bare name could be anything, and a relative `a::b` resolves from a
-   namespace the server cannot know (tclsh errors on the shape). `uplevel` (except `uplevel 0 {script}`) and multi-word `eval` are not
-   pass-through: `namespace eval ::n { uplevel #0 { set x 1 } }` would otherwise define `::n::x`. Procs and
-   command calls still work, and `proc`, `namespace eval` and `itcl::class` reset the frame as before. `FrameProc`
+   namespace the server cannot know (tclsh errors on the shape). `uplevel` (except `uplevel 0 {script}`) and
+   multi-word `eval` are not pass-through: `namespace eval ::n { uplevel #0 { set x 1 } }` would otherwise define
+   `::n::x`. Procs and command calls still work, and `proc`, `namespace eval` and `itcl::class` reset the frame as
+   before. `FrameProc`
    and `FrameClass` are unchanged. `enclosingProcOrScope` accepts the opaque frame, so `set o [::C #auto]; $o m`
    inside a wrapper keeps working. `substRefs` drops variable refs, unless absolute, from a proc or class body
    nested in a bracket.

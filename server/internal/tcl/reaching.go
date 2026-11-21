@@ -506,9 +506,10 @@ func upLevelHere(c Command) bool {
 
 // upLevelMayBeHere reports whether uplevel's first word, followed by a script, is a
 // literal level that may name this frame. Tcl decodes its escapes (`\x30`) and
-// reads integer prefixes as level 0 (`0x0`, `0o0`, and `0_0` in 9.0), so any value
-// of zeros, signs and such marks counts; one that is no integer makes uplevel
-// fail, so counting it costs nothing. An absolute level `#N` names this frame when
+// reads integer prefixes as level 0 (`0x0`, `0o0`, and `0_0` in 9.0), so any
+// value that starts with a zero and has no other nonzero digit counts. That also
+// counts some nonzero levels (`0xa`) and values that are no integer, which only
+// adds silence. An absolute level `#N` names this frame when
 // the code runs at depth N, hex included (`#0xa`), except that a proc never runs
 // at `#0`: only a value of zeros, signs and space is read as `#0` there, and any
 // other spelling of it (`#0x0`) counts as this frame. Tcl reads an absolute level
@@ -528,17 +529,20 @@ func upLevelMayBeHere(w Word, frame FrameKind) bool {
 }
 
 // distrustEval distrusts the code after an eval the analysis does not read
-// (unreadEval), whose bindings are unknown (#132, #139). In a proc, a use in a
-// braced word of a multi-word eval is part of the joined script, so no analysis
-// visits it and it stays silent too.
+// or uplevel the analysis does not read (unreadEval), whose bindings are unknown
+// (#132, #139). In a proc, a use in a braced word of a multi-word eval or
+// uplevel is part of the joined script, so no analysis visits it and it stays
+// silent too.
 func (a *analyzer) distrustEval(c Command, base int) {
 	a.distrust(base+c.Words[len(c.Words)-1].End, flowDistrusted)
 }
 
 // bodiesRunHere reports whether the scripts of command c are known to run in this
-// frame. Any other command's braced word may be data or deferred code, and `uplevel`
-// with a level other than 0 runs its script in another frame, or in one unknown. childBodies asks this too, so indexed definitions
-// and reach sets agree on which bodies run here.
+// frame. Any other command's braced word may be data or deferred code. An
+// `uplevel` other than `uplevel 0 {script}` (upLevelHere) runs its script in
+// another frame, in one unknown, or here as a script the analysis does not read
+// (unreadEval). childBodies asks this too, so indexed definitions and reach sets
+// agree on which bodies run here.
 func bodiesRunHere(c Command) bool {
 	return isCmd(c.Words, "if") || conservativeHead(c) || loopHead(c) || dictBodyHead(c.Words)
 }
