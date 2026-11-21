@@ -52,6 +52,7 @@ var checks = []check{
 	{id: selfComparisonID, run: selfComparison},
 	{id: duplicateLogicID, run: duplicateLogic},
 	{id: constantQueryID, run: constantQuery},
+	{id: constantTransformID, run: constantTransform},
 }
 
 // Collector gathers the findings of every Check over the commands it visits.

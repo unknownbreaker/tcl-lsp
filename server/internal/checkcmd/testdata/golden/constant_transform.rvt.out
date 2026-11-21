@@ -1,0 +1,4 @@
+testdata/fixtures/constant_transform.rvt:2:11: hint constant-transform string toupper has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform.rvt:3:6: hint constant-transform lsort has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_transform.rvt:5:4: hint constant-transform lreverse has only literal arguments, so it always returns the same result
+exit 0

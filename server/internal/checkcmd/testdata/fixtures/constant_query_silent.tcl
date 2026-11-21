@@ -51,16 +51,13 @@ lindex {{a b} c} 0
 llength {a "b c"}
 llength {a\ b}
 llength "\{a"
-# Constructors and transforms.
+# Constructors. Transforms are constant-transform's.
 list a b
 dict create a 1
 string repeat a 3
 format %d 1
 join {a b} ,
 concat a b
-string toupper abc
-lsort {c b a}
-string range abc 0 1
 # Words that touch, deferred scripts and data.
 string index "abc"x 0
 after 10 {string index abc 0}

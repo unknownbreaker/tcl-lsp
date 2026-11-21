@@ -1,0 +1,156 @@
+== Tcl 8.6.18
+flagged	string toupper abc	pure	ABC
+flagged	string toupper "a b~z"	pure	{A B~Z}
+flagged	string toupper {$x [f]}	pure	{$X [F]}
+flagged	string toupper ""	pure	{}
+flagged	string tolower ABC	pure	abc
+flagged	string tolower "A\x42c"	pure	abc
+flagged	string totitle "hELLO wORLD"	pure	{Hello world}
+flagged	string totitle 1abc	pure	1abc
+flagged	string trim "  x  "	pure	x
+flagged	string trim xxaxx x	pure	a
+flagged	string trim "--a--" -	pure	a
+flagged	string trim abc ""	pure	abc
+flagged	string trimleft " x "	pure	{x }
+flagged	string trimleft xxa x	pure	a
+flagged	string trimright " x "	pure	{ x}
+flagged	string trimright axx x	pure	a
+flagged	string reverse abc	pure	cba
+flagged	string reverse "a\\b"	pure	{b\a}
+flagged	string range abcdef 1 end-1	pure	bcde
+flagged	string range abc 2 1	pure	{}
+flagged	string range abc end end	pure	c
+flagged	string range abc 0 9	pure	abc
+flagged	lsort {c b a}	pure	{a b c}
+flagged	lsort {b #a}	pure	{{#a} b}
+flagged	lsort {B a A b}	pure	{A B a b}
+flagged	lsort "a  b ; c"	pure	{{;} a b c}
+flagged	lsort ""	pure	{}
+flagged	lreverse {a b c}	pure	{c b a}
+flagged	lreverse {a $b [c] ; #}	pure	{{#} {;} {[c]} {$b} a}
+flagged	lrange {a b c d} 1 end	pure	{b c d}
+flagged	lrange {#a b} 0 0	pure	{{#a}}
+flagged	lrange {a b c} 2 1	pure	{}
+flagged	::string toupper abc	pure	ABC
+flagged	::lsort {b a}	pure	{a b}
+exempt	string toupper $x	pure	ABC
+exempt	string toupper [f]	pure	ABC
+exempt	string toupper "a$x"	pure	AABC
+exempt	lsort $l	pure	{a b}
+exempt	string range abc 0 $i	pure	a
+exempt	string toupper {*}{abc}	pure	ABC
+exempt	string toup abc	pure	ABC
+exempt	lsor {b a}	impure	{ERR invalid command name "lsor"}
+exempt	"string" toupper abc	pure	ABC
+exempt	string toupper abc 0 0	pure	Abc
+exempt	string totitle abc 1	pure	aBc
+exempt	string trim a b c	pure	{ERR wrong # args: should be "string trim string ?chars?"}
+exempt	string range abc 0	pure	{ERR wrong # args: should be "string range string first last"}
+exempt	lsort -unique {b a b}	pure	{a b}
+exempt	lsort -integer {10 9}	pure	{9 10}
+exempt	lsort -decreasing {a b}	pure	{b a}
+exempt	lrange {a b c} 0	pure	{ERR wrong # args: should be "lrange list first last"}
+exempt	string range abc 0 e	pure	abc
+exempt	string range abc 09 end	pure	{ERR bad index "09": must be integer?[+-]integer? or end?[+-]integer? (looks like invalid octal number)}
+exempt	lrange {a b c d e f g h i j} 010 end	pure	{i j}
+exempt	lrange {a b c} e end	pure	c
+exempt	string range abc 0 end+1	pure	abc
+exempt	string toupper "é"	pure	É
+exempt	string totitle "ǆ"	pure	ǅ
+exempt	string trim " x"	pure	x
+exempt	string trim "\tx\n"	pure	x
+exempt	string trim "\n  a block of one line\n"	pure	{a block of one line}
+exempt	lsort {{b a} c}	pure	{{b a} c}
+exempt	lsort {a "b c"}	pure	{a {b c}}
+exempt	lreverse {a\ b}	pure	{{a b}}
+exempt	string repeat - 3	pure	---
+exempt	string map {a b} abc	pure	bbc
+exempt	split a,b ,	pure	{a b}
+exempt	join {a b} ,	pure	a,b
+exempt	list a b	pure	{a b}
+exempt	format %s a	pure	a
+exempt	concat a b	pure	{a b}
+exempt	string length abc	pure	3
+exempt	after 0 {string toupper abc}	impure	after#0
+fuzz	case	{{ } ! {"} # {$} % & ' ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : {;} < = > ? @ A B C D E F G H I J K L M N O P Q R S T U V W X Y Z {[} \\ \] ^ _ ` a b c d e f g h i j k l m n o p q r s t u v w x y z \{ | \} ~}	2	9121	649824954	504734332
+fuzz	trim	{a b " " - \\ x}	3	259	2858293491	4227363298
+fuzz	range	{0 1 9 e n d - + x _ " "}	4	82	3624336505	4152417321
+fuzz	list	{a A b " " ; # $ [ ]}	4	7381	2034023047	3392523361
+== Tcl 9.0.3
+flagged	string toupper abc	pure	ABC
+flagged	string toupper "a b~z"	pure	{A B~Z}
+flagged	string toupper {$x [f]}	pure	{$X [F]}
+flagged	string toupper ""	pure	{}
+flagged	string tolower ABC	pure	abc
+flagged	string tolower "A\x42c"	pure	abc
+flagged	string totitle "hELLO wORLD"	pure	{Hello world}
+flagged	string totitle 1abc	pure	1abc
+flagged	string trim "  x  "	pure	x
+flagged	string trim xxaxx x	pure	a
+flagged	string trim "--a--" -	pure	a
+flagged	string trim abc ""	pure	abc
+flagged	string trimleft " x "	pure	{x }
+flagged	string trimleft xxa x	pure	a
+flagged	string trimright " x "	pure	{ x}
+flagged	string trimright axx x	pure	a
+flagged	string reverse abc	pure	cba
+flagged	string reverse "a\\b"	pure	{b\a}
+flagged	string range abcdef 1 end-1	pure	bcde
+flagged	string range abc 2 1	pure	{}
+flagged	string range abc end end	pure	c
+flagged	string range abc 0 9	pure	abc
+flagged	lsort {c b a}	pure	{a b c}
+flagged	lsort {b #a}	pure	{{#a} b}
+flagged	lsort {B a A b}	pure	{A B a b}
+flagged	lsort "a  b ; c"	pure	{{;} a b c}
+flagged	lsort ""	pure	{}
+flagged	lreverse {a b c}	pure	{c b a}
+flagged	lreverse {a $b [c] ; #}	pure	{{#} {;} {[c]} {$b} a}
+flagged	lrange {a b c d} 1 end	pure	{b c d}
+flagged	lrange {#a b} 0 0	pure	{{#a}}
+flagged	lrange {a b c} 2 1	pure	{}
+flagged	::string toupper abc	pure	ABC
+flagged	::lsort {b a}	pure	{a b}
+exempt	string toupper $x	pure	ABC
+exempt	string toupper [f]	pure	ABC
+exempt	string toupper "a$x"	pure	AABC
+exempt	lsort $l	pure	{a b}
+exempt	string range abc 0 $i	pure	a
+exempt	string toupper {*}{abc}	pure	ABC
+exempt	string toup abc	pure	ABC
+exempt	lsor {b a}	impure	{ERR invalid command name "lsor"}
+exempt	"string" toupper abc	pure	ABC
+exempt	string toupper abc 0 0	pure	Abc
+exempt	string totitle abc 1	pure	aBc
+exempt	string trim a b c	pure	{ERR wrong # args: should be "string trim string ?chars?"}
+exempt	string range abc 0	pure	{ERR wrong # args: should be "string range string first last"}
+exempt	lsort -unique {b a b}	pure	{a b}
+exempt	lsort -integer {10 9}	pure	{9 10}
+exempt	lsort -decreasing {a b}	pure	{b a}
+exempt	lrange {a b c} 0	pure	{ERR wrong # args: should be "lrange list first last"}
+exempt	string range abc 0 e	pure	{ERR bad index "e": must be integer?[+-]integer? or end?[+-]integer?}
+exempt	string range abc 09 end	pure	{}
+exempt	lrange {a b c d e f g h i j} 010 end	pure	{}
+exempt	lrange {a b c} e end	pure	{ERR bad index "e": must be integer?[+-]integer? or end?[+-]integer?}
+exempt	string range abc 0 end+1	pure	abc
+exempt	string toupper "é"	pure	É
+exempt	string totitle "ǆ"	pure	ǅ
+exempt	string trim " x"	pure	x
+exempt	string trim "\tx\n"	pure	x
+exempt	string trim "\n  a block of one line\n"	pure	{a block of one line}
+exempt	lsort {{b a} c}	pure	{{b a} c}
+exempt	lsort {a "b c"}	pure	{a {b c}}
+exempt	lreverse {a\ b}	pure	{{a b}}
+exempt	string repeat - 3	pure	---
+exempt	string map {a b} abc	pure	bbc
+exempt	split a,b ,	pure	{a b}
+exempt	join {a b} ,	pure	a,b
+exempt	list a b	pure	{a b}
+exempt	format %s a	pure	a
+exempt	concat a b	pure	{a b}
+exempt	string length abc	pure	3
+exempt	after 0 {string toupper abc}	impure	after#0
+fuzz	case	{{ } ! {"} # {$} % & ' ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : {;} < = > ? @ A B C D E F G H I J K L M N O P Q R S T U V W X Y Z {[} \\ \] ^ _ ` a b c d e f g h i j k l m n o p q r s t u v w x y z \{ | \} ~}	2	9121	649824954	504734332
+fuzz	trim	{a b " " - \\ x}	3	259	2858293491	4227363298
+fuzz	range	{0 1 9 e n d - + x _ " "}	4	82	3624336505	4152417321
+fuzz	list	{a A b " " ; # $ [ ]}	4	7381	2034023047	3392523361

@@ -1,0 +1,6 @@
+<html>
+<? set t [string toupper abc] ?>
+<?= [lsort {b a}] ?>
+<?= string toupper abc ?>
+<? lreverse {a b}; string toupper $t ?>
+</html>
