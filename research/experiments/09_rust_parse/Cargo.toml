@@ -1,0 +1,10 @@
+[package]
+name = "tclparse"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Throwaway prototype for research/09: no dependencies.
+
+[profile.release]
+debug = false
