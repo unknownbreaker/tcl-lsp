@@ -18,7 +18,7 @@ var queries = &purityTable{
 	commands: map[string][][]argShape{
 		"lindex": {{argList, argIndex}},
 	},
-	strings: map[string][][]argShape{
+	stringSubs: map[string][][]argShape{
 		"index":   {{argText, argIndex}},
 		"first":   {{argText, argText}},
 		"last":    {{argText, argText}},
@@ -40,10 +40,10 @@ var stringIsClasses = map[string]bool{
 
 // constantQuery flags a pure query builtin called with only literal arguments,
 // such as `string is integer 5` or `lindex {a b c} 1`: its result is the same
-// on every run. Constructors and transforms (`list`, `format`, `string
-// toupper`) are not in the table, and neither are `string length` and
-// `llength`: measuring a literal is a readable way to derive a number (`set
-// width [string length {Continue}]`).
+// on every run. Constructors (`list`, `format`) are not in the table, nor are
+// transforms (`string toupper`), which constant-transform flags, nor `string
+// length` and `llength`: measuring a literal is a readable way to derive a
+// number (`set width [string length {Continue}]`).
 func constantQuery(c tcl.Command, base int, out []Finding) []Finding {
 	return queries.find(c, base, out)
 }

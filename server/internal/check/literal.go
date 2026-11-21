@@ -21,9 +21,9 @@ const (
 // (argument shapes, one per argument) it is known to give one result for in
 // Tcl 8.6 and 9.0. Its tclsh transcript in package checkcmd is the evidence.
 type purityTable struct {
-	severity Severity
-	commands map[string][][]argShape // commands by name, such as lindex
-	strings  map[string][][]argShape // string subcommands, such as index
+	severity   Severity
+	commands   map[string][][]argShape // commands by name, such as lindex
+	stringSubs map[string][][]argShape // string subcommands, such as index
 	// rules are string subcommands that decide their own arguments (string is).
 	rules map[string]func(args []tcl.Word) bool
 }
@@ -47,7 +47,7 @@ func (t *purityTable) find(c tcl.Command, base int, out []Finding) []Finding {
 			if !rule(args) {
 				return out
 			}
-		} else if forms = t.strings[sub]; forms == nil {
+		} else if forms = t.stringSubs[sub]; forms == nil {
 			return out
 		}
 	default:

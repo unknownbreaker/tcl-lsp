@@ -8,8 +8,8 @@ const constantTransformID = "constant-transform"
 // the shapes of the argument forms it is known to give one result for in Tcl
 // 8.6 and 9.0. The evidence is testdata/tclsh/constant_transform.tcl in package
 // checkcmd. Constructors (`list`, `join`, `split`, `string repeat`, `format`,
-// `string map`) are not transforms of one value and stay out: building a value
-// from parts is a readable way to write it.
+// `string map`, `concat`) are not transforms of one value and stay out:
+// building a value from parts is a readable way to write it.
 var transforms = &purityTable{
 	severity: Hint,
 	commands: map[string][][]argShape{
@@ -17,7 +17,7 @@ var transforms = &purityTable{
 		"lreverse": {{argList}},
 		"lrange":   {{argList, argIndex, argIndex}},
 	},
-	strings: map[string][][]argShape{
+	stringSubs: map[string][][]argShape{
 		"toupper":   {{argText}},
 		"tolower":   {{argText}},
 		"totitle":   {{argText}},
