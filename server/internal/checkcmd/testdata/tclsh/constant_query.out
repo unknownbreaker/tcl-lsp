@@ -1,0 +1,188 @@
+== Tcl 8.6.18
+flagged	string index "a b" 1	pure	{ }
+flagged	string first {$b} {a $b [c]}	pure	2
+flagged	string equal "a\x41\"" {aA"}	pure	1
+flagged	string first "" abc	pure	-1
+flagged	string index abc 1	pure	b
+flagged	string index abc end	pure	c
+flagged	string index abc end-1	pure	b
+flagged	string index abc 5	pure	{}
+flagged	string first b abcb	pure	1
+flagged	string last b abcb	pure	3
+flagged	string match {a*[bc]?} abcd	pure	1
+flagged	string match "a\\*" {a*}	pure	1
+flagged	string equal abc abc	pure	1
+flagged	string equal abc abd	pure	0
+flagged	string compare abc abd	pure	-1
+flagged	string is integer 5	pure	1
+flagged	string is integer -strict ""	pure	0
+flagged	string is integer " -42 "	pure	1
+flagged	string is integer 999999999	pure	1
+flagged	string is integer abc	pure	0
+flagged	string is alpha abc	pure	1
+flagged	string is digit -strict 123	pure	1
+flagged	string is space " "	pure	1
+flagged	string is xdigit 0fF	pure	1
+flagged	string is upper ABC	pure	1
+flagged	string is lower abc	pure	1
+flagged	string is alnum a1	pure	1
+flagged	string is ascii abc~	pure	1
+flagged	string is punct !?	pure	1
+flagged	string is graph a!	pure	1
+flagged	string is print "a b"	pure	1
+flagged	string is wordchar a_1	pure	1
+flagged	string is control abc	pure	0
+flagged	lindex "a  b ; c" 2	pure	{;}
+flagged	lindex {$a [b] #c} end	pure	{#c}
+flagged	lindex "" 0	pure	{}
+flagged	lindex {a b c} 1	pure	b
+flagged	lindex {a b c} end	pure	c
+flagged	lindex {a b c} end-2	pure	a
+flagged	lindex {a b c} 7	pure	{}
+flagged	::string index abc 0	pure	a
+flagged	::lindex {a b} 0	pure	a
+exempt	string length abc	pure	3
+exempt	llength {a b c}	pure	3
+exempt	string length $x	pure	3
+exempt	string length [f]	pure	3
+exempt	string length "a$x"	pure	4
+exempt	string length {*}{abc}	pure	3
+exempt	string length "\u00e9"	pure	1
+exempt	string length "a\tb"	pure	3
+exempt	string length "\U1F600"	pure	1
+exempt	string len abc	pure	3
+exempt	"string" length abc	pure	3
+exempt	string is int 5	pure	1
+exempt	string is integer 1_000	pure	0
+exempt	string is integer 09	pure	0
+exempt	string is integer 9999999999	pure	0
+exempt	string is integer 0d10	pure	0
+exempt	string is integer 0x10	pure	1
+exempt	string is double 1_0	pure	0
+exempt	string is boolean yes	pure	1
+exempt	string is integer -failindex i abc	impure	0
+exempt	string match -nocase A a	pure	1
+exempt	string equal -nocase A a	pure	1
+exempt	string compare -length 1 ab ac	pure	0
+exempt	string first b abcb 2	pure	3
+exempt	lindex {a b c d e f g h i j} 010	pure	i
+exempt	lindex {a b c} 09	impure	{ERR bad index "09": must be integer?[+-]integer? or end?[+-]integer? (looks like invalid octal number)}
+exempt	lindex {a b c} e	pure	c
+exempt	lindex {a b c} 1+1	pure	c
+exempt	lindex {a b c} end+1	pure	{}
+exempt	lindex {a b c} 0 0	pure	a
+exempt	lindex {a b c}	pure	{a b c}
+exempt	lindex {{a b} c} 0	pure	{a b}
+exempt	llength "\{a"	pure	{ERR unmatched open brace in list}
+exempt	llength {a "b c"}	pure	2
+exempt	llength {a\ b}	pure	1
+exempt	string repeat a 3	pure	aaa
+exempt	list a b	pure	{a b}
+exempt	dict create a 1	pure	{a 1}
+exempt	format %d 1	pure	1
+exempt	join {a b} ,	pure	a,b
+exempt	concat a b	pure	{a b}
+exempt	string toupper abc	pure	ABC
+exempt	lsort {c b a}	pure	{a b c}
+exempt	string range abc 0 1	pure	ab
+exempt	after 0 {string length abc}	impure	after#0
+fuzz	classes	{{ } ! {"} # {$} % & ' ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : {;} < = > ? @ A B C D E F G H I J K L M N O P Q R S T U V W X Y Z {[} \\ \] ^ _ ` a b c d e f g h i j k l m n o p q r s t u v w x y z \{ | \} ~}	1	96	2023779231	2583793692
+fuzz	integer	{0 1 8 9 x o b d e _ + - " " a}	4	11775	2455014421	3758964150
+fuzz	index	{0 1 9 e n d - + x _ " "}	4	82	3624336505	3966345598
+fuzz	match	{a b * ? [ ] - \\ ^ !}	3	1111	3512918167	4092694249
+fuzz	text	{a b " " - \\}	3	156	799350694	1475075911
+fuzz	list	{a b " " ; # $ [ ]}	4	4681	2566067546	798657222
+== Tcl 9.0.3
+flagged	string index "a b" 1	pure	{ }
+flagged	string first {$b} {a $b [c]}	pure	2
+flagged	string equal "a\x41\"" {aA"}	pure	1
+flagged	string first "" abc	pure	-1
+flagged	string index abc 1	pure	b
+flagged	string index abc end	pure	c
+flagged	string index abc end-1	pure	b
+flagged	string index abc 5	pure	{}
+flagged	string first b abcb	pure	1
+flagged	string last b abcb	pure	3
+flagged	string match {a*[bc]?} abcd	pure	1
+flagged	string match "a\\*" {a*}	pure	1
+flagged	string equal abc abc	pure	1
+flagged	string equal abc abd	pure	0
+flagged	string compare abc abd	pure	-1
+flagged	string is integer 5	pure	1
+flagged	string is integer -strict ""	pure	0
+flagged	string is integer " -42 "	pure	1
+flagged	string is integer 999999999	pure	1
+flagged	string is integer abc	pure	0
+flagged	string is alpha abc	pure	1
+flagged	string is digit -strict 123	pure	1
+flagged	string is space " "	pure	1
+flagged	string is xdigit 0fF	pure	1
+flagged	string is upper ABC	pure	1
+flagged	string is lower abc	pure	1
+flagged	string is alnum a1	pure	1
+flagged	string is ascii abc~	pure	1
+flagged	string is punct !?	pure	1
+flagged	string is graph a!	pure	1
+flagged	string is print "a b"	pure	1
+flagged	string is wordchar a_1	pure	1
+flagged	string is control abc	pure	0
+flagged	lindex "a  b ; c" 2	pure	{;}
+flagged	lindex {$a [b] #c} end	pure	{#c}
+flagged	lindex "" 0	pure	{}
+flagged	lindex {a b c} 1	pure	b
+flagged	lindex {a b c} end	pure	c
+flagged	lindex {a b c} end-2	pure	a
+flagged	lindex {a b c} 7	pure	{}
+flagged	::string index abc 0	pure	a
+flagged	::lindex {a b} 0	pure	a
+exempt	string length abc	pure	3
+exempt	llength {a b c}	pure	3
+exempt	string length $x	pure	3
+exempt	string length [f]	pure	3
+exempt	string length "a$x"	pure	4
+exempt	string length {*}{abc}	pure	3
+exempt	string length "\u00e9"	pure	1
+exempt	string length "a\tb"	pure	3
+exempt	string length "\U1F600"	pure	1
+exempt	string len abc	pure	3
+exempt	"string" length abc	pure	3
+exempt	string is int 5	pure	1
+exempt	string is integer 1_000	pure	1
+exempt	string is integer 09	pure	1
+exempt	string is integer 9999999999	pure	1
+exempt	string is integer 0d10	pure	1
+exempt	string is integer 0x10	pure	1
+exempt	string is double 1_0	pure	1
+exempt	string is boolean yes	pure	1
+exempt	string is integer -failindex i abc	impure	0
+exempt	string match -nocase A a	pure	1
+exempt	string equal -nocase A a	pure	1
+exempt	string compare -length 1 ab ac	pure	0
+exempt	string first b abcb 2	pure	3
+exempt	lindex {a b c d e f g h i j} 010	pure	{}
+exempt	lindex {a b c} 09	pure	{}
+exempt	lindex {a b c} e	impure	{ERR bad index "e": must be integer?[+-]integer? or end?[+-]integer?}
+exempt	lindex {a b c} 1+1	pure	c
+exempt	lindex {a b c} end+1	pure	{}
+exempt	lindex {a b c} 0 0	pure	a
+exempt	lindex {a b c}	pure	{a b c}
+exempt	lindex {{a b} c} 0	pure	{a b}
+exempt	llength "\{a"	pure	{ERR unmatched open brace in list}
+exempt	llength {a "b c"}	pure	2
+exempt	llength {a\ b}	pure	1
+exempt	string repeat a 3	pure	aaa
+exempt	list a b	pure	{a b}
+exempt	dict create a 1	pure	{a 1}
+exempt	format %d 1	pure	1
+exempt	join {a b} ,	pure	a,b
+exempt	concat a b	pure	{a b}
+exempt	string toupper abc	pure	ABC
+exempt	lsort {c b a}	pure	{a b c}
+exempt	string range abc 0 1	pure	ab
+exempt	after 0 {string length abc}	impure	after#0
+fuzz	classes	{{ } ! {"} # {$} % & ' ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : {;} < = > ? @ A B C D E F G H I J K L M N O P Q R S T U V W X Y Z {[} \\ \] ^ _ ` a b c d e f g h i j k l m n o p q r s t u v w x y z \{ | \} ~}	1	96	2023779231	2583793692
+fuzz	integer	{0 1 8 9 x o b d e _ + - " " a}	4	11775	2455014421	3758964150
+fuzz	index	{0 1 9 e n d - + x _ " "}	4	82	3624336505	3966345598
+fuzz	match	{a b * ? [ ] - \\ ^ !}	3	1111	3512918167	4092694249
+fuzz	text	{a b " " - \\}	3	156	799350694	1475075911
+fuzz	list	{a b " " ; # $ [ ]}	4	4681	2566067546	798657222

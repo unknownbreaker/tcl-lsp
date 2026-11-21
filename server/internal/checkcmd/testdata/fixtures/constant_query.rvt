@@ -1,0 +1,6 @@
+<html>
+<? set c [string index abc 0] ?>
+<?= [lindex {a b c} 1] ?>
+<?= string index abc 0 ?>
+<? lindex {a b} 0; string index $c 0 ?>
+</html>

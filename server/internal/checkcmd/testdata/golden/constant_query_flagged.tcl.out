@@ -1,0 +1,25 @@
+testdata/fixtures/constant_query_flagged.tcl:2:1: warning constant-query string index has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:3:1: warning constant-query string index has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:4:1: warning constant-query string first has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:5:1: warning constant-query string first has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:6:1: warning constant-query string last has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:7:1: warning constant-query string match has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:8:1: warning constant-query string equal has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:9:1: warning constant-query string equal has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:10:1: warning constant-query string compare has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:11:1: warning constant-query string is has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:12:1: warning constant-query string is has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:13:1: warning constant-query string is has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:14:1: warning constant-query string is has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:15:1: warning constant-query string is has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:16:1: warning constant-query lindex has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:17:1: warning constant-query lindex has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:18:1: warning constant-query lindex has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:19:1: warning constant-query string index has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:20:1: warning constant-query lindex has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:21:1: warning constant-query string index has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:23:8: warning constant-query string index has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:25:10: warning constant-query string first has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:26:17: warning constant-query lindex has only literal arguments, so it always returns the same result
+testdata/fixtures/constant_query_flagged.tcl:29:25: warning constant-query string is has only literal arguments, so it always returns the same result
+exit 1

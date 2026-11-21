@@ -95,6 +95,14 @@ func decodeBackslashes(s string) (value string, at []int, ok bool) {
 	return b.String(), at, true
 }
 
+// DecodeBackslashes returns the value Tcl gives s, the text of a bare word or a
+// quoted word's inside with no `$` or `[`, and false where that value is not
+// certain (decodeBackslashes).
+func DecodeBackslashes(s string) (string, bool) {
+	v, _, ok := decodeBackslashes(s)
+	return v, ok
+}
+
 func hexVal(c byte) int {
 	switch {
 	case c >= '0' && c <= '9':
