@@ -57,9 +57,11 @@ One switch turns every Check off, leaving tcl-lsp navigation-only:
   dropped when any indexed file defines, creates, renames or aliases a command
   with one of those names, in any namespace: `proc set`, `proc {set}`,
   `rename myset set`, `rename set {}`, `interp alias {} set {} myset`,
-  `oo::class create set`, an Itcl method `set`. A redefinition typed in one open
-  buffer updates the diagnostics of every other open buffer at once, as does one
-  saved to disk. Names built at run time (`proc $name`) are not seen; see
+  `oo::class create set`, an Itcl method `set`, an ensemble made or remapped
+  with `namespace ensemble create -command set`, `namespace ensemble configure
+  set -map …`, or `namespace ensemble create` inside `namespace eval set`. A
+  redefinition typed in one open buffer updates the diagnostics of every other
+  open buffer at once, as does one saved to disk. Names built at run time (`proc $name`) are not seen; see
   `docs/BACKLOG.md`.
 - **Half-typed code:** a command whose last word never closes (a brace, quote or
   bracket left open) is rejected by Tcl, so neither it nor anything in it gives a
@@ -191,12 +193,18 @@ if {$x eq ${x}} {…}               ;# only operands written alike
 string equal -nocase $x $x        ;# no options
 string equal {$x} {$x}            ;# braced words substitute nothing
 expr $x eq $x                     ;# substituted twice
+string equal $y(a $y(a            ;# the index runs on to the next `)`, as in Tcl
 ```
 
 `set x NaN` makes `$x == $x` false and `$x != $x` true in Tcl 8.6 and 9.0,
 which is why only `eq`, `ne`, `<` and `>` count. A read trace on the variable
 could change its value between the two reads; that is the one way a flagged
-comparison can vary. The evidence, each comparison evaluated with `$x` bound to
+comparison can vary. A command-form operand counts only when it has no
+backslash and closes every `(` it opens: Tcl reads an array index across
+spaces, newlines and `;` to its `)`, and a backslash-newline splits a word. A
+redefined `string`, `equal` or `compare` silences the command form (see
+Redefined builtins). The message names the operand when it is short and
+printable, and says "a value" otherwise. The evidence, each comparison evaluated with `$x` bound to
 NaN, Inf, empty, lists and other values on tclsh 8.6 and 9.0, is
 `server/internal/checkcmd/testdata/tclsh/self_comparison.tcl`.
 
