@@ -91,3 +91,46 @@ func TestConstantTransformMessage(t *testing.T) {
 		}
 	}
 }
+
+// Shapes the spec keeps silent: half-typed words, expansion, data that is not
+// code, escaped brackets, user-defined names in a namespace or class, and
+// redefinitions through a colon run or an ensemble remap (each verified on
+// tclsh 8.6 and 9.0).
+func TestConstantTransformSilentShapes(t *testing.T) {
+	dir := t.TempDir()
+	for name, src := range map[string]string{
+		"half-typed brace":            "string toupper {a {b}",
+		"half-typed in substitution":  "set x [string toupper {a {b}]",
+		"escaped quote at EOF":        "string toupper \"a\\\"",
+		"expand quoted":               "string trim {*}\"a b\"\n",
+		"expand bare":                 "string toupper {*}abc\n",
+		"braced data":                 "set x {[lsort {b a}]}\n",
+		"escaped bracket":             "set y \"\\[string toupper abc]\"\n",
+		"proc default":                "proc p {{a {[lsort {b a}]}}} {}\n",
+		"expr braced string":          "set e [expr {{[lsort {b a}]}}]\n",
+		"comment continuation":        "# c \\\nstring toupper abc\n",
+		"backslash-newline in quotes": "lsort \"b \\\n a\"\n",
+		"tab escape":                  "string trim \"\\ta\"\n",
+		"local proc in namespace":     "namespace eval ns {\n proc lsort args {}\n lsort {b a}\n}\n",
+		"itcl method":                 "itcl::class C {\n method toupper {s} {}\n method m {} {string toupper abc}\n}\n",
+		"colon-run proc":              "proc :::lsort args {}\nset r [lsort {b a}]\n",
+		"string ensemble remap":       "namespace ensemble configure ::string -map {toupper ::list}\nset r [string toupper abc]\n",
+	} {
+		path := filepath.Join(dir, "s.tcl")
+		write(t, path, src)
+		if out, _, _ := run(path); strings.Contains(out, " constant-transform ") {
+			t.Errorf("%s: want silent, got:\n%s", name, out)
+		}
+	}
+}
+
+// In .rvt, `<?= x ?>` runs as `puts -nonewline x`, continuation line included,
+// so only the command after `;` is checked.
+func TestConstantTransformRvt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a.rvt")
+	write(t, path, "<?= string toupper abc ?>\n<?= x \\\nstring toupper abc ?>\n<?=string toupper abc?>\n<?= x; lsort {b a} ?>\n")
+	out, _, _ := run(path)
+	if strings.Count(out, "constant-transform") != 1 || !strings.Contains(out, "a.rvt:5:8: hint constant-transform lsort") {
+		t.Errorf("want only the command after `;` flagged, got:\n%s", out)
+	}
+}
