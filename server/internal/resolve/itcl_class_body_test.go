@@ -190,6 +190,7 @@ func TestICBMethodBodyProcDefShapes(t *testing.T) {
 		{"qualified absolute", `proc ::x::d {} {}`, []string{"::x::d"}},
 		{"global-qualified", `proc ::d {} {}`, []string{"::d"}},
 		{"uplevel", `uplevel 1 { proc d {} {} }`, nil},
+		{"uplevel 0", `uplevel 0 { proc d {} {} }`, []string{"::ns::K::d"}},
 		{"wrapped namespace eval absolute", `after 0 { namespace eval ::x { proc d {} {} } }`, []string{"::x::d"}},
 		{"proc in proc in namespace eval", `namespace eval ::x { proc o {} { proc d {} {} } }`, []string{"::x::o", "::x::d"}},
 	}

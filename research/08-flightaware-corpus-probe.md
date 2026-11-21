@@ -354,8 +354,10 @@ differs from this section, this section is right, and the plan lists the departu
      treated those bodies as conservative and would have excluded known data commands such as `puts`. That was
      rejected, because any command can take data in a brace, so an exclusion list can never be complete and each
      gap in it is a wrong answer. Only scripts known to run here are conservative: `catch`, `try`, `switch`,
-     `time`, `timerate`, and `eval` in its one-word form `eval {script}`. With more words `eval` joins them
-     into a script the analysis does not read, so uses after it are silent (#132).
+     `time`, `timerate`, `eval` in its one-word form `eval {script}`, and `uplevel 0 {script}`. With more
+     words `eval` joins them into a script the analysis does not read, so uses after it are silent (#132), and
+     so are uses after a one-word `eval` of an unbraced word or an `uplevel` whose level may name this frame
+     (`0` in any spelling, `#N`), whose script the source does not fix (#139).
    - **A use inside an unknown body is answered from what reaches it.** In a proc, the analyzer walks the one body
      that holds the use, entering with what reaches the command, so `set x 1; set x 2; with { puts $x }` answers the
      second `set`, where it used to take the earliest. The walk gets its own copy of the set and no enclosing loop, so
@@ -368,9 +370,10 @@ differs from this section, this section is right, and the plan lists the departu
 5. **Opaque frame for unknown bodies.** A new `FrameOpaque`: at namespace frame, a trailing-brace body of a
    command not known to run its script in the enclosing frame (`bodiesRunHere`). **Only absolute names count
    there,** as definitions and as uses: a bare name could be anything, and a relative `a::b` resolves from a
-   namespace the server cannot know (tclsh errors on the shape). `uplevel` and multi-word `eval` are not
-   pass-through: `namespace eval ::n { uplevel #0 { set x 1 } }` would otherwise define `::n::x`. Procs and
-   command calls still work, and `proc`, `namespace eval` and `itcl::class` reset the frame as before. `FrameProc`
+   namespace the server cannot know (tclsh errors on the shape). `uplevel` (except `uplevel 0 {script}`) and
+   multi-word `eval` are not pass-through: `namespace eval ::n { uplevel #0 { set x 1 } }` would otherwise define
+   `::n::x`. Procs and command calls still work, and `proc`, `namespace eval` and `itcl::class` reset the frame as
+   before. `FrameProc`
    and `FrameClass` are unchanged. `enclosingProcOrScope` accepts the opaque frame, so `set o [::C #auto]; $o m`
    inside a wrapper keeps working. `substRefs` drops variable refs, unless absolute, from a proc or class body
    nested in a bracket.
