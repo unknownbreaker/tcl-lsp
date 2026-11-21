@@ -38,10 +38,17 @@ func duplicateLogic(c tcl.Command, base int, out []Finding) []Finding {
 	// condition left unread keeps the key "", as one that may differ between
 	// evaluations.
 	compare := head == "if" && len(conds) > 1
-	var keyBuf [4]string
-	keys := keyBuf[:0]
+	type parsed struct {
+		n    *expr.Node // nil when there is no chain to read
+		text string
+		off  int
+		key  string
+	}
+	var pbuf [4]parsed
+	ps := pbuf[:0]
 	for _, w := range conds {
-		keys = append(keys, "")
+		ps = append(ps, parsed{})
+		p := &ps[len(ps)-1]
 		text, ok := exprText(w)
 		if !ok {
 			continue
@@ -56,41 +63,48 @@ func duplicateLogic(c tcl.Command, base int, out []Finding) []Finding {
 			continue
 		}
 		if chain {
-			out = appendRepeatedOperands(out, n, text, off, head)
+			p.n, p.text, p.off = n, text, off
 		}
 		if compare {
-			keys[len(keys)-1] = conditionKey(n, text, off)
+			p.key = conditionKey(n, text, off)
 		}
 	}
-	if compare {
-		out = appendRepeatedConditions(out, conds, keys, base)
+	// A condition that repeats an earlier one is reported whole, and not
+	// searched for repeated operands too. lastSeen maps a key to the index of
+	// its last copy, and an impure condition cuts every earlier copy off.
+	var lastSeen map[string]int
+	lastImpure := -1
+	for j := range ps {
+		p := &ps[j]
+		if compare {
+			switch k := p.key; {
+			case k == "":
+				lastImpure = j
+			case k == pureNoVar:
+			default:
+				if i, ok := lastSeen[k]; ok && i > lastImpure {
+					w := conds[j]
+					out = append(out, Finding{
+						Severity: Warning,
+						Start:    base + w.Start,
+						End:      base + w.End,
+						Message:  "repeats an earlier condition, which was false, so this branch never runs",
+						Assumes:  []string{"if"},
+					})
+					p.n = nil
+				}
+				if lastSeen == nil {
+					lastSeen = map[string]int{}
+				}
+				lastSeen[k] = j
+			}
+		}
+		if p.n != nil {
+			out = appendRepeatedOperands(out, p.n, p.text, p.off, head)
+		}
 	}
 	if head == "if" {
 		out = appendSameBodies(out, c, len(conds), base)
-	}
-	return out
-}
-
-// appendRepeatedConditions appends a finding for each elseif condition whose
-// key repeats an earlier condition's with only pure conditions between them.
-func appendRepeatedConditions(out []Finding, conds []tcl.Word, keys []string, base int) []Finding {
-	for j := 1; j < len(keys); j++ {
-		if keys[j] == "" || keys[j] == pureNoVar {
-			continue
-		}
-		for i := j - 1; i >= 0 && keys[i] != ""; i-- {
-			if keys[i] == keys[j] {
-				w := conds[j]
-				out = append(out, Finding{
-					Severity: Warning,
-					Start:    base + w.Start,
-					End:      base + w.End,
-					Message:  "repeats an earlier condition, which was false, so this branch never runs",
-					Assumes:  []string{"if"},
-				})
-				break
-			}
-		}
 	}
 	return out
 }
@@ -174,12 +188,12 @@ func chainOperands(dst []*expr.Node, n *expr.Node) []*expr.Node {
 }
 
 // appendRepeats appends a finding for each of a chain's operands that repeats
-// an earlier one with only pure operands from that one to it. The nearest
-// earlier copy is the one compared, so an impure operand before it does not
-// matter.
+// an earlier one with only pure operands from that one to it, one finding per
+// run of such operands. The nearest earlier copy is the one compared, so an
+// impure operand before it does not matter.
 func appendRepeats(out []Finding, operands []*expr.Node, op, text string, off int, head string) []Finding {
-	var seen map[string]int // key → index of its last pure copy
-	lastImpure := -1
+	var seen map[string]int    // key → index of its last pure copy
+	lastImpure, prev := -1, -2 // prev: index of the last operand reported
 	for j, o := range operands {
 		k := conditionKey(o, text, off)
 		if k == "" {
@@ -190,13 +204,21 @@ func appendRepeats(out []Finding, operands []*expr.Node, op, text string, off in
 			continue
 		}
 		if i, ok := seen[k]; ok && i > lastImpure {
-			out = append(out, Finding{
-				Severity: Warning,
-				Start:    o.Start,
-				End:      o.End,
-				Message:  "repeats an earlier operand of " + op + ", so it changes nothing",
-				Assumes:  []string{head},
-			})
+			if prev == j-1 {
+				// A run of repeats is one finding: `($x || $y) || ($x || $y)`.
+				f := &out[len(out)-1]
+				f.End = o.End
+				f.Message = "repeat earlier operands of " + op + ", so they change nothing"
+			} else {
+				out = append(out, Finding{
+					Severity: Warning,
+					Start:    o.Start,
+					End:      o.End,
+					Message:  "repeats an earlier operand of " + op + ", so it changes nothing",
+					Assumes:  []string{head},
+				})
+			}
+			prev = j
 		}
 		if seen == nil {
 			seen = map[string]int{}

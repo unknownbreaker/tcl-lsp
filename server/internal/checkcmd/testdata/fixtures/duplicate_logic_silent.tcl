@@ -18,6 +18,7 @@ if $x {a} elseif $x {b}
 if {$x} {a} elseif {${x}} {b}
 if {$x} "set r [incr n]" else "set r [incr n]"
 if {$x} {a} elseif {$y} {b} else {a}
+if {$x} set\ r\ [incr ::n]\;#} else set\ r\ [incr ::n]\;#}
 if {$x} {a} else { a}
 if {$x} {a}
 if {$x} {a} elseif {$y} {a}

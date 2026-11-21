@@ -1,4 +1,5 @@
-# Each line below gets one duplicate-logic warning, at the repeated part.
+# Each line below gets one duplicate-logic warning, at the repeated part,
+# but for the one with two copies of a condition: its first holds a repeat.
 if {$a == 1 || $a == 1} {}
 if {$a == 1||$a==1} {}
 while {$x && ($y && $x)} {}
@@ -21,6 +22,9 @@ if {[f]} {
 } else {
     puts same
 }
+if {($x || $y) || ($x || $y)} {}
+if {$x || $y || $z || $y || $x} {}
+if {$x || $x} {} elseif {$x || $x} {}
 proc p {} {
     if {$a(k) eq "z" || $a(k) eq "z"} {}
 }
