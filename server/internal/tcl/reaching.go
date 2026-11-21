@@ -15,8 +15,8 @@ import "strings"
 // Intraprocedural and may-reach. Also supports namespace-level variables (used by RVT
 // templates).
 func ReachingAt(src string, useOff int) (defs []Definition, ok bool) {
-	inner, innerBase, argsWord, argsBase, ns, frame, found, joined := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, useOff, false)
-	if joined {
+	inner, innerBase, argsWord, argsBase, ns, frame, found, useInEvalWord := enclosingProcOrScope(Parse(src), 0, "::", FrameNamespace, 0, useOff, false)
+	if useInEvalWord {
 		return nil, true // part of a script no analysis reads (#140)
 	}
 	if !found {
@@ -70,13 +70,13 @@ func (a *analyzer) skippedAboveUse() []Definition {
 // returns the scope's namespace and frame kind (FrameProc, FrameNamespace or
 // FrameOpaque).
 //
-// The braced words of an eval the analysis does not read (unreadEval) are part of
+// The braced words of an eval the analysis does not read (joinsWords) are part of
 // its joined script, so they are never a scope, and neither is any body in them
-// short of a proc's (#140). joined says the code is inside one; when the use is too,
-// found and joined are both true and there is no scope to analyze.
-func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int, joined bool) (inner string, innerBase int, argsWord Word, argsBase int, scopeNS string, frameKind FrameKind, found, inJoined bool) {
+// short of a proc's (#140). inEvalWord says cmds are inside one. When the use is
+// too, found and useInEvalWord are both true and there is no scope to analyze.
+func enclosingProcOrScope(cmds []Command, base int, ns string, frame FrameKind, scope, useOff int, inEvalWord bool) (inner string, innerBase int, argsWord Word, argsBase int, scopeNS string, frameKind FrameKind, found, useInEvalWord bool) {
 	for _, c := range cmds {
-		cmdJoined := joined || isCmd(c.Words, "eval") && unreadEval(c, frame)
+		cmdJoined := inEvalWord || joinsWords(c, frame)
 		for _, b := range childBodies(c, base, ns, frame, scope, "") {
 			if useOff < b.Base || useOff >= b.Base+len(b.Inner) {
 				continue
@@ -498,6 +498,13 @@ func unreadEval(c Command, frame FrameKind) bool {
 	return false
 }
 
+// joinsWords reports whether c is an eval whose braced words are part of a script
+// the analysis does not read (unreadEval), so none of them is a body of its own:
+// reaching never takes one as a scope, and the index binds no local in one (#140).
+func joinsWords(c Command, frame FrameKind) bool {
+	return isCmd(c.Words, "eval") && unreadEval(c, frame)
+}
+
 // tclSpace is the space Tcl trims around an integer: ASCII only, unlike
 // strings.TrimSpace.
 const tclSpace = " \t\n\v\f\r"
@@ -552,10 +559,10 @@ func upLevelMayBeHere(w Word, frame FrameKind) bool {
 
 // distrustEval distrusts the code after an eval the analysis does not read
 // or uplevel the analysis does not read (unreadEval), whose bindings are unknown
-// (#132, #139). A use in a braced word of a multi-word eval or uplevel is part of
-// the joined script, so no analysis visits it and it stays silent too: in a proc
-// the walk never enters the word, and enclosingProcOrScope never takes an eval's
-// word as a scope (#140).
+// (#132, #139). In a proc, a use in a braced word of a multi-word eval or uplevel
+// is part of the joined script, so no analysis visits it and it stays silent too.
+// An eval's word is silent at every level: enclosingProcOrScope never takes it as
+// a scope (#140).
 func (a *analyzer) distrustEval(c Command, base int) {
 	a.distrust(base+c.Words[len(c.Words)-1].End, flowDistrusted)
 }

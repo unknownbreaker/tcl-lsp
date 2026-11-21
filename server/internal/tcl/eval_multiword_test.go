@@ -91,6 +91,9 @@ func TestDefsMultiWordEvalDecoratorDefinesNoProc(t *testing.T) {
 	}{
 		{"eval DECO proc g {} {\n  set x 1\n}\n", true},
 		{"::eval DECO proc g {} {\n  set x 1\n}\n", true},
+		{"\"eval\" DECO proc g {} {\n  set x 1\n}\n", true},
+		{"{eval} DECO proc g {} {\n  set x 1\n}\n", true},
+		{"{*}eval DECO proc g {} {\n  set x 1\n}\n", true},
 		{"proc p {} {\n  eval DECO proc g {a} {\n    set x 1\n  }\n}\n", true},
 		{"namespace eval ns {\n  eval CACHE_PROC proc g {} {\n    set x 1\n  } -ttl 60\n}\n", false},
 	} {
@@ -113,12 +116,13 @@ func TestDefsMultiWordEvalDecoratorDefinesNoProc(t *testing.T) {
 
 // A binding in a multi-word eval's braced word is no local of the enclosing proc:
 // the word may be argument text in the joined script (#140). A proc's own scope in
-// the word keeps its locals, and a namespace variable keeps the wrapper ruling.
+// the word keeps its locals. A namespace variable keeps the wrapper ruling, a known
+// wrong answer here (docs/BACKLOG.md), so the test leaves `set ::n 1` unasserted.
 func TestDefsMultiWordEvalWordBindsNoLocal(t *testing.T) {
 	src := "proc p {} {\n  set x 0\n  eval list {set x 1; global gl; upvar 1 u v; proc h {a} {set b 1}; set ::n 1}\n}\n"
 	pScope := strings.Index(src, "{\n") + 1
 	word := strings.Index(src, "eval list")
-	want := map[string]bool{"x@" + strconv.Itoa(strings.Index(src, "x 0")): true, "a": true, "b": true, "::n": true, "::p": true, "::h": true}
+	want := map[string]bool{"x@" + strconv.Itoa(strings.Index(src, "x 0")): true, "a": true, "b": true, "::p": true, "::h": true}
 	got := map[string]bool{}
 	for _, d := range FileDefs(src) {
 		key := d.Name

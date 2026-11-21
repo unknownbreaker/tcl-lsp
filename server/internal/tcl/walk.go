@@ -116,7 +116,7 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 		// index binds no local of this scope there either; a proc's own scope in the
 		// word keeps its locals. Namespace variables keep today's wrapper ruling.
 		joinedFrom := -1
-		if c.defs != nil && isCmd(w, "eval") && unreadEval(cmd, frame) {
+		if c.defs != nil && joinsWords(cmd, frame) {
 			joinedFrom = len(*c.defs)
 		}
 		for _, b := range bodies {
