@@ -118,19 +118,17 @@ func visitScript(cmds []Command, base int, lastOpen bool, c collectors) {
 
 // scriptLoop reports whether a break or continue in body b of cmd ends a loop
 // rather than being an error: b is the body of while, for, foreach, lmap, dict
-// for or dict map, or for's next script, or inLoop holds and cmd runs b in place
-// (bodiesRunHere, or a namespace eval), which passes a break or continue on. A
+// for or dict map, or inLoop holds and cmd runs b in place (bodiesRunHere, or a
+// namespace eval), which passes a break or continue on. for's other scripts run
+// in place too: its next script ends the loop on break but rejects continue. A
 // proc's or an Itcl member's body is a frame of its own, where Tcl rejects them
 // (tclsh 8.6 and 9.0, testdata/tclsh/unreachable_code.tcl in package checkcmd).
 func scriptLoop(cmd Command, base int, b bodyScope, inLoop bool) bool {
 	w := cmd.Words
-	if loopHead(cmd) {
-		last := w[len(w)-1]
-		next := isCmd(w, "for") && len(w) == 5 && base+w[3].Start+1 == b.Base
-		if base+last.Start+1 == b.Base || next {
-			return true
-		}
+	if loopHead(cmd) && base+w[len(w)-1].Start+1 == b.Base {
+		return true
 	}
+	// Exactly four words: runsAsScript enters no other namespace eval's body.
 	isNSEval := isCmd(w, "namespace") && len(w) == 4 && w[1].Text == "eval"
 	return inLoop && (bodiesRunHere(cmd) || isNSEval)
 }

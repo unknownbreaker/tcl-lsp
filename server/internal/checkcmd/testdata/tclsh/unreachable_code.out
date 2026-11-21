@@ -27,7 +27,7 @@ flagged  foreach v {1} {continue; set ::ran 1}                                ra
 flagged  foreach v {1} {::break; set ::ran 1}                                 ran=0 code=0
 flagged  while 1 {break; set ::ran 1}                                         ran=0 code=0
 flagged  for {} 1 {} {break; set ::ran 1}                                     ran=0 code=0
-flagged  for {} 1 {break; set ::ran 1} {}                                     ran=0 code=0
+flagged  foreach v {1} {set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}} ran=0 code=0
 flagged  lmap v {1} {break; set ::ran 1}                                      ran=0 code=0
 flagged  dict for {k v} {a 1} {break; set ::ran 1}                            ran=0 code=0
 flagged  dict map {k v} {a 1} {continue; set ::ran 1}                         ran=0 code=0
@@ -78,6 +78,8 @@ exempt   if 1 {break; set ::ran 1}                                            ra
 exempt   catch {break; set ::ran 1}                                           ran=0 code=0
 exempt   time {break; set ::ran 1}                                            ran=0 code=1
 exempt   for {break; set ::ran 1} {0} {} {}                                   ran=0 code=1
+exempt   set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}          ran=0 code=1
+exempt   for {} 1 {break; set ::ran 1} {}                                     ran=0 code=0
 exempt   while {[break; set ::ran 1]} {}                                      ran=0 code=1
 exempt   foreach v {1} {proc q {} {break; set ::ran 1}; q}                    ran=0 code=1
 exempt   foreach v {1} {apply {{} {break; set ::ran 1}}}                      ran=0 code=1
@@ -112,7 +114,7 @@ flagged  foreach v {1} {continue; set ::ran 1}                                ra
 flagged  foreach v {1} {::break; set ::ran 1}                                 ran=0 code=0
 flagged  while 1 {break; set ::ran 1}                                         ran=0 code=0
 flagged  for {} 1 {} {break; set ::ran 1}                                     ran=0 code=0
-flagged  for {} 1 {break; set ::ran 1} {}                                     ran=0 code=0
+flagged  foreach v {1} {set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}} ran=0 code=0
 flagged  lmap v {1} {break; set ::ran 1}                                      ran=0 code=0
 flagged  dict for {k v} {a 1} {break; set ::ran 1}                            ran=0 code=0
 flagged  dict map {k v} {a 1} {continue; set ::ran 1}                         ran=0 code=0
@@ -163,6 +165,8 @@ exempt   if 1 {break; set ::ran 1}                                            ra
 exempt   catch {break; set ::ran 1}                                           ran=0 code=0
 exempt   time {break; set ::ran 1}                                            ran=0 code=1
 exempt   for {break; set ::ran 1} {0} {} {}                                   ran=0 code=1
+exempt   set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}          ran=0 code=1
+exempt   for {} 1 {break; set ::ran 1} {}                                     ran=0 code=0
 exempt   while {[break; set ::ran 1]} {}                                      ran=0 code=1
 exempt   foreach v {1} {proc q {} {break; set ::ran 1}; q}                    ran=0 code=1
 exempt   foreach v {1} {apply {{} {break; set ::ran 1}}}                      ran=0 code=1

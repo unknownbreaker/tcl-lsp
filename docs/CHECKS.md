@@ -441,12 +441,13 @@ set v [return 1; expr {2}]  ;# a [script] is a script too
 return -code error boom; log  ;# any -code
 ```
 
-A `break` or `continue` counts inside the body of `while`, `for` (or its next
-script), `foreach`, `lmap`, `dict for` or `dict map`, and inside anything that
-runs a script in place within one: `if`, `switch`, `catch`, `try`, `eval`,
-`uplevel 0`, `time`, `dict with`, `dict update`, `namespace eval`, a
-`[script]`, an expression's `[script]`, or `for`'s start script. Each passes
-the exit on to the loop.
+A `break` or `continue` counts inside the body of `while`, `for`, `foreach`,
+`lmap`, `dict for` or `dict map`, and inside anything that runs a script in
+place within one: `if`, `switch`, `catch`, `try`, `eval`, `uplevel 0`, `time`,
+`dict with`, `dict update`, `namespace eval`, a `[script]`, an expression's
+`[script]`, or `for`'s start and next scripts. Each passes the exit on to the
+loop. `for`'s next script is not a loop body of its own: it rejects
+`continue`, so neither exit counts there unless an outer loop takes it.
 
 Not flagged:
 

@@ -9,8 +9,10 @@
 #
 # Inside a loop, every construct that runs a script in place (if, switch,
 # catch, try, eval, uplevel, time, dict with, namespace eval, a [script], an
-# expression's [script], for's start script) passes a break or continue on to
-# the loop, so the code after one is dead there too.
+# expression's [script], for's start and next scripts) passes a break or
+# continue on to the loop, so the code after one is dead there too. On its own,
+# for's next script ends the loop on break but rejects continue, so neither is
+# read there.
 proc row {kind c} {
   set ::ran 0
   catch {namespace delete ::ns}
@@ -48,7 +50,7 @@ foreach c {
   {foreach v {1} {::break; set ::ran 1}}
   {while 1 {break; set ::ran 1}}
   {for {} 1 {} {break; set ::ran 1}}
-  {for {} 1 {break; set ::ran 1} {}}
+  {foreach v {1} {set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}}}
   {lmap v {1} {break; set ::ran 1}}
   {dict for {k v} {a 1} {break; set ::ran 1}}
   {dict map {k v} {a 1} {continue; set ::ran 1}}
@@ -101,6 +103,8 @@ foreach c {
   {catch {break; set ::ran 1}}
   {time {break; set ::ran 1}}
   {for {break; set ::ran 1} {0} {} {}}
+  {set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}}
+  {for {} 1 {break; set ::ran 1} {}}
   {while {[break; set ::ran 1]} {}}
   {foreach v {1} {proc q {} {break; set ::ran 1}; q}}
   {foreach v {1} {apply {{} {break; set ::ran 1}}}}

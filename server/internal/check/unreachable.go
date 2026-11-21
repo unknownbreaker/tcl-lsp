@@ -33,7 +33,6 @@ func unreachableCode(cmds []tcl.Command, base int, loop bool, out []Finding) []F
 		start, _ := commandSpan(cmds[i+1], base)
 		_, end := commandSpan(cmds[len(cmds)-1], base)
 		return append(out, Finding{
-			Check:       unreachableCodeID,
 			Severity:    Hint,
 			Start:       start,
 			End:         end,
@@ -45,8 +44,8 @@ func unreachableCode(cmds []tcl.Command, base int, loop bool, out []Finding) []F
 	return out
 }
 
-// exitHead returns the builtin c's head names when c always ends its script
-// (unreachableCode).
+// exitHead returns the name of the builtin c's head when c always ends its
+// script (unreachableCode).
 func exitHead(c tcl.Command, loop bool) (string, bool) {
 	head := builtinHead(c)
 	if head != "return" && head != "error" && head != "break" && head != "continue" {
@@ -57,7 +56,7 @@ func exitHead(c tcl.Command, loop bool) (string, bool) {
 		return "", false
 	}
 	for _, x := range w {
-		if strings.HasPrefix(x.Text, "{*}") && len(x.Text) > 3 || strings.ContainsAny(x.Text, "\v\f\r") {
+		if expands(x) || strings.ContainsAny(x.Text, "\v\f\r") {
 			return "", false
 		}
 	}
@@ -72,39 +71,15 @@ func exitHead(c tcl.Command, loop bool) (string, bool) {
 
 // endsReturn reports whether a return with arguments args returns from its
 // level at least once: none of its option names is -level or -options, and
-// each is a literal. Tcl reads args as option and value pairs, then the result
+// each is a literal (exprText: a braced backslash-newline gives a space, so
+// it never spells either). Tcl reads args as option and value pairs, then the result
 // when one word is left over, and matches option names exactly.
 func endsReturn(args []tcl.Word) bool {
 	for i := 0; i+1 < len(args); i += 2 {
-		name, ok := literalValue(args[i])
+		name, ok := exprText(args[i])
 		if !ok || name == "-level" || name == "-options" {
 			return false
 		}
 	}
 	return true
-}
-
-// literalValue returns the value of w when w is a literal: a braced word with no
-// backslash, or a bare or closed quoted word with no `$`, `[` or `\`.
-func literalValue(w tcl.Word) (string, bool) {
-	t := w.Text
-	switch w.Kind {
-	case tcl.WordBraced:
-		if len(t) < 2 || t[len(t)-1] != '}' || strings.IndexByte(t, '\\') >= 0 {
-			return "", false
-		}
-		return t[1 : len(t)-1], true
-	case tcl.WordQuoted:
-		if !quoteCloses(w) {
-			return "", false
-		}
-		t = t[1 : len(t)-1]
-	case tcl.WordBare:
-	default:
-		return "", false
-	}
-	if strings.ContainsAny(t, "$[\\") {
-		return "", false
-	}
-	return t, true
 }

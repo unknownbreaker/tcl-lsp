@@ -31,8 +31,12 @@ func TestUnreachableCodeTranscript(t *testing.T) {
 			continue
 		}
 		rows++
-		body := strings.TrimSpace(line[9:77])
-		if flagged && !strings.Contains(line[77:], "ran=0") {
+		body, result, ok := strings.Cut(line[9:], " ran=")
+		if !ok {
+			t.Fatalf("row without a result: %q", line)
+		}
+		body = strings.TrimSpace(body)
+		if flagged && !strings.HasPrefix(result, "0 ") {
 			t.Errorf("flagged %q: the transcript shows the dead command ran: %q", body, line)
 		}
 		path := filepath.Join(dir, "c.tcl")
