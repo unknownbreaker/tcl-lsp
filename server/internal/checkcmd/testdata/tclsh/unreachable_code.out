@@ -1,0 +1,174 @@
+== Tcl 8.6.18
+flagged  return; set ::ran 1                                                  ran=0 code=0
+flagged  return x; set ::ran 1                                                ran=0 code=0
+flagged  ::return x; set ::ran 1                                              ran=0 code=0
+flagged  "return" x; set ::ran 1                                              ran=0 code=0
+flagged  return -code ok; set ::ran 1                                         ran=0 code=0
+flagged  return -code error x; set ::ran 1                                    ran=0 code=1
+flagged  return -code break; set ::ran 1                                      ran=0 code=3
+flagged  set c 0; return -code $c x; set ::ran 1                              ran=0 code=0
+flagged  return -lev 0 x; set ::ran 1                                         ran=0 code=0
+flagged  return -LEVEL 0 x; set ::ran 1                                       ran=0 code=0
+flagged  return -opt {-level 0} x; set ::ran 1                                ran=0 code=0
+flagged  return -level; set ::ran 1                                           ran=0 code=0
+flagged  return -errorcode x -errorinfo y x; set ::ran 1                      ran=0 code=0
+flagged  return [list -level 0]; set ::ran 1                                  ran=0 code=0
+flagged  return; return; set ::ran 1                                          ran=0 code=0
+flagged  error x; set ::ran 1                                                 ran=0 code=1
+flagged  error x info; set ::ran 1                                            ran=0 code=1
+flagged  error x info code; set ::ran 1                                       ran=0 code=1
+flagged  ::error x; set ::ran 1                                               ran=0 code=1
+flagged  if 1 {return; set ::ran 1}                                           ran=0 code=0
+flagged  catch {return; set ::ran 1}                                          ran=0 code=0
+flagged  set y [return; set ::ran 1]                                          ran=0 code=0
+flagged  namespace eval ns {return; set ::ran 1}                              ran=0 code=0
+flagged  foreach v {1} {break; set ::ran 1}                                   ran=0 code=0
+flagged  foreach v {1} {continue; set ::ran 1}                                ran=0 code=0
+flagged  foreach v {1} {::break; set ::ran 1}                                 ran=0 code=0
+flagged  while 1 {break; set ::ran 1}                                         ran=0 code=0
+flagged  for {} 1 {} {break; set ::ran 1}                                     ran=0 code=0
+flagged  foreach v {1} {set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}} ran=0 code=0
+flagged  lmap v {1} {break; set ::ran 1}                                      ran=0 code=0
+flagged  dict for {k v} {a 1} {break; set ::ran 1}                            ran=0 code=0
+flagged  dict map {k v} {a 1} {continue; set ::ran 1}                         ran=0 code=0
+flagged  foreach v {1} {if 1 {break; set ::ran 1}}                            ran=0 code=0
+flagged  while 1 {if 0 {} elseif 1 {break; set ::ran 1}}                      ran=0 code=0
+flagged  while 1 {if 0 {} else {break; set ::ran 1}}                          ran=0 code=0
+flagged  foreach v {1} {switch a a {break; set ::ran 1}}                      ran=0 code=0
+flagged  foreach v {1} {switch a {a {break; set ::ran 1}}}                    ran=0 code=0
+flagged  foreach v {1} {catch {break; set ::ran 1}}                           ran=0 code=0
+flagged  foreach v {1} {try {break; set ::ran 1} finally {}}                  ran=0 code=0
+flagged  foreach v {1} {try {error x} on error m {break; set ::ran 1}}        ran=0 code=0
+flagged  foreach v {1} {try {} finally {break; set ::ran 1}}                  ran=0 code=0
+flagged  foreach v {1} {eval {break; set ::ran 1}}                            ran=0 code=0
+flagged  foreach v {1} {uplevel 0 {break; set ::ran 1}}                       ran=0 code=0
+flagged  foreach v {1} {time {break; set ::ran 1}}                            ran=0 code=0
+flagged  foreach v {1} {dict with d {break; set ::ran 1}}                     ran=0 code=0
+flagged  foreach v {1} {dict update d k w {break; set ::ran 1}}               ran=0 code=0
+flagged  foreach v {1} {namespace eval ns {break; set ::ran 1}}               ran=0 code=0
+flagged  foreach v {1} {set y [break; set ::ran 1]}                           ran=0 code=0
+flagged  foreach v {1} {set y "[break; set ::ran 1]"}                         ran=0 code=0
+flagged  foreach v {1} {if {[break; set ::ran 1]} {}}                         ran=0 code=0
+flagged  foreach v {1} {set y [expr {[break; set ::ran 1]}]}                  ran=0 code=0
+flagged  foreach v {1} {for {break; set ::ran 1} {0} {} {}}                   ran=0 code=0
+flagged  foreach v {1} {while {[continue; set ::ran 1]} {}}                   ran=0 code=0
+flagged  foreach v {1} {if 1 {foreach w {1} {} ; break; set ::ran 1}}         ran=0 code=0
+exempt   return -level 0 x; set ::ran 1                                       ran=1 code=0
+exempt   return -level 0; set ::ran 1                                         ran=1 code=0
+exempt   return -level 00 x; set ::ran 1                                      ran=1 code=0
+exempt   return -code ok -level 0 x; set ::ran 1                              ran=1 code=0
+exempt   return -level 1 x; set ::ran 1                                       ran=0 code=0
+exempt   return -options {-level 0} x; set ::ran 1                            ran=1 code=0
+exempt   return {-level} 0 x; set ::ran 1                                     ran=1 code=0
+exempt   return "-level" 0 x; set ::ran 1                                     ran=1 code=0
+exempt   return -leve\l 0 x; set ::ran 1                                      ran=1 code=0
+exempt   set o -level; return $o 0 x; set ::ran 1                             ran=1 code=0
+exempt   return {*}{-level 0} x; set ::ran 1                                  ran=1 code=0
+exempt   set y [return -level 0 a; set ::ran 1]                               ran=1 code=0
+exempt   catch {return -level 0; set ::ran 1}                                 ran=1 code=0
+exempt   error; set ::ran 1                                                   ran=0 code=1
+exempt   error a b c d; set ::ran 1                                           ran=0 code=1
+exempt   error {*}{x}; set ::ran 1                                            ran=0 code=1
+exempt   break; set ::ran 1                                                   ran=0 code=1
+exempt   continue; set ::ran 1                                                ran=0 code=1
+exempt   break x; set ::ran 1                                                 ran=0 code=1
+exempt   foreach v {1} {break x; set ::ran 1}                                 ran=0 code=1
+exempt   foreach v {1} {break {*}{}; set ::ran 1}                             ran=0 code=0
+exempt   if 1 {break; set ::ran 1}                                            ran=0 code=1
+exempt   catch {break; set ::ran 1}                                           ran=0 code=0
+exempt   time {break; set ::ran 1}                                            ran=0 code=1
+exempt   for {break; set ::ran 1} {0} {} {}                                   ran=0 code=1
+exempt   set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}          ran=0 code=1
+exempt   for {} 1 {break; set ::ran 1} {}                                     ran=0 code=0
+exempt   while {[break; set ::ran 1]} {}                                      ran=0 code=1
+exempt   foreach v {1} {proc q {} {break; set ::ran 1}; q}                    ran=0 code=1
+exempt   foreach v {1} {apply {{} {break; set ::ran 1}}}                      ran=0 code=1
+exempt   foreach v {1} {after 0 {break; set ::ran 1}}                         ran=0 code=0
+exempt   return                                                               ran=0 code=0
+== Tcl 9.0.3
+flagged  return; set ::ran 1                                                  ran=0 code=0
+flagged  return x; set ::ran 1                                                ran=0 code=0
+flagged  ::return x; set ::ran 1                                              ran=0 code=0
+flagged  "return" x; set ::ran 1                                              ran=0 code=0
+flagged  return -code ok; set ::ran 1                                         ran=0 code=0
+flagged  return -code error x; set ::ran 1                                    ran=0 code=1
+flagged  return -code break; set ::ran 1                                      ran=0 code=3
+flagged  set c 0; return -code $c x; set ::ran 1                              ran=0 code=0
+flagged  return -lev 0 x; set ::ran 1                                         ran=0 code=0
+flagged  return -LEVEL 0 x; set ::ran 1                                       ran=0 code=0
+flagged  return -opt {-level 0} x; set ::ran 1                                ran=0 code=0
+flagged  return -level; set ::ran 1                                           ran=0 code=0
+flagged  return -errorcode x -errorinfo y x; set ::ran 1                      ran=0 code=0
+flagged  return [list -level 0]; set ::ran 1                                  ran=0 code=0
+flagged  return; return; set ::ran 1                                          ran=0 code=0
+flagged  error x; set ::ran 1                                                 ran=0 code=1
+flagged  error x info; set ::ran 1                                            ran=0 code=1
+flagged  error x info code; set ::ran 1                                       ran=0 code=1
+flagged  ::error x; set ::ran 1                                               ran=0 code=1
+flagged  if 1 {return; set ::ran 1}                                           ran=0 code=0
+flagged  catch {return; set ::ran 1}                                          ran=0 code=0
+flagged  set y [return; set ::ran 1]                                          ran=0 code=0
+flagged  namespace eval ns {return; set ::ran 1}                              ran=0 code=0
+flagged  foreach v {1} {break; set ::ran 1}                                   ran=0 code=0
+flagged  foreach v {1} {continue; set ::ran 1}                                ran=0 code=0
+flagged  foreach v {1} {::break; set ::ran 1}                                 ran=0 code=0
+flagged  while 1 {break; set ::ran 1}                                         ran=0 code=0
+flagged  for {} 1 {} {break; set ::ran 1}                                     ran=0 code=0
+flagged  foreach v {1} {set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}} ran=0 code=0
+flagged  lmap v {1} {break; set ::ran 1}                                      ran=0 code=0
+flagged  dict for {k v} {a 1} {break; set ::ran 1}                            ran=0 code=0
+flagged  dict map {k v} {a 1} {continue; set ::ran 1}                         ran=0 code=0
+flagged  foreach v {1} {if 1 {break; set ::ran 1}}                            ran=0 code=0
+flagged  while 1 {if 0 {} elseif 1 {break; set ::ran 1}}                      ran=0 code=0
+flagged  while 1 {if 0 {} else {break; set ::ran 1}}                          ran=0 code=0
+flagged  foreach v {1} {switch a a {break; set ::ran 1}}                      ran=0 code=0
+flagged  foreach v {1} {switch a {a {break; set ::ran 1}}}                    ran=0 code=0
+flagged  foreach v {1} {catch {break; set ::ran 1}}                           ran=0 code=0
+flagged  foreach v {1} {try {break; set ::ran 1} finally {}}                  ran=0 code=0
+flagged  foreach v {1} {try {error x} on error m {break; set ::ran 1}}        ran=0 code=0
+flagged  foreach v {1} {try {} finally {break; set ::ran 1}}                  ran=0 code=0
+flagged  foreach v {1} {eval {break; set ::ran 1}}                            ran=0 code=0
+flagged  foreach v {1} {uplevel 0 {break; set ::ran 1}}                       ran=0 code=0
+flagged  foreach v {1} {time {break; set ::ran 1}}                            ran=0 code=0
+flagged  foreach v {1} {dict with d {break; set ::ran 1}}                     ran=0 code=0
+flagged  foreach v {1} {dict update d k w {break; set ::ran 1}}               ran=0 code=0
+flagged  foreach v {1} {namespace eval ns {break; set ::ran 1}}               ran=0 code=0
+flagged  foreach v {1} {set y [break; set ::ran 1]}                           ran=0 code=0
+flagged  foreach v {1} {set y "[break; set ::ran 1]"}                         ran=0 code=0
+flagged  foreach v {1} {if {[break; set ::ran 1]} {}}                         ran=0 code=0
+flagged  foreach v {1} {set y [expr {[break; set ::ran 1]}]}                  ran=0 code=0
+flagged  foreach v {1} {for {break; set ::ran 1} {0} {} {}}                   ran=0 code=0
+flagged  foreach v {1} {while {[continue; set ::ran 1]} {}}                   ran=0 code=0
+flagged  foreach v {1} {if 1 {foreach w {1} {} ; break; set ::ran 1}}         ran=0 code=0
+exempt   return -level 0 x; set ::ran 1                                       ran=1 code=0
+exempt   return -level 0; set ::ran 1                                         ran=1 code=0
+exempt   return -level 00 x; set ::ran 1                                      ran=1 code=0
+exempt   return -code ok -level 0 x; set ::ran 1                              ran=1 code=0
+exempt   return -level 1 x; set ::ran 1                                       ran=0 code=0
+exempt   return -options {-level 0} x; set ::ran 1                            ran=1 code=0
+exempt   return {-level} 0 x; set ::ran 1                                     ran=1 code=0
+exempt   return "-level" 0 x; set ::ran 1                                     ran=1 code=0
+exempt   return -leve\l 0 x; set ::ran 1                                      ran=1 code=0
+exempt   set o -level; return $o 0 x; set ::ran 1                             ran=1 code=0
+exempt   return {*}{-level 0} x; set ::ran 1                                  ran=1 code=0
+exempt   set y [return -level 0 a; set ::ran 1]                               ran=1 code=0
+exempt   catch {return -level 0; set ::ran 1}                                 ran=1 code=0
+exempt   error; set ::ran 1                                                   ran=0 code=1
+exempt   error a b c d; set ::ran 1                                           ran=0 code=1
+exempt   error {*}{x}; set ::ran 1                                            ran=0 code=1
+exempt   break; set ::ran 1                                                   ran=0 code=1
+exempt   continue; set ::ran 1                                                ran=0 code=1
+exempt   break x; set ::ran 1                                                 ran=0 code=1
+exempt   foreach v {1} {break x; set ::ran 1}                                 ran=0 code=1
+exempt   foreach v {1} {break {*}{}; set ::ran 1}                             ran=0 code=0
+exempt   if 1 {break; set ::ran 1}                                            ran=0 code=1
+exempt   catch {break; set ::ran 1}                                           ran=0 code=0
+exempt   time {break; set ::ran 1}                                            ran=0 code=1
+exempt   for {break; set ::ran 1} {0} {} {}                                   ran=0 code=1
+exempt   set i 0; for {} {$i < 2} {incr i; continue; set ::ran 1} {}          ran=0 code=1
+exempt   for {} 1 {break; set ::ran 1} {}                                     ran=0 code=0
+exempt   while {[break; set ::ran 1]} {}                                      ran=0 code=1
+exempt   foreach v {1} {proc q {} {break; set ::ran 1}; q}                    ran=0 code=1
+exempt   foreach v {1} {apply {{} {break; set ::ran 1}}}                      ran=0 code=1
+exempt   foreach v {1} {after 0 {break; set ::ran 1}}                         ran=0 code=0
+exempt   return                                                               ran=0 code=0

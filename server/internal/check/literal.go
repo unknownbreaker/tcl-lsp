@@ -121,7 +121,7 @@ func plainText(w tcl.Word) (string, bool) {
 	var v string
 	switch w.Kind {
 	case tcl.WordBraced:
-		if len(t) < 2 || t[len(t)-1] != '}' || strings.HasPrefix(t, "{*}") && len(t) > 3 || strings.IndexByte(t, '\\') >= 0 {
+		if len(t) < 2 || t[len(t)-1] != '}' || expands(w) || strings.IndexByte(t, '\\') >= 0 {
 			return "", false // `{*}…` expands its word into several
 		}
 		v = t[1 : len(t)-1]

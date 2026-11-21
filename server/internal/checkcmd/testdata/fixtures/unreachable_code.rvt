@@ -1,0 +1,19 @@
+<html>
+<? if {$done} { return; puts never } ?>
+<?= return ?><? puts "runs: the echo block passes its words to puts" ?>
+<? if {$late} {
+    return
+    puts "dead"
+} ?>
+<? if {$split} { return ?>
+<p>dead markup</p>
+<? puts "dead: the range lies in this block" } ?>
+<? if {$spans} { return; puts a ?>
+<p>dead markup</p>
+<? puts "dead, but the range spans two blocks: no single place, so silent" } ?>
+<? set a 1
+   error oops
+   set b 2
+   set c 3
+?>
+</html>

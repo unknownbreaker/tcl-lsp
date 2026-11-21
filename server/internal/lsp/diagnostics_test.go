@@ -3,6 +3,7 @@ package lsp
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -63,7 +64,7 @@ func TestDiagnosticsPublishOnOpenChangeAndClearOnClose(t *testing.T) {
 		Severity: DiagnosticSeverityWarning, Code: "self-assignment", Source: "tcl-lsp",
 		Message: "assigns x its own value (self-assignment)",
 	}
-	if len(pubs[0].Diagnostics) != 1 || pubs[0].Diagnostics[0] != want {
+	if len(pubs[0].Diagnostics) != 1 || !reflect.DeepEqual(pubs[0].Diagnostics[0], want) {
 		t.Errorf("on open: got %+v, want [%+v]", pubs[0].Diagnostics, want)
 	}
 	if len(pubs[1].Diagnostics) != 0 {
@@ -74,6 +75,37 @@ func TestDiagnosticsPublishOnOpenChangeAndClearOnClose(t *testing.T) {
 	}
 	if len(pubs[3].Diagnostics) != 0 {
 		t.Errorf("on close: got %+v, want an empty list", pubs[3].Diagnostics)
+	}
+}
+
+// Unreachable code is a hint tagged Unnecessary, so editors fade it; other
+// findings carry no tag.
+func TestDiagnosticsUnreachableIsUnnecessary(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{}))
+	open(t, &in, "file:///a.tcl", "proc p {} {\n    return\n    puts a\n    set x $x\n}\n")
+	in.Write(frame(t, "exit", nil, nil))
+
+	pubs := published(t, runServer(t, in.Bytes()))
+	if len(pubs) != 1 || len(pubs[0].Diagnostics) != 2 {
+		t.Fatalf("got %+v, want one publish with two diagnostics", pubs)
+	}
+	want := Diagnostic{
+		Range:    Range{Start: Position{Line: 2, Character: 4}, End: Position{Line: 3, Character: 12}},
+		Severity: DiagnosticSeverityHint, Code: "unreachable-code", Source: "tcl-lsp",
+		Message: "code after return never runs (unreachable-code)",
+		Tags:    []int{DiagnosticTagUnnecessary},
+	}
+	var got []Diagnostic
+	for _, d := range pubs[0].Diagnostics {
+		if d.Code == "unreachable-code" {
+			got = append(got, d)
+		} else if d.Tags != nil {
+			t.Errorf("%s carries tags %v, want none", d.Code, d.Tags)
+		}
+	}
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+		t.Errorf("got %+v, want [%+v]", got, want)
 	}
 }
 

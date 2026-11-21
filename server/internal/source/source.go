@@ -90,7 +90,7 @@ func IndexUnitChecked(path, content string) (tcl.FileIndex, []check.Finding) {
 func indexUnit(path, content string, col *check.Collector) (tcl.FileIndex, []check.Finding) {
 	var v *tcl.Visit
 	if col != nil {
-		v = &tcl.Visit{Command: col.Visit}
+		v = &tcl.Visit{Command: col.Visit, Script: col.Script}
 	}
 	if !IsRVT(path) {
 		fi := tcl.FileAllVisit(content, v)

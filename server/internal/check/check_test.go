@@ -13,7 +13,7 @@ import (
 // findings runs every Check over src.
 func findings(src string) []Finding {
 	var col Collector
-	tcl.VisitCommands(src, tcl.Visit{Command: col.Visit})
+	tcl.VisitCommands(src, tcl.Visit{Command: col.Visit, Script: col.Script})
 	return col.Findings()
 }
 
@@ -136,5 +136,65 @@ func TestConstantConditionLongChains(t *testing.T) {
 	}
 	if fs := only(findings(chain(maxLogicDepth+2)), constantConditionID); len(fs) != 0 {
 		t.Errorf("%d joiners: got %+v, want none", maxLogicDepth+1, fs)
+	}
+}
+
+// The hint covers the dead commands, from the first to the last, comments
+// between them included; it assumes the exit and every body around it.
+func TestUnreachableCodeRange(t *testing.T) {
+	src := "proc p {} {\n    return\n    puts a ;# gone\n    set b 1\n}\n"
+	fs := only(findings(src), unreachableCodeID)
+	if len(fs) != 1 {
+		t.Fatalf("got %+v, want one finding", fs)
+	}
+	f := fs[0]
+	if got := src[f.Start:f.End]; got != "puts a ;# gone\n    set b 1" || f.Severity != Hint || !f.Unnecessary || !reflect.DeepEqual(f.Assumes, []string{"proc", "return"}) {
+		t.Errorf("got %+v covering %q", f, got)
+	}
+}
+
+// A script's unterminated last command is rejected by Tcl, so it is left out
+// of the range; with nothing else after the exit, the script is silent. A
+// proc still being typed is silent until its body closes.
+func TestUnreachableCodeHalfTyped(t *testing.T) {
+	for src, want := range map[string]string{
+		"return\nputs a {":             "",
+		"return\nputs a\nputs \"b":     "puts a",
+		"return\nputs a\nset x [f":     "puts a",
+		"proc p {} {\n    return\n  x": "",
+	} {
+		fs := only(findings(src), unreachableCodeID)
+		var got string
+		if len(fs) == 1 {
+			got = src[fs[0].Start:fs[0].End]
+		}
+		if len(fs) > 1 || got != want {
+			t.Errorf("%q: got %+v, want a finding on %q", src, fs, want)
+		}
+	}
+	src := "proc p {} {\n    return\n    puts a\n}\n"
+	whole := len("proc p {} {\n    return\n    puts a\n}")
+	for n := 0; n <= len(src); n++ {
+		fs := only(findings(src[:n]), unreachableCodeID)
+		if want := n >= whole; (len(fs) == 1) != want || len(fs) > 1 {
+			t.Errorf("prefix %q: got %+v, want a finding: %v", src[:n], fs, want)
+		}
+	}
+}
+
+// Tcl splits words at a vertical tab, form feed and carriage return, which the
+// parser keeps inside a word, so `return -level<VT>0 a` goes on in Tcl
+// (tclsh 8.6 and 9.0). An exit holding one is silent; CRLF line ends are not
+// part of a word and leave the hint alone.
+func TestUnreachableCodeOtherSpace(t *testing.T) {
+	for _, sp := range []string{"\v", "\f", "\r"} {
+		src := "proc p {} { return -level" + sp + "0 a; puts runs }\n"
+		if fs := only(findings(src), unreachableCodeID); len(fs) != 0 {
+			t.Errorf("%q: got %+v, want none", src, fs)
+		}
+	}
+	src := "proc p {} {\r\n    return\r\n    puts a\r\n}\r\n"
+	if fs := only(findings(src), unreachableCodeID); len(fs) != 1 || src[fs[0].Start:fs[0].End] != "puts a" {
+		t.Errorf("CRLF: got %+v, want one finding on puts a", fs)
 	}
 }

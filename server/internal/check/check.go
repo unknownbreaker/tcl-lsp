@@ -2,7 +2,8 @@
 // but cannot mean anything sensible. A Check reports a finding only when the code
 // is certainly pointless whatever the program does, and is silent otherwise: a
 // missing finding is fine, a wrong one is a bug. Checks read the parse only; they
-// run on every command the tcl package's visitor reaches (tcl.Visit).
+// run on every command, or every script, the tcl package's visitor reaches
+// (tcl.Visit).
 package check
 
 import "github.com/unknownbreaker/tcl-lsp/internal/tcl"
@@ -30,6 +31,9 @@ type Finding struct {
 	Start    int // byte range [Start,End) in the source
 	End      int
 	Message  string
+	// Unnecessary marks code that has no effect, so an editor fades its range
+	// rather than underlining it.
+	Unnecessary bool
 	// Assumes names, by last name segment, every builtin whose meaning the
 	// finding relies on: the command it reports on, and each command whose body
 	// the visitor entered to reach it. A finding is dropped when user code
@@ -45,7 +49,8 @@ type check struct {
 	run func(c tcl.Command, base int, out []Finding) []Finding
 }
 
-// checks lists every Check, in the order a command's findings are reported.
+// checks lists every Check that reads one command, in the order a command's
+// findings are reported. scriptChecks lists those that read a whole script.
 var checks = []check{
 	{id: selfAssignmentID, run: selfAssignment},
 	{id: constantConditionID, run: constantCondition},
@@ -53,6 +58,19 @@ var checks = []check{
 	{id: duplicateLogicID, run: duplicateLogic},
 	{id: constantQueryID, run: constantQuery},
 	{id: constantTransformID, run: constantTransform},
+}
+
+// scriptCheck is one Check that reads a script: an id and a function that
+// appends its findings on cmds, whose word offsets are relative to base, to
+// out. loop says a break or continue in the script ends a loop
+// (tcl.Visit.Script).
+type scriptCheck struct {
+	id  string
+	run func(cmds []tcl.Command, base int, loop bool, out []Finding) []Finding
+}
+
+var scriptChecks = []scriptCheck{
+	{id: unreachableCodeID, run: unreachableCode},
 }
 
 // Collector gathers the findings of every Check over the commands it visits.
@@ -68,11 +86,26 @@ func (col *Collector) Visit(c tcl.Command, base int, assumes []string) {
 	for _, ch := range checks {
 		from := len(col.findings)
 		col.findings = ch.run(c, base, col.findings)
-		for i := from; i < len(col.findings); i++ {
-			f := &col.findings[i]
-			f.Check = ch.id
-			f.Assumes = append(append([]string(nil), assumes...), f.Assumes...)
-		}
+		col.label(from, ch.id, assumes)
+	}
+}
+
+// Script runs every script Check on cmds. It is a tcl.Visit's Script.
+func (col *Collector) Script(cmds []tcl.Command, base int, assumes []string, loop bool) {
+	for _, ch := range scriptChecks {
+		from := len(col.findings)
+		col.findings = ch.run(cmds, base, loop, col.findings)
+		col.label(from, ch.id, assumes)
+	}
+}
+
+// label gives the findings from index from on the Check id, and prefixes their
+// Assumes with assumes, the builtins the visitor trusted to reach them.
+func (col *Collector) label(from int, id string, assumes []string) {
+	for i := from; i < len(col.findings); i++ {
+		f := &col.findings[i]
+		f.Check = id
+		f.Assumes = append(append([]string(nil), assumes...), f.Assumes...)
 	}
 }
 
@@ -114,6 +147,12 @@ func builtinHead(c tcl.Command) string {
 		return h.Text[2:]
 	}
 	return h.Text
+}
+
+// expands reports whether w is an expanded word, `{*}…`, which Tcl splits into
+// several.
+func expands(w tcl.Word) bool {
+	return len(w.Text) > 3 && w.Text[:3] == "{*}"
 }
 
 // quoteCloses reports whether quoted word w ends with its closing quote; a word

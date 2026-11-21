@@ -1,0 +1,5 @@
+testdata/fixtures/unreachable_code.rvt:2:25: hint unreachable-code code after return never runs
+testdata/fixtures/unreachable_code.rvt:6:5: hint unreachable-code code after return never runs
+testdata/fixtures/unreachable_code.rvt:10:4: hint unreachable-code code after return never runs
+testdata/fixtures/unreachable_code.rvt:16:4: hint unreachable-code code after error never runs
+exit 0

@@ -412,4 +412,63 @@ finding (see Redefined builtins). The evidence is
 way as `constant-query`'s: each flagged command twice on tclsh 8.6 and 9.0,
 and each shape fuzzed over every short word of an alphabet.
 
-More Checks are on the way; #93 lists them.
+### `unreachable-code` (hint)
+
+Commands after an exit that always ends their script: `return`, `error`, or a
+`break` or `continue` inside a loop. Tcl stops a script at the first command
+that does not finish normally, so nothing after it runs. There is one hint per
+script, covering every command from the first dead one to the last, and it is
+tagged as unnecessary code, so editors fade it rather than underline it.
+
+Flagged:
+
+```tcl
+proc p {x} {
+    return $x
+    puts never              ;# from here…
+    set y 2                 ;# …to here
+}
+proc q {} { error "no way"; cleanup }
+foreach v $list {
+    if {$v eq "stop"} {
+        break
+        puts never
+    }
+    continue
+    incr n
+}
+set v [return 1; expr {2}]  ;# a [script] is a script too
+return -code error boom; log  ;# any -code
+```
+
+A `break` or `continue` counts inside the body of `while`, `for`, `foreach`,
+`lmap`, `dict for` or `dict map`, and inside anything that runs a script in
+place within one: `if`, `switch`, `catch`, `try`, `eval`, `uplevel 0`, `time`,
+`dict with`, `dict update`, `namespace eval`, a `[script]`, an expression's
+`[script]`, or `for`'s start and next scripts. Each passes the exit on to the
+loop. `for`'s next script is not a loop body of its own: it rejects
+`continue`, so neither exit counts there unless an outer loop takes it.
+
+Not flagged:
+
+```tcl
+proc p {} { puts hi; return }            ;# nothing after the exit
+return -level 0 $x; puts runs            ;# -level 0 gives its value and goes on
+return -options $opts x; puts may-run    ;# so may -options
+return $opt 0 x; puts may-run            ;# an option name Tcl computes
+return {*}$args; puts may-run            ;# expansion hides the word count
+error; puts never                        ;# wrong # args: left alone
+proc p {} { break; puts never }          ;# outside a loop: Tcl reports the break
+foreach v $l { proc q {} { continue; x } }   ;# a proc is a frame of its own
+after 10 { return; x }                   ;# a deferred script
+if {$x} { return }; puts runs            ;# the exit is in another script
+```
+
+Any `-level` or `-options` silences `return`, whatever its value: options are
+matched exactly, so `-lev` or `-LEVEL` is just another option and still
+returns. In a `.rvt` template, dead code that runs on into a later `<? ?>`
+block has no single range in the template, so it gives no finding. A redefined
+exit (`proc return`, `rename break {}`), or a redefined builtin whose body holds
+the dead code, silences the hint (see Redefined builtins). The evidence, each
+case run as a proc body with a marker after the exit, on tclsh 8.6 and 9.0, is
+`server/internal/checkcmd/testdata/tclsh/unreachable_code.tcl`.

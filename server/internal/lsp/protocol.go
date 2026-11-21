@@ -372,6 +372,9 @@ const (
 	DiagnosticSeverityHint    = 4
 )
 
+// DiagnosticTagUnnecessary marks code with no effect, which editors fade.
+const DiagnosticTagUnnecessary = 1
+
 // Diagnostic is one LSP diagnostic. Code carries the Check's id.
 type Diagnostic struct {
 	Range    Range  `json:"range"`
@@ -379,6 +382,7 @@ type Diagnostic struct {
 	Code     string `json:"code"`
 	Source   string `json:"source"`
 	Message  string `json:"message"`
+	Tags     []int  `json:"tags,omitempty"`
 }
 
 // PublishDiagnosticsParams is the textDocument/publishDiagnostics notification.
