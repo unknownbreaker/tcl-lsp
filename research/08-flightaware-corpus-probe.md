@@ -354,8 +354,8 @@ differs from this section, this section is right, and the plan lists the departu
      treated those bodies as conservative and would have excluded known data commands such as `puts`. That was
      rejected, because any command can take data in a brace, so an exclusion list can never be complete and each
      gap in it is a wrong answer. Only scripts known to run here are conservative: `catch`, `try`, `switch`,
-     `time`, `timerate`, and `eval` in its one-word form `eval {script}`. With more words `eval` concatenates
-     them, and the resulting head decides what runs.
+     `time`, `timerate`, and `eval` in its one-word form `eval {script}`. With more words `eval` joins them
+     into a script the analysis does not read, so uses after it are silent (#132).
    - **A use inside an unknown body is answered from what reaches it.** In a proc, the analyzer walks the one body
      that holds the use, entering with what reaches the command, so `set x 1; set x 2; with { puts $x }` answers the
      second `set`, where it used to take the earliest. The walk gets its own copy of the set and no enclosing loop, so

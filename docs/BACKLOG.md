@@ -101,9 +101,10 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   there only when an `on` clause names it or gives plain digits (`on break`, `on 3`). Another integer
   spelling (`on 0x3`) or a non-literal code (`on $c`) lets it out to the enclosing loop, so the exit
   can name a binding that never reaches it.
-- **Reaching, still a wrong answer.** `set x 0; eval {set y 1;} {set x 1}; puts $x` answers `set x 0`.
-  `puts {set x 1}; puts $x`, with no other binding, answers the text in the `puts`. Both are
-  the same on `main@26f8ab2`. (A `for` whose body cannot complete no longer runs `next`, since v0.6.7.) So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which
+- **Reaching, still a wrong answer.** `puts {set x 1}; puts $x`, with no other binding, answers
+  the text in the `puts`. It is the same on `main@26f8ab2`. (A multi-word `eval` makes later
+  uses silent since v0.6.39, and a `for` whose body cannot complete no longer runs `next`, since
+  v0.6.7.) So is `switch $k { a {set x 1; return} default {set x 2} }; puts $x`, which
   answers both lines though Tcl says the first arm cannot reach: a `switch` exit joins every arm.
 - **Reaching, after a conditional bracket.** Since v0.6.22 a single braced expression follows
   expr's `?:`, `||` and `&&` structure and its parens (research/experiments/08_and_chain_reaching.tcl):
