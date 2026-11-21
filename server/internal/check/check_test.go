@@ -32,7 +32,7 @@ func only(fs []Finding, id string) []Finding {
 // continuations, comment edges) hold no self-assignment and one constant
 // condition, hidden_close.tcl's `"if" {1}`, which Tcl runs as `if 1`, so no
 // other Check fires.
-func TestHostileInputsGiveNoFindings(t *testing.T) {
+func TestHostileInputsFindOnlyKnownFindings(t *testing.T) {
 	files, _ := filepath.Glob("../tcl/testdata/parsedump/*.tcl")
 	if len(files) == 0 {
 		t.Fatal("no hostile inputs found")

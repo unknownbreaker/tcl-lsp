@@ -53,7 +53,7 @@ puts "== Tcl [info patchlevel]"
 foreach c {
   {1 == 1} {"a" eq "a"} {1 < 2} {1 > 2} {2 != 2} {0 != 0} {{a} in {a b}}
   {"a" ne "b" && 1 <= 2} {!(1 >= 2)} {(1) == (1)} {1==1} {0x10 == 16 || "a" ni {b}}
-  {1 == 1 ? 1 : 0} {"x" eq "x"} {1 == 2} {1.0 eq 1.00}
+  {1 == 1 ? 1 : 0} {"x" eq "x"} {1 == 2} {1.0 eq 1.00} {"a\x41" eq "aA"}
   {"10" < "9"} {true == 1}
 } { row flagged $c }
 foreach c {0 1} { row hint $c }

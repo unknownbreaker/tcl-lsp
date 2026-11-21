@@ -43,7 +43,7 @@ func constantCondition(c tcl.Command, base int, out []Finding) []Finding {
 		}
 		f := Finding{Start: base + w.Start, End: base + w.End, Assumes: []string{head}}
 		switch lit := text[n.Start:n.End]; {
-		case head == "if" && n.Kind == expr.Literal && (lit == "0" || lit == "1"):
+		case head == "if" && n.Kind == expr.Literal && isBit(lit):
 			f.Severity = Hint
 			f.Message = "condition is always false"
 			if lit == "1" {
@@ -116,7 +116,7 @@ func literalLogic(text string, n *expr.Node, depth int) (fixed, compares bool) {
 	switch {
 	case n.Kind == expr.Literal:
 		lit := text[n.Start:n.End]
-		return lit == "0" || lit == "1", false
+		return isBit(lit), false
 	case n.Kind == expr.Unary && n.Op == "!":
 		return literalLogic(text, n.Args[0], depth+1)
 	case n.Kind == expr.Binary && comparisons[n.Op]:
@@ -148,6 +148,9 @@ func plainList(lit string) bool {
 	}
 	return !strings.ContainsAny(lit, "{\"\\")
 }
+
+// isBit reports whether lit, a literal as written, is a bare 0 or 1.
+func isBit(lit string) bool { return lit == "0" || lit == "1" }
 
 // unparen returns n without the parentheses around it.
 func unparen(n *expr.Node) *expr.Node {
