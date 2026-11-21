@@ -1,0 +1,64 @@
+== Tcl 8.6.18
+flagged  $x eq $x                                 same   1
+flagged  $x ne $x                                 same   0
+flagged  $x < $x                                  same   0
+flagged  $x > $x                                  same   0
+flagged  "$x" eq "$x"                             same   1
+flagged  ${x} ne ${x}                             same   0
+flagged  $a($i) eq $a($i)                         same   1
+flagged  ($x) < ($x)                              same   0
+flagged  !($x eq $x)                              same   0
+flagged  "a$x" ne "a$x"                           same   0
+flagged  $::x > $::x                              same   0
+flagged  [string equal $x $x]                     same   1
+flagged  [string compare $x $x]                   same   0
+flagged  [::string equal $x $x]                   same   1
+flagged  [string equal "$x" "$x"]                 same   1
+exempt   $x == $x                                 varies 0 1
+exempt   $x != $x                                 varies 0 1
+exempt   $x <= $x                                 varies 0 1
+exempt   $x >= $x                                 varies 0 1
+exempt   $x in $x                                 varies 0 1 {ERR list element in braces followed by "b" instead of space} {ERR unmatched open brace in list}
+exempt   $x ni $x                                 varies 0 1 {ERR list element in braces followed by "b" instead of space} {ERR unmatched open brace in list}
+exempt   $x eq $y                                 varies 0 1
+exempt   [f] eq [f]                               varies 0 1
+exempt   $a([f]) eq $a([f])                       varies 0 1
+exempt   "[f]" eq "[f]"                           varies 0 1
+exempt   $x eq ${x}                               same   1
+exempt   $x eq "$x"                               same   1
+exempt   [string equal -nocase $x $x]             same   1
+exempt   [string compare -length 1 $x $x]         same   0
+exempt   [string equal $x $y]                     varies 0 1
+exempt   [string equal {$x} {$x}]                 same   1
+== Tcl 9.0.3
+flagged  $x eq $x                                 same   1
+flagged  $x ne $x                                 same   0
+flagged  $x < $x                                  same   0
+flagged  $x > $x                                  same   0
+flagged  "$x" eq "$x"                             same   1
+flagged  ${x} ne ${x}                             same   0
+flagged  $a($i) eq $a($i)                         same   1
+flagged  ($x) < ($x)                              same   0
+flagged  !($x eq $x)                              same   0
+flagged  "a$x" ne "a$x"                           same   0
+flagged  $::x > $::x                              same   0
+flagged  [string equal $x $x]                     same   1
+flagged  [string compare $x $x]                   same   0
+flagged  [::string equal $x $x]                   same   1
+flagged  [string equal "$x" "$x"]                 same   1
+exempt   $x == $x                                 varies 0 1
+exempt   $x != $x                                 varies 0 1
+exempt   $x <= $x                                 varies 0 1
+exempt   $x >= $x                                 varies 0 1
+exempt   $x in $x                                 varies 0 1 {ERR list element in braces followed by "b" instead of space} {ERR unmatched open brace in list}
+exempt   $x ni $x                                 varies 0 1 {ERR list element in braces followed by "b" instead of space} {ERR unmatched open brace in list}
+exempt   $x eq $y                                 varies 0 1
+exempt   [f] eq [f]                               varies 0 1
+exempt   $a([f]) eq $a([f])                       varies 0 1
+exempt   "[f]" eq "[f]"                           varies 0 1
+exempt   $x eq ${x}                               same   1
+exempt   $x eq "$x"                               same   1
+exempt   [string equal -nocase $x $x]             same   1
+exempt   [string compare -length 1 $x $x]         same   0
+exempt   [string equal $x $y]                     varies 0 1
+exempt   [string equal {$x} {$x}]                 same   1

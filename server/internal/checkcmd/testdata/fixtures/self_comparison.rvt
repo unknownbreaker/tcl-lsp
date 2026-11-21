@@ -1,0 +1,6 @@
+<html>
+<? if {$x eq $x} { ?>yes<? } ?>
+<?= [string equal $x $x] ?>
+<?= string equal $x $x ?>
+<? if {$x == $x} {} ?>
+</html>
