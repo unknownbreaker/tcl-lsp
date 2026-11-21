@@ -269,3 +269,17 @@ func TestConstantQueryMessage(t *testing.T) {
 		}
 	}
 }
+
+// Touching words are a Tcl parse error ("extra characters after close-quote"
+// or "close-brace" on 8.6 and 9.0), so nothing runs and nothing is flagged.
+func TestConstantQueryTouchingWordsSilent(t *testing.T) {
+	for _, src := range []string{
+		"string equal \"a\"\"b\"\n",
+		"string equal {a}{b}\n",
+		"lindex {a b}{0}\n",
+	} {
+		if got := constantQueries(src); got != 0 {
+			t.Errorf("%q: got %d findings, want 0", src, got)
+		}
+	}
+}
