@@ -99,6 +99,19 @@ func exprWordStarts(c Command) map[int]bool {
 	return starts
 }
 
+// ExprScriptEnd returns the offset just past the `]` that closes the [script]
+// starting at text[i] in an expression's text, and false when the script does
+// not close in text or its end is distrusted: a brace or quote in the script may
+// hide the `]`.
+func ExprScriptEnd(text string, i int) (int, bool) {
+	var m *scriptEnds
+	end, closed := m.depthSpan(text, i)
+	if !closed {
+		return end, false
+	}
+	return end, !m.bracesHideBrackets(text[i+1 : end-1])
+}
+
 // substEnd returns the offset just past the `]` that closes the [script] at i.
 // A command word's script ends where Tcl ends it (scriptClose). An expression's
 // keeps the depth count, distrusted when its braces or quotes may hide the `]`.

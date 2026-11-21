@@ -1,0 +1,2 @@
+testdata/fixtures/shadowed_if.tcl:8:8: warning constant-condition condition compares only literals, so its value never changes
+exit 1

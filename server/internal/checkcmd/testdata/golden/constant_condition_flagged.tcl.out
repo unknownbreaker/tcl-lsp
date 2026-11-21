@@ -1,0 +1,21 @@
+testdata/fixtures/constant_condition_flagged.tcl:2:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:3:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:4:7: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:5:15: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:6:19: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:7:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:8:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:9:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:10:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:11:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:12:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:13:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:14:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:15:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:16:4: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:20:6: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:22:8: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:25:11: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:27:11: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition_flagged.tcl:28:20: warning constant-condition condition compares only literals, so its value never changes
+exit 1

@@ -48,6 +48,7 @@ type check struct {
 // checks lists every Check, in the order a command's findings are reported.
 var checks = []check{
 	{id: selfAssignmentID, run: selfAssignment},
+	{id: constantConditionID, run: constantCondition},
 }
 
 // Collector gathers the findings of every Check over the commands it visits.

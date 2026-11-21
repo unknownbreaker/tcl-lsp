@@ -1,0 +1,4 @@
+testdata/fixtures/constant_condition.rvt:2:7: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition.rvt:3:9: warning constant-condition condition compares only literals, so its value never changes
+testdata/fixtures/constant_condition.rvt:5:7: hint constant-condition condition is always false
+exit 1

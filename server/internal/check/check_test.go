@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
@@ -16,9 +17,22 @@ func findings(src string) []Finding {
 	return col.Findings()
 }
 
+// only returns the findings of the Check id.
+func only(fs []Finding, id string) []Finding {
+	var out []Finding
+	for _, f := range fs {
+		if f.Check == id {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // The parser's hostile inputs (unterminated braces, quotes and brackets,
-// continuations, comment edges) hold no self-assignment, so no Check fires.
-func TestHostileInputsGiveNoFindings(t *testing.T) {
+// continuations, comment edges) hold no self-assignment and one constant
+// condition, hidden_close.tcl's `"if" {1}`, which Tcl runs as `if 1`, so no
+// other Check fires.
+func TestHostileInputsFindOnlyKnownFindings(t *testing.T) {
 	files, _ := filepath.Glob("../tcl/testdata/parsedump/*.tcl")
 	if len(files) == 0 {
 		t.Fatal("no hostile inputs found")
@@ -28,8 +42,17 @@ func TestHostileInputsGiveNoFindings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if fs := findings(string(b)); len(fs) != 0 {
-			t.Errorf("%s: got %+v, want none", f, fs)
+		src := string(b)
+		var got []string
+		for _, fd := range findings(src) {
+			got = append(got, fd.Check+" "+src[fd.Start:fd.End])
+		}
+		var want []string
+		if filepath.Base(f) == "hidden_close.tcl" {
+			want = []string{"constant-condition {1}"}
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: got %q, want %q", f, got, want)
 		}
 	}
 }
@@ -47,9 +70,22 @@ func TestHalfTypedIsSilent(t *testing.T) {
 	}
 }
 
+// Every prefix of a constant condition, as it is typed, is silent until the
+// if has its body.
+func TestConstantConditionHalfTyped(t *testing.T) {
+	src := "if {1 == 1} {\n    puts x\n}\n"
+	whole := len("if {1 == 1} {\n    puts x\n}")
+	for n := 0; n <= len(src); n++ {
+		fs := only(findings(src[:n]), constantConditionID)
+		if want := n >= whole; (len(fs) == 1) != want || len(fs) > 1 {
+			t.Errorf("prefix %q: got %+v, want a finding: %v", src[:n], fs, want)
+		}
+	}
+}
+
 func TestSelfAssignmentRange(t *testing.T) {
 	src := "if 1 {\n  set  x  $x\n}"
-	fs := findings(src)
+	fs := only(findings(src), selfAssignmentID)
 	if len(fs) != 1 {
 		t.Fatalf("got %+v, want one finding", fs)
 	}
@@ -82,5 +118,23 @@ func TestIsVarName(t *testing.T) {
 		if got := isVarName(s); got != want {
 			t.Errorf("isVarName(%q) = %v, want %v", s, got, want)
 		}
+	}
+}
+
+// literalLogic's recursion is bounded: a left-deep chain of `&&` (which the
+// parser builds without nesting limits) is walked up to maxLogicDepth joiners and
+// silent past it, so a huge generated condition cannot exhaust the stack.
+func TestConstantConditionLongChains(t *testing.T) {
+	chain := func(n int) string { // n comparisons, n-1 joiners
+		return "if {1 == 1" + strings.Repeat(" && 1 == 1", n-1) + "} {}\n"
+	}
+	if fs := only(findings(chain(maxLogicDepth/2)), constantConditionID); len(fs) != 1 {
+		t.Errorf("%d terms: got %+v, want one finding", maxLogicDepth/2, fs)
+	}
+	if fs := only(findings(chain(maxLogicDepth+1)), constantConditionID); len(fs) != 1 {
+		t.Errorf("%d joiners: got %+v, want one finding", maxLogicDepth, fs)
+	}
+	if fs := only(findings(chain(maxLogicDepth+2)), constantConditionID); len(fs) != 0 {
+		t.Errorf("%d joiners: got %+v, want none", maxLogicDepth+1, fs)
 	}
 }

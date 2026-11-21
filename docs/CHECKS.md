@@ -98,4 +98,66 @@ after 10 { set x $x }    ;# a deferred script
 purpose to refresh a widget's `-textvariable`. Write `set x [set x]` instead,
 which says so and is not flagged.
 
+### `constant-condition` (warning, or hint)
+
+An `if` or `elseif` condition, `while` test or `for` test whose value is fixed
+because it compares only literals. A literal is a number, a boolean word
+(`true`, `yes`, `on`, …), a quoted string with no `$` or `[`, or a braced
+string. The comparisons may be joined with `!`, `&&`, `||`, `?:` and
+parentheses, and each operand of those (each `?:` arm too) is a comparison or
+a bare `0` or `1`.
+
+Flagged as a warning:
+
+```tcl
+if {1 == 1} {…}
+if {"a" eq "a"} {…}
+while {1 < 2} {…}
+for {set i 0} {1 > 2} {incr i} {…}
+if {$x} {…} elseif {2 != 2} {…}
+if {{a} in {a b}} {…}
+if {"a" ne "b" && !(1 >= 2)} {…}
+if 1==1 {…}
+```
+
+A hint, since it is the usual way to switch a block off or on:
+
+```tcl
+if {0} {…}               ;# condition is always false
+if {1} {…}               ;# condition is always true
+if {$x} {…} elseif 0 {…}
+```
+
+Not flagged:
+
+```tcl
+while 1 {…}              ;# the idiomatic infinite loops
+while {1} {…}
+for {} 1 {} {…}
+while {0} {…}            ;# only if and elseif get the 0/1 hint
+if {true} {…}            ;# compares nothing
+if {!!$x} {…}
+expr {60 * 60 * 24}      ;# expr is not a condition
+if {1 + 1 == 2} {…}      ;# an operand Tcl computes
+if {0.1 + 0.2 eq "0.30000000000000004"} {…}   ;# hangs on tcl_precision in 8.6
+if {rand() < 2} {…}      ;# a math function, which may be your own
+if {1 == 1 && $x} {…}    ;# a variable anywhere
+if {1 == 1 # note} {…}   ;# a comment: Tcl 9.0 only
+if {1_000 == 1000} {…}   ;# a number Tcl 8.6 and 9.0 read differently
+if {010 == 8} {…}        ;# octal in 8.6, decimal in 9.0
+if {"a" lt "b"} {…}      ;# lt, gt, le and ge: Tcl 9.0 only
+if {"a" || 1 == 1} {…}   ;# no value: it always raises an error
+if {1 == 1 ? "a" : "b"} {…}   ;# gives a string, not a boolean
+if {"a" in {{a}b}} {…}   ;# a list that may not parse
+if {1 == 1}{…}           ;# words that touch: Tcl rejects the command
+if {1 ==} {…}            ;# malformed: Tcl rejects it
+```
+
+A comparison counts only when both operands are literals as written, so a value
+Tcl computes first never does: its string form can change with `tcl_precision`.
+Text the expression parser cannot read for certain (a malformed or half-typed
+condition, an unknown bareword, a `#` comment, `${name}` with a `{` or `\` in
+it) gives no finding. The evidence, each condition evaluated in four settings
+on tclsh 8.6 and 9.0, is `server/internal/checkcmd/testdata/tclsh/constant_condition.tcl`.
+
 More Checks are on the way; #93 lists them.
