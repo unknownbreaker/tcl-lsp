@@ -6,8 +6,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"reflect"
 	"time"
 
+	"github.com/unknownbreaker/tcl-lsp/internal/check"
 	"github.com/unknownbreaker/tcl-lsp/internal/index"
 	"github.com/unknownbreaker/tcl-lsp/internal/resolve"
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
@@ -21,6 +23,13 @@ type Server struct {
 	res    *resolve.Resolver
 	docs   map[string]string // uri -> live text
 	nextID int               // id for server-initiated requests (registerCapability)
+	// diagnostics is the Checks' master switch (InitializationOptions.Diagnostics).
+	diagnostics bool
+	// found holds each open .tcl/.rvt document's findings before the filter for
+	// redefined builtins, and shown what was last published for it, so a change
+	// to the index anywhere republishes exactly the documents it affects.
+	found map[string][]check.Finding
+	shown map[string][]check.Finding
 }
 
 // isIndexable reports whether a path is a workspace file the index tracks.
@@ -32,7 +41,8 @@ func isIndexable(path string) bool {
 // NewServer builds a server over conn with an empty index.
 func NewServer(conn *Conn) *Server {
 	ix := index.New()
-	return &Server{conn: conn, ix: ix, res: resolve.New(ix), docs: map[string]string{}}
+	return &Server{conn: conn, ix: ix, res: resolve.New(ix), docs: map[string]string{}, diagnostics: true,
+		found: map[string][]check.Finding{}, shown: map[string][]check.Finding{}}
 }
 
 // Run reads and dispatches messages until exit or the stream ends.
@@ -71,6 +81,9 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 	case "initialize":
 		var p InitializeParams
 		_ = json.Unmarshal(m.Params, &p)
+		if d := p.InitializationOptions.Diagnostics; d != nil {
+			s.diagnostics = *d
+		}
 		root := p.RootPath
 		if root == "" && p.RootURI != "" {
 			root = uriToPath(p.RootURI)
@@ -129,6 +142,11 @@ func (s *Server) dispatch(m *Message) (stop bool) {
 			break
 		}
 		delete(s.docs, p.TextDocument.URI)
+		if _, ok := s.found[p.TextDocument.URI]; ok {
+			delete(s.found, p.TextDocument.URI)
+			delete(s.shown, p.TextDocument.URI)
+			s.publishDiagnostics(p.TextDocument.URI, "", nil)
+		}
 	case "textDocument/definition":
 		var p TextDocumentPositionParams
 		_ = json.Unmarshal(m.Params, &p)
@@ -207,10 +225,59 @@ func (s *Server) reply(id json.RawMessage, result any) {
 	_ = s.conn.Write(&Message{ID: id, Result: raw})
 }
 
-// setDoc stores a document's live text and re-indexes it.
+// setDoc stores a document's live text and re-indexes it. For a .tcl or .rvt
+// document it publishes the Checks' findings too, from the same parse.
 func (s *Server) setDoc(uri, text string) {
 	s.docs[uri] = text
-	s.ix.IndexFile(uriToPath(uri), text)
+	path := uriToPath(uri)
+	if !s.diagnostics || !isIndexable(path) {
+		s.ix.IndexFile(path, text)
+		s.refreshDiagnostics("")
+		return
+	}
+	s.found[uri] = s.ix.IndexFileChecked(path, text)
+	s.refreshDiagnostics(uri)
+}
+
+// refreshDiagnostics publishes the findings of changed, and of every other open
+// document whose findings the latest index change altered: a builtin redefined
+// or restored in one file silences or revives a finding in another.
+func (s *Server) refreshDiagnostics(changed string) {
+	for uri, raw := range s.found {
+		fs := check.Unshadowed(raw, s.ix.DefinesCommand)
+		if uri != changed && reflect.DeepEqual(fs, s.shown[uri]) {
+			continue
+		}
+		s.shown[uri] = fs
+		s.publishDiagnostics(uri, s.docs[uri], fs)
+	}
+}
+
+// publishDiagnostics sends a document's findings, in text's coordinates; none
+// clears the document's diagnostics.
+func (s *Server) publishDiagnostics(uri, text string, findings []check.Finding) {
+	if s.conn == nil {
+		return // a server built without a client (in-package tests) has no one to tell
+	}
+	diags := []Diagnostic{}
+	lines := newLineIndex(text)
+	for _, f := range findings {
+		sev := DiagnosticSeverityWarning
+		if f.Severity == check.Hint {
+			sev = DiagnosticSeverityHint
+		}
+		diags = append(diags, Diagnostic{
+			Range:    Range{Start: lines.position(f.Start), End: lines.position(f.End)},
+			Severity: sev,
+			Code:     f.Check,
+			Source:   "tcl-lsp",
+			Message:  f.Message + " (" + f.Check + ")",
+		})
+	}
+	params, _ := json.Marshal(PublishDiagnosticsParams{URI: uri, Diagnostics: diags})
+	if err := s.conn.Write(&Message{Method: "textDocument/publishDiagnostics", Params: params}); err != nil {
+		log.Printf("publishDiagnostics: %v", err)
+	}
 }
 
 // indexWorkspace builds the workspace index for root, reporting it via $/progress
@@ -350,6 +417,7 @@ func (s *Server) applyWatchedChanges(changes []FileEvent) {
 			s.ix.RemoveFile(path)
 		}
 	}
+	s.refreshDiagnostics("")
 }
 
 // sourceOf returns the best-available source for a path: the live document if

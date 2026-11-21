@@ -18,6 +18,8 @@
 "   let g:tcl_lsp_auto_build = 0                 " never build; use whatever binary exists
 "   let g:tcl_lsp_extra_index_paths = ['/opt/fa/tcl-lib']  " external package
 "       sources indexed read-only at startup (goto-def reaches into them)
+"   let g:tcl_lsp_diagnostics = 0                " turn off the certain-only
+"       diagnostics (docs/CHECKS.md); on by default
 "
 " Use :LspDefinition and :LspReferences (or your vim-lsp keymaps).
 
@@ -71,9 +73,17 @@ function! s:tcl_lsp_register() abort
   " External TCL source dirs/files to index in addition to the workspace
   " (static, read-only; missing paths skipped). Mirror of the Neovim plugin's
   " extra_index_paths option.
+  let l:init = {}
   let l:extra = get(g:, 'tcl_lsp_extra_index_paths', [])
   if !empty(l:extra)
-    let l:server['initialization_options'] = {'extraIndexPaths': l:extra}
+    let l:init['extraIndexPaths'] = l:extra
+  endif
+  " Certain-only diagnostics are on unless turned off; send only the off switch.
+  if !get(g:, 'tcl_lsp_diagnostics', 1)
+    let l:init['diagnostics'] = v:false
+  endif
+  if !empty(l:init)
+    let l:server['initialization_options'] = l:init
   endif
   call lsp#register_server(l:server)
 endfunction

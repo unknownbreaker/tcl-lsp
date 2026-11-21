@@ -1,0 +1,12 @@
+<p><?= set a $a ?></p>
+<p><?=   set b $b ?></p>
+<p><?= [set c $c] ?></p>
+<p><?= if 1 {set d $d} ?></p>
+<p><?= x; set e $e ?></p>
+<p><?= x
+set f $f ?></p>
+<p><?=
+set g $g ?></p>
+<p><?= \
+set h $h ?></p>
+<? if 1 { ?><b><?= set i $i ?></b><? } ?>

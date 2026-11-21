@@ -232,3 +232,22 @@ ones, each rare. "Same on `main@26f8ab2`" means the fixes did not cause it.
   v0.6.31 each body's bindings are collected once per walk (#96, `collectScript`), so scripts nested through braced
   script bodies (`[catch {list [catch {...}]}]`) cost linear time. A `switch` nested that way still re-splits its
   arm list at every level (about 2 s for `ReachingAt` at 4,000 levels; `FileRefs` too).
+
+## Checks: redefinitions the workspace cannot see
+
+**Status:** known wrong answers, deferred. **Area:** certain-only diagnostics (#93).
+
+A Check stays silent when any indexed file defines, creates, renames or aliases a
+command named like a builtin it assumes (`index.DefinesCommand`). These
+redefinitions still slip past it, so a finding can be wrong:
+
+- a name built at run time: `proc $name …`, `rename a $b`, `interp alias {} $n …`;
+- a name with a backslash escape: `proc s\x65t …`;
+- an Itcl object created without `create`: `Widget set`;
+- a command from outside the workspace and `extra_index_paths`: a package's
+  `namespace export`ed `set` brought in by `namespace import` or `namespace path`;
+- an Itcl base class outside the index whose method shadows a builtin.
+
+The fix shape: count a dynamic proc or rename as possibly defining anything a
+Check assumes, but only in files that a measurement shows to be rare, since
+silencing on every `proc $name` would silence most real workspaces.

@@ -1,0 +1,11 @@
+<html>
+<? set x $x ?>
+<p><?= [set y $y] ?></p>
+<p>set z $z is literal text</p>
+<?
+proc f {} {
+    set q $q
+}
+?>
+<?= $x ?>
+</html>

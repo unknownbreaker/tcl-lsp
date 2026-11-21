@@ -8,6 +8,7 @@ package source
 import (
 	"strings"
 
+	"github.com/unknownbreaker/tcl-lsp/internal/check"
 	"github.com/unknownbreaker/tcl-lsp/internal/rvt"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
@@ -79,6 +80,45 @@ func IndexUnit(path, content string) tcl.FileIndex {
 	fi.Defs = translateDefs(doc, fi.Defs)
 	fi.Refs = translateRefs(doc, fi.Refs)
 	return fi
+}
+
+// IndexUnitChecked is IndexUnit plus the findings of every Check, from the same
+// parse. Findings are in source coordinates and are not yet filtered for
+// redefined builtins (check.Unshadowed needs the whole workspace). For .rvt, a
+// finding whose range does not lie within one template code block is dropped,
+// and a `<?= ?>` block's first command is not checked, since Rivet passes its
+// words to `puts -nonewline` (rvt.Document.EchoArgs).
+func IndexUnitChecked(path, content string) (tcl.FileIndex, []check.Finding) {
+	var col check.Collector
+	v := tcl.Visit{Command: col.Visit}
+	if !IsRVT(path) {
+		return tcl.FileAllVisit(content, &v), col.Findings()
+	}
+	doc := rvt.Extract(content)
+	v.Data = func(c tcl.Command, base int) bool { return doc.EchoArgs(base + c.Words[0].Start) }
+	fi := tcl.FileAllVisit(doc.Script, &v)
+	fi.Defs = translateDefs(doc, fi.Defs)
+	fi.Refs = translateRefs(doc, fi.Refs)
+	return fi, translateFindings(doc, col.Findings())
+}
+
+// translateFindings maps findings from stitched-script offsets back to .rvt
+// source coordinates. A range whose ends fall in different code blocks, or in
+// the synthetic wrapper, has no single place in the template, so it is dropped.
+func translateFindings(doc rvt.Document, in []check.Finding) []check.Finding {
+	var out []check.Finding
+	for _, f := range in {
+		if f.End <= f.Start {
+			continue
+		}
+		s, last := doc.ToSource(f.Start), doc.ToSource(f.End-1)
+		if s < 0 || last < 0 || last-s != f.End-1-f.Start {
+			continue
+		}
+		f.Start, f.End = s, last+1
+		out = append(out, f)
+	}
+	return out
 }
 
 // Refs returns the contextual references in content, in source coordinates (see

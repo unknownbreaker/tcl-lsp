@@ -237,8 +237,12 @@ type InitializeParams struct {
 // only: no code is executed, nothing is written, missing paths are skipped.
 // Definitions with no source text (C builtins, runtime-generated procs) are
 // out of reach by design: color and jumps mean "there is source".
+//
+// Diagnostics is the master switch for the Checks (package check). Absent means
+// on; false publishes no diagnostics at all.
 type InitializationOptions struct {
 	ExtraIndexPaths []string `json:"extraIndexPaths"`
+	Diagnostics     *bool    `json:"diagnostics"`
 }
 
 // ClientCapabilities is the subset of client capabilities we read.
@@ -360,4 +364,26 @@ func uriToPath(uri string) string {
 func pathToURI(path string) string {
 	u := url.URL{Scheme: "file", Path: path}
 	return u.String()
+}
+
+// DiagnosticSeverity* are the LSP diagnostic severities the Checks use.
+const (
+	DiagnosticSeverityWarning = 2
+	DiagnosticSeverityHint    = 4
+)
+
+// Diagnostic is one LSP diagnostic. Code carries the Check's id.
+type Diagnostic struct {
+	Range    Range  `json:"range"`
+	Severity int    `json:"severity"`
+	Code     string `json:"code"`
+	Source   string `json:"source"`
+	Message  string `json:"message"`
+}
+
+// PublishDiagnosticsParams is the textDocument/publishDiagnostics notification.
+// Diagnostics is never nil, so an empty list clears a document's diagnostics.
+type PublishDiagnosticsParams struct {
+	URI         string       `json:"uri"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
 }

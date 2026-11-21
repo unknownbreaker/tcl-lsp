@@ -17,6 +17,10 @@ type Segment struct {
 	VirtOff int // start offset of the region in Document.Script
 	SrcOff  int // start offset of the same bytes in the original .rvt
 	Len     int // region length in bytes (identical in both)
+	// Echo marks a `<?= ?>` region. Rivet runs it as `puts -nonewline` followed
+	// by the region, so the region's first command is puts's arguments, not a
+	// command (EchoArgs).
+	Echo bool
 }
 
 // Document is the result of Extract: the stitched TCL script and the ordered map
@@ -63,8 +67,10 @@ func Extract(src string) Document {
 		codeStart := i + open + 2
 		// <?= shorthand: the inner expression's symbols still parse as references,
 		// so skip only the '=' marker and emit the expression body.
+		echo := false
 		if codeStart < len(src) && src[codeStart] == '=' {
 			codeStart++
+			echo = true
 		}
 		rel := strings.Index(src[codeStart:], "?>")
 		codeEnd := len(src) // unterminated tag: emit to EOF (tolerant)
@@ -76,7 +82,7 @@ func Extract(src string) Document {
 		if len(region) > 0 {
 			// Skip empty regions (e.g. <??>): a zero-length segment can never match
 			// a translation lookup, so recording one is dead weight.
-			mapping = append(mapping, Segment{VirtOff: b.Len(), SrcOff: codeStart, Len: len(region)})
+			mapping = append(mapping, Segment{VirtOff: b.Len(), SrcOff: codeStart, Len: len(region), Echo: echo})
 			b.WriteString(region)
 			b.WriteByte('\n')
 		}
@@ -89,6 +95,33 @@ func Extract(src string) Document {
 
 	b.WriteString(nsSuffix)
 	return Document{Script: b.String(), Mapping: mapping}
+}
+
+// EchoArgs reports whether a command whose head starts at virtOff in d.Script is
+// the first command of a `<?= ?>` region: Rivet prefixes the region with
+// `puts -nonewline `, so that command's words are puts's arguments. The first
+// command is the one at the region's start past spaces, tabs and
+// backslash-newlines, which continue the puts command; a newline or semicolon
+// ends puts, so any later command does run.
+func (d Document) EchoArgs(virtOff int) bool {
+	segs := d.Mapping
+	i := sort.Search(len(segs), func(i int) bool { return segs[i].VirtOff+segs[i].Len > virtOff })
+	if i == len(segs) || virtOff < segs[i].VirtOff || !segs[i].Echo {
+		return false
+	}
+	region := d.Script[segs[i].VirtOff : segs[i].VirtOff+segs[i].Len]
+	j := 0
+	for j < len(region) {
+		switch {
+		case region[j] == ' ' || region[j] == '\t':
+			j++
+		case region[j] == '\\' && j+1 < len(region) && region[j+1] == '\n':
+			j += 2
+		default:
+			return segs[i].VirtOff+j == virtOff
+		}
+	}
+	return false
 }
 
 // ToVirtual maps a byte offset in the original .rvt to an offset in d.Script. ok
