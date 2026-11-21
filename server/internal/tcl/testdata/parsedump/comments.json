@@ -1,0 +1,4 @@
+[
+[{"kind":"bare","text":"set","start":32,"end":35},{"kind":"bare","text":"x","start":36,"end":37},{"kind":"bare","text":"1","start":38,"end":39}],
+[{"kind":"bare","text":"puts","start":65,"end":69},{"kind":"bare","text":"a#b","start":70,"end":73}]
+]

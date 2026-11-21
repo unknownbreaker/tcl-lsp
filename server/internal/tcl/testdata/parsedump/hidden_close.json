@@ -1,0 +1,22 @@
+[
+[{"kind":"bare","text":"puts","start":0,"end":4},{"kind":"bare","text":"[string map {] [set y 2]} $s]","start":5,"end":34}],
+[{"kind":"bare","text":"z","start":36,"end":37}],
+[{"kind":"bare","text":"puts","start":38,"end":42},{"kind":"bare","text":"[string length \"]\"; set x 1]","start":43,"end":71}],
+[{"kind":"bare","text":"z","start":72,"end":73}],
+[{"kind":"bare","text":"set","start":74,"end":77},{"kind":"bare","text":"r","start":78,"end":79},{"kind":"quoted","text":"\"[string length \"]\"; set x 1]\"","start":80,"end":110}],
+[{"kind":"bare","text":"z","start":112,"end":113}],
+[{"kind":"bare","text":"puts","start":114,"end":118},{"kind":"bare","text":"[list $a(]); set x 1]","start":119,"end":140}],
+[{"kind":"bare","text":"z","start":142,"end":143}],
+[{"kind":"bare","text":"puts","start":144,"end":148},{"kind":"bare","text":"[list a;# x]\u000a  set x 1]","start":149,"end":172}],
+[{"kind":"bare","text":"z","start":174,"end":175}],
+[{"kind":"bare","text":"puts","start":176,"end":180},{"kind":"quoted","text":"\"[list {*}{]} \"; proc fake {} {}; list \"]\"","start":181,"end":223}],
+[{"kind":"bare","text":"z","start":224,"end":225}],
+[{"kind":"bare","text":"puts","start":226,"end":230},{"kind":"bare","text":"[string first {[} $s]","start":231,"end":252}],
+[{"kind":"bare","text":"z","start":254,"end":255}],
+[{"kind":"bare","text":"puts","start":256,"end":260},{"kind":"bare","text":"[a [b] {c}]x","start":261,"end":273}],
+[{"kind":"bare","text":"z","start":275,"end":276}],
+[{"kind":"braced","text":"{*}","start":277,"end":280},{"kind":"braced","text":"{break}","start":280,"end":287},{"kind":"bare","text":"x","start":288,"end":289}],
+[{"kind":"bare","text":"::catch","start":290,"end":297},{"kind":"braced","text":"{foo}","start":298,"end":303},{"kind":"bare","text":"msg","start":304,"end":307}],
+[{"kind":"quoted","text":"\"if\"","start":308,"end":312},{"kind":"braced","text":"{1}","start":313,"end":316},{"kind":"braced","text":"{puts y}","start":317,"end":325}],
+[{"kind":"bare","text":"x","start":326,"end":327},{"kind":"bare","text":"[list \"[$a(][)]\"] y\u000a","start":328,"end":348}]
+]

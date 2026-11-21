@@ -1,0 +1,3 @@
+[
+[{"kind":"bare","text":"set","start":0,"end":3},{"kind":"bare","text":"r","start":4,"end":5},{"kind":"quoted","text":"\"[list ${a\\}] ; set x 1]\"\u000aputs [list {]} ; set y 1\u000az\u000a","start":6,"end":59}]
+]

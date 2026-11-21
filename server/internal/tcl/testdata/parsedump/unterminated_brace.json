@@ -1,0 +1,3 @@
+[
+[{"kind":"bare","text":"set","start":0,"end":3},{"kind":"bare","text":"x","start":4,"end":5},{"kind":"braced","text":"{a b\u000aputs {nested {deeper}\u000a","start":6,"end":33}]
+]

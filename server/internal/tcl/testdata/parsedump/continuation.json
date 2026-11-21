@@ -1,0 +1,8 @@
+[
+[{"kind":"bare","text":"set","start":0,"end":3},{"kind":"bare","text":"a","start":4,"end":5},{"kind":"bare","text":"b\\\u000a","start":6,"end":9},{"kind":"bare","text":"c","start":11,"end":12}],
+[{"kind":"bare","text":"puts","start":14,"end":18},{"kind":"bare","text":"x\\\u000d","start":19,"end":22}],
+[{"kind":"bare","text":"set","start":23,"end":26},{"kind":"bare","text":"t","start":27,"end":28},{"kind":"braced","text":"{\\}}","start":29,"end":33}],
+[{"kind":"bare","text":"set","start":34,"end":37},{"kind":"bare","text":"q","start":38,"end":39},{"kind":"quoted","text":"\"\\\"in\\\"\"","start":40,"end":48}],
+[{"kind":"bare","text":"set","start":49,"end":52},{"kind":"bare","text":"e","start":53,"end":54},{"kind":"bare","text":"a\\ b","start":55,"end":59}],
+[{"kind":"bare","text":"set","start":60,"end":63},{"kind":"bare","text":"last","start":64,"end":68},{"kind":"bare","text":"\\","start":69,"end":70}]
+]

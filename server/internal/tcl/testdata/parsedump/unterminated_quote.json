@@ -1,0 +1,3 @@
+[
+[{"kind":"bare","text":"set","start":0,"end":3},{"kind":"bare","text":"x","start":4,"end":5},{"kind":"quoted","text":"\"a [list b] c\u000aputs $x\u000a","start":6,"end":28}]
+]
