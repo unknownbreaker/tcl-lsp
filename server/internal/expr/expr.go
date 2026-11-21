@@ -10,7 +10,7 @@
 // distrusted [script], and nesting deeper than maxDepth.
 //
 // Operator precedence, lowest first, checked against tclsh 8.6 and 9.0: `?:`
-// (right to left), `||`, `&&`, `|`, `^`, `&`, `in ni`, `eq ne`, `== !=`,
+// (right to left), `||`, `&&`, `|`, `^`, `&`, `== != eq ne in ni`,
 // `< > <= >=`, `<< >>`, `+ -`, `* / %`, `**` (right to left), then
 // the unary `- + ~ !`, which bind tighter than `**` (`-2 ** 2` is 4).
 package expr
@@ -144,9 +144,7 @@ var levels = []map[string]bool{
 	{"|": true},
 	{"^": true},
 	{"&": true},
-	{"in": true, "ni": true},
-	{"eq": true, "ne": true},
-	{"==": true, "!=": true},
+	{"==": true, "!=": true, "eq": true, "ne": true, "in": true, "ni": true},
 	{"<": true, ">": true, "<=": true, ">=": true},
 	{"<<": true, ">>": true},
 	{"+": true, "-": true},

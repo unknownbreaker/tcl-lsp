@@ -33,6 +33,9 @@ func TestPrecedence(t *testing.T) {
 	for _, c := range []struct{ src, want string }{
 		{`"a" == "a" eq "1"`, `(("a" == "a") eq "1")`}, // 1; eq first gives 0
 		{`"a" eq "a" in {1}`, `(("a" eq "a") in {1})`}, // 1; in first gives 0
+		{`"a" eq "a" == 1`, `(("a" eq "a") == 1)`},     // 1; == first gives 0
+		{`"a" in "a" == 1`, `(("a" in "a") == 1)`},     // 1; == first gives 0
+		{`"a" in "a" eq 1`, `(("a" in "a") eq 1)`},     // 1; eq first gives 0
 		{`1 & 2 == 2`, `(1 & (2 == 2))`},               // 1
 		{`2 ** 3 ** 2`, `(2 ** (3 ** 2))`},             // 512
 		{`-2 ** 2`, `((-2) ** 2)`},                     // 4

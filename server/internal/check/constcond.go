@@ -96,21 +96,29 @@ var comparisons = map[string]bool{
 // least one comparison and its value is fixed by comparisons of literals alone
 // (constantCondition).
 func comparesLiterals(text string, n *expr.Node) bool {
-	fixed, compares := literalLogic(text, n)
+	fixed, compares := literalLogic(text, n, 0)
 	return fixed && compares
 }
 
+// maxLogicDepth bounds literalLogic's recursion. The parser builds a chain of
+// `&&` or `||` left-deep with no nesting limit, so a huge generated condition
+// is silent instead of exhausting the stack.
+const maxLogicDepth = 1000
+
 // literalLogic reports whether n is built only from comparisons of two literals,
 // the bare literals 0 and 1, and the logic operators over them, and whether it
-// holds a comparison.
-func literalLogic(text string, n *expr.Node) (fixed, compares bool) {
+// holds a comparison. depth counts the logic operators above n.
+func literalLogic(text string, n *expr.Node, depth int) (fixed, compares bool) {
+	if depth > maxLogicDepth {
+		return false, false
+	}
 	n = unparen(n)
 	switch {
 	case n.Kind == expr.Literal:
 		lit := text[n.Start:n.End]
 		return lit == "0" || lit == "1", false
 	case n.Kind == expr.Unary && n.Op == "!":
-		return literalLogic(text, n.Args[0])
+		return literalLogic(text, n.Args[0], depth+1)
 	case n.Kind == expr.Binary && comparisons[n.Op]:
 		l, r := unparen(n.Args[0]), unparen(n.Args[1])
 		fixed = l.Kind == expr.Literal && r.Kind == expr.Literal
@@ -120,7 +128,7 @@ func literalLogic(text string, n *expr.Node) (fixed, compares bool) {
 		return fixed, true
 	case n.Kind == expr.Binary && (n.Op == "&&" || n.Op == "||"), n.Kind == expr.Ternary:
 		for _, a := range n.Args {
-			f, c := literalLogic(text, a)
+			f, c := literalLogic(text, a, depth+1)
 			if !f {
 				return false, false
 			}

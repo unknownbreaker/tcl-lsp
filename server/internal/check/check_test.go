@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
@@ -117,5 +118,23 @@ func TestIsVarName(t *testing.T) {
 		if got := isVarName(s); got != want {
 			t.Errorf("isVarName(%q) = %v, want %v", s, got, want)
 		}
+	}
+}
+
+// literalLogic's recursion is bounded: a left-deep chain of `&&` (which the
+// parser builds without nesting limits) is walked up to maxLogicDepth joiners and
+// silent past it, so a huge generated condition cannot exhaust the stack.
+func TestConstantConditionLongChains(t *testing.T) {
+	chain := func(n int) string { // n comparisons, n-1 joiners
+		return "if {1 == 1" + strings.Repeat(" && 1 == 1", n-1) + "} {}\n"
+	}
+	if fs := only(findings(chain(maxLogicDepth/2)), constantConditionID); len(fs) != 1 {
+		t.Errorf("%d terms: got %+v, want one finding", maxLogicDepth/2, fs)
+	}
+	if fs := only(findings(chain(maxLogicDepth+1)), constantConditionID); len(fs) != 1 {
+		t.Errorf("%d joiners: got %+v, want one finding", maxLogicDepth, fs)
+	}
+	if fs := only(findings(chain(maxLogicDepth+2)), constantConditionID); len(fs) != 0 {
+		t.Errorf("%d joiners: got %+v, want none", maxLogicDepth+1, fs)
 	}
 }
