@@ -34,6 +34,7 @@ a research-first approach.)
 | 06 | [Synthesis → resolver model, architecture, v2 scope](06-synthesis.md) | ✅ complete (bridge to planning) |
 | 07 | [Real-world TCL/RVT idiom survey & Itcl gap report](07-realworld-itcl-survey.md) | ✅ gaps fixed; remaining gaps listed |
 | 08 | [FlightAware corpus probe: wrong answers, slowdown, misses](08-flightaware-corpus-probe.md) | ✅ findings + fix design; harness in `experiments/08_corpus_probe/` |
+| 09 | [Rust vs Go parser throughput](09-rust-vs-go-parser-throughput.md) | ✅ measured under load (Rust parses about 2× faster; absolutes noisy); recommendation: don't port; Rust port and `compare.sh` in `experiments/09_rust_parse/` |
 
 **Research status:** core mapping complete and empirically grounded. Remaining
 unknowns are FlightAware-local (Rivet version, a real `.rvt`, house conventions)
