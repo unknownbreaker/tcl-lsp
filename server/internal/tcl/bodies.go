@@ -528,6 +528,38 @@ func ifConditions(w []Word) []Word {
 	return conds
 }
 
+// AppendConditions appends to dst the words an if, while or for command hands to
+// expr when Tcl accepts its words (controlArity): every if and elseif condition,
+// in order, the while test, or the for test. It appends nothing for any other
+// command, or for one Tcl rejects before evaluating anything. Parse spells a
+// literal head bare, so `::if` arrives as `if`. Appending lets a caller keep the
+// words in a buffer of its own, free of allocation.
+func AppendConditions(dst []Word, w []Word) []Word {
+	if len(w) == 0 || w[0].Kind != WordBare || !isControlName(w[0].Text) || !controlArity(w) {
+		return dst
+	}
+	switch w[0].Text {
+	case "while":
+		return append(dst, w[1])
+	case "for":
+		return append(dst, w[2])
+	}
+	// ifArity holds, so this walk of `if cond ?then? body (elseif cond ?then?
+	// body)* ?else? ?body?` stays in range.
+	for i := 1; ; {
+		dst = append(dst, w[i])
+		i++
+		if keyword(w[i]) == "then" {
+			i++
+		}
+		i++
+		if i == len(w) || keyword(w[i]) != "elseif" {
+			return dst
+		}
+		i++
+	}
+}
+
 // dataBraceCommands are builtins whose braced arguments hold data -- never a
 // script body -- so they are excluded from the trailing-braced-argument script
 // heuristic in scriptBodies. expr, whose braced words are expressions, is

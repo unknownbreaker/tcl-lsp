@@ -1,0 +1,7 @@
+testdata/fixtures/constant_condition_hint.tcl:2:4: hint constant-condition condition is always false
+testdata/fixtures/constant_condition_hint.tcl:3:4: hint constant-condition condition is always true
+testdata/fixtures/constant_condition_hint.tcl:4:4: hint constant-condition condition is always false
+testdata/fixtures/constant_condition_hint.tcl:5:4: hint constant-condition condition is always true
+testdata/fixtures/constant_condition_hint.tcl:6:19: hint constant-condition condition is always false
+testdata/fixtures/constant_condition_hint.tcl:6:33: hint constant-condition condition is always true
+exit 0

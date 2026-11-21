@@ -1,6 +1,11 @@
+testdata/fixtures/control_arity.tcl:2:4: hint constant-condition condition is always true
 testdata/fixtures/control_arity.tcl:2:12: warning self-assignment assigns y1 its own value
+testdata/fixtures/control_arity.tcl:3:4: hint constant-condition condition is always false
 testdata/fixtures/control_arity.tcl:3:10: warning self-assignment assigns y2 its own value
+testdata/fixtures/control_arity.tcl:4:4: hint constant-condition condition is always false
+testdata/fixtures/control_arity.tcl:4:16: hint constant-condition condition is always true
 testdata/fixtures/control_arity.tcl:4:24: warning self-assignment assigns y3 its own value
+testdata/fixtures/control_arity.tcl:5:6: hint constant-condition condition is always true
 testdata/fixtures/control_arity.tcl:5:9: warning self-assignment assigns y4 its own value
 testdata/fixtures/control_arity.tcl:6:22: warning self-assignment assigns y5 its own value
 testdata/fixtures/control_arity.tcl:7:8: warning self-assignment assigns y6 its own value

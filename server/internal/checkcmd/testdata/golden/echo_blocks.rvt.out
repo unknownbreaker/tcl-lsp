@@ -2,4 +2,5 @@ testdata/fixtures/echo_blocks.rvt:3:9: warning self-assignment assigns c its own
 testdata/fixtures/echo_blocks.rvt:5:11: warning self-assignment assigns e its own value
 testdata/fixtures/echo_blocks.rvt:7:1: warning self-assignment assigns f its own value
 testdata/fixtures/echo_blocks.rvt:9:1: warning self-assignment assigns g its own value
+testdata/fixtures/echo_blocks.rvt:12:7: hint constant-condition condition is always true
 exit 1
