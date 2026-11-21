@@ -1,0 +1,4 @@
+testdata/fixtures/self_assignment.rvt:2:4: warning self-assignment assigns x its own value
+testdata/fixtures/self_assignment.rvt:3:9: warning self-assignment assigns y its own value
+testdata/fixtures/self_assignment.rvt:7:5: warning self-assignment assigns q its own value
+exit 1

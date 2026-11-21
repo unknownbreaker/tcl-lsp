@@ -6,7 +6,7 @@ package tcl
 // walks per file (and four per nested braced body). They all descend the *same*
 // bodies via childBodies (bodies.go) and differ only in what they collect per
 // command, so they are unified here: one parse, one walk, collectors toggled.
-// FileAll runs all four at once for the workspace index; the individual File*
+// FileAll runs them all at once for the workspace index; the individual File*
 // functions enable a single collector for request-time callers.
 
 // FileIndex bundles every per-file analysis the workspace index needs, produced
@@ -20,6 +20,9 @@ type FileIndex struct {
 	// MaybeCommands names the commands a proc or class defined in an
 	// `itcl::body` with a fallback class key may create (fallbackNestedNames).
 	MaybeCommands []string
+	// Created holds the last name segments of the commands the file may create,
+	// redefine or rename away (createdNames), in any body, run or not.
+	Created []string
 }
 
 // collectors holds the optional output sinks for a walkAll traversal. A nil sink
@@ -30,6 +33,14 @@ type collectors struct {
 	ns      map[string]*NamespaceInfo // namespace declarations (non-nil to collect)
 	classes map[string][]string       // class inherit edges (non-nil to collect)
 	maybe   *[]string                 // commands a fallback body may define
+	// visit receives every command certain to run as Tcl (visit.go). It is nil
+	// in a body that may be data or deferred code, and in every body below one.
+	// assumes lists the builtins whose bodies the walk trusted to reach here.
+	visit   *Visit
+	assumes []string
+	// created collects the tails of the command names commands may create
+	// (createdNames), in every body, run or not.
+	created *[]string
 	// ends serves the whole walk, so script ends found while parsing a body are
 	// not found again for its references (scriptends.go). nil remembers nothing.
 	ends *scriptEnds
@@ -52,7 +63,7 @@ func walkFile(src string, c collectors) {
 // commands are looked up from class's namespace (see bodyScope.InClassNS).
 func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, class string, wrapped, inClassNS bool, c collectors) {
 	var refs []Reference
-	for _, cmd := range cmds {
+	for i, cmd := range cmds {
 		w := cmd.Words
 		bodies := childBodies(cmd, base, ns, frame, scope, class)
 
@@ -86,6 +97,15 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 
 		if c.ns != nil {
 			recordNSDecl(cmd, ns, c.ns)
+		}
+
+		if c.created != nil {
+			collectCreated(cmd, base, c.ends, c.created)
+		}
+
+		bc := c
+		if c.visit != nil {
+			bc.visit, bc.assumes = visitCommand(cmd, base, i == len(cmds)-1, ns, frame, scope, class, wrapped, inClassNS, c)
 		}
 
 		if c.classes != nil && frame == FrameClass && class != "" {
@@ -132,7 +152,7 @@ func walkAll(cmds []Command, base int, ns string, frame FrameKind, scope int, cl
 			if b.InClassNS != classNSInherit {
 				bodyInClassNS = b.InClassNS == classNSOn
 			}
-			walkAll(parseWith(b.Inner, c.ends), b.Base, b.NS, b.Frame, b.Scope, b.Class, b.Wrapped || inherit, bodyInClassNS, c)
+			walkAll(parseWith(b.Inner, c.ends), b.Base, b.NS, b.Frame, b.Scope, b.Class, b.Wrapped || inherit, bodyInClassNS, bc)
 		}
 		if joinedFrom >= 0 {
 			*c.defs = append((*c.defs)[:joinedFrom], dropLocals((*c.defs)[joinedFrom:], scope)...)
@@ -153,21 +173,9 @@ func dropLocals(defs []Definition, scope int) []Definition {
 	return kept
 }
 
-// FileAll parses src once and returns all four per-file analyses together. It is
+// FileAll parses src once and returns every per-file analysis together. It is
 // the workspace index's entry point (see index.IndexFile); request-time callers
 // that need only one analysis use the individual File* functions.
 func FileAll(src string) FileIndex {
-	fi := FileIndex{
-		Namespaces: map[string]*NamespaceInfo{},
-		Classes:    map[string][]string{},
-	}
-	walkFile(src, collectors{
-		defs:    &fi.Defs,
-		refs:    &fi.Refs,
-		ns:      fi.Namespaces,
-		classes: fi.Classes,
-		maybe:   &fi.MaybeCommands,
-	})
-	fi.Defs = promoteLinkedAssignments(fi.Defs)
-	return fi
+	return FileAllVisit(src, nil)
 }

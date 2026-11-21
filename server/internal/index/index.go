@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/unknownbreaker/tcl-lsp/internal/check"
 	"github.com/unknownbreaker/tcl-lsp/internal/source"
 	"github.com/unknownbreaker/tcl-lsp/internal/tcl"
 )
@@ -58,6 +59,11 @@ type Index struct {
 	// define it (tcl.FileIndex.MaybeCommands); fileMaybe lists each file's names.
 	maybeCmds map[string]int
 	fileMaybe map[string][]string
+	// cmdTails counts, per last name segment, the files that define or may
+	// create a command of that name (commandTails); fileTails lists each file's.
+	// DefinesCommand reads it, once per finding of every open document's change.
+	cmdTails  map[string]int
+	fileTails map[string][]string
 }
 
 // nsMerged is the merged namespace-path and import set for one namespace, cached
@@ -83,6 +89,8 @@ func New() *Index {
 		fallbacks:        map[string]map[string]bool{},
 		maybeCmds:        map[string]int{},
 		fileMaybe:        map[string][]string{},
+		cmdTails:         map[string]int{},
+		fileTails:        map[string][]string{},
 	}
 }
 
@@ -106,10 +114,63 @@ func isExtraIndexable(path string) bool {
 // table).
 func (ix *Index) IndexFile(path, content string) {
 	ix.RemoveFile(path)
-	// One parse produces all four analyses (defs, refs, namespaces, classes);
-	// see source.IndexUnit. Calling source.Defs/Refs/Namespaces/Classes
+	// One parse produces every analysis (defs, refs, namespaces, classes, created
+	// commands); see source.IndexUnit. Calling source.Defs/Refs/Namespaces/Classes
 	// separately would re-parse (and, for .rvt, re-Extract) the file four times.
 	ix.storeUnit(path, content, source.IndexUnit(path, content))
+}
+
+// IndexFileChecked is IndexFile that also returns the findings of every Check on
+// content, from the same parse (source.IndexUnitChecked). They are not filtered
+// for redefined builtins: pass them through check.Unshadowed with
+// DefinesCommand once every file that may redefine one is indexed.
+func (ix *Index) IndexFileChecked(path, content string) []check.Finding {
+	ix.RemoveFile(path)
+	unit, findings := source.IndexUnitChecked(path, content)
+	ix.storeUnit(path, content, unit)
+	return findings
+}
+
+// DefinesCommand reports whether any indexed file defines a proc, class or Itcl
+// method whose last name segment is name, in any namespace or class, or may
+// create, redefine or rename away a command of that name (a fallback body's
+// procs, tcl.FileIndex.Created). Any of them may be what a call of name
+// resolves to.
+func (ix *Index) DefinesCommand(name string) bool {
+	return ix.cmdTails[name] > 0
+}
+
+// commandTails returns, once each, the last name segments of the commands unit
+// defines or may create (DefinesCommand).
+func commandTails(unit tcl.FileIndex) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		name = tcl.NameTail(name)
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	for _, d := range unit.Defs {
+		switch d.Kind {
+		case tcl.DefProc, tcl.DefClass:
+			add(d.Name)
+		case tcl.DefMethod:
+			// A constructor or destructor is recorded under its keyword, but no
+			// call names it: only a method is a command of the class.
+			if d.Name != "constructor" && d.Name != "destructor" {
+				add(d.Name)
+			}
+		}
+	}
+	for _, n := range unit.MaybeCommands {
+		add(n)
+	}
+	for _, n := range unit.Created {
+		add(n)
+	}
+	return out
 }
 
 // storeUnit inserts a parsed file's analyses into the index's shared maps. It is
@@ -118,6 +179,11 @@ func (ix *Index) IndexFile(path, content string) {
 // only shared state -- stay single-threaded. See IndexDirProgress.
 func (ix *Index) storeUnit(path, content string, unit tcl.FileIndex) {
 	ix.src[path] = content
+	tails := commandTails(unit)
+	ix.fileTails[path] = tails
+	for _, t := range tails {
+		ix.cmdTails[t]++
+	}
 	ix.fileNS[path] = unit.Namespaces
 	// Precompute reference sites once here so a references request iterates
 	// stored data instead of re-parsing every workspace file (the dominant cost
@@ -266,6 +332,12 @@ func (ix *Index) RemoveFile(path string) {
 		}
 	}
 	delete(ix.fileDefs, path)
+	for _, t := range ix.fileTails[path] {
+		if ix.cmdTails[t]--; ix.cmdTails[t] <= 0 {
+			delete(ix.cmdTails, t)
+		}
+	}
+	delete(ix.fileTails, path)
 	for _, name := range ix.fileMaybe[path] {
 		if ix.maybeCmds[name]--; ix.maybeCmds[name] <= 0 {
 			delete(ix.maybeCmds, name)

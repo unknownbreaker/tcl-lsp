@@ -57,7 +57,30 @@ local defaults = {
   -- share one config across machines). Example:
   --   extra_index_paths = { "/opt/fa/tcl-lib", vim.fn.expand("~/Repos/fa-tcl") }
   extra_index_paths = {},
+  -- Certain-only diagnostics: the server's Checks flag code that is valid but
+  -- cannot mean anything sensible (see docs/CHECKS.md). Set false to keep the
+  -- server navigation-only.
+  diagnostics = true,
 }
+
+-- _init_options returns the initializationOptions for opts, or nil when every
+-- option is at the server's default. Only non-empty extraIndexPaths are sent: an
+-- empty Lua table JSON-encodes as an object ({}), which would not decode into
+-- the server's []string field. diagnostics is sent only when turned off, since
+-- the server defaults it on. 0 counts as off too, since Vim users write it so.
+function M._init_options(opts)
+  local init = {}
+  if #opts.extra_index_paths > 0 then
+    init.extraIndexPaths = opts.extra_index_paths
+  end
+  if opts.diagnostics == false or opts.diagnostics == 0 then
+    init.diagnostics = false
+  end
+  if next(init) == nil then
+    return nil
+  end
+  return init
+end
 
 -- action_fns maps a `keymaps` action name to the vim.lsp.buf function it
 -- triggers. Only actions the server actually advertises are offered --
@@ -186,12 +209,7 @@ function M.setup(opts)
       ["callHierarchy/outgoingCalls"] = outgoing_calls_handler,
     },
   }
-  -- Only send init_options when paths are configured: an empty Lua table
-  -- JSON-encodes as an object ({}), which would not decode into the server's
-  -- []string field.
-  if #opts.extra_index_paths > 0 then
-    config.init_options = { extraIndexPaths = opts.extra_index_paths }
-  end
+  config.init_options = M._init_options(opts)
   vim.lsp.config("tcl_lsp", config)
   vim.lsp.enable("tcl_lsp")
 
