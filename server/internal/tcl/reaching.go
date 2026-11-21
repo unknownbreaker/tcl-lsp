@@ -1,12 +1,14 @@
 package tcl
 
+import "strings"
+
 // ReachingAt returns the local-variable bindings that may reach the use at byte
 // offset useOff in src, as Definition values (Kind DefLocal/DefGlobalLink, with
 // NameStart/NameEnd on the binding's name token and Origin for links). ok is false
 // when the analyzer has no answer: the scope is oversized, its analysis exceeds the
 // work budget (see analyzer.visits), or useOff is not on a use it visited. ok with no
 // defs means the analyzer visited the use and nothing reaches it, or that a bracket
-// script it cannot read (flowDistrusted) or a multi-word eval (multiWordEval) may
+// script it cannot read (flowDistrusted) or an eval it does not read (unreadEval) may
 // bind it, so callers stay silent rather than guess. When nothing else reaches a
 // visited use, a binding above it in an unknown command's body answers, because
 // that body may or may not run here.
@@ -160,8 +162,8 @@ type analyzer struct {
 	// may have bound, or -1: the start of a word holding a bracket script whose end
 	// the substitution walk cannot trust (flowDistrusted), or the end of an expr
 	// command, or the first braced word after an if, while or for condition, whose
-	// second substitution may form one (flowResubst), or the end of a multi-word
-	// eval (distrustEval). Its bindings are unknown, so no use at or after it is
+	// second substitution may form one (flowResubst), or the end of an eval it does
+	// not read (distrustEval). Its bindings are unknown, so no use at or after it is
 	// answered. In a loop it is the outermost loop's start (loopStarts[0]), since a
 	// back edge may carry them to an earlier use in the loop.
 	distrustFrom int
@@ -452,35 +454,88 @@ func (a *analyzer) analyzeLoop(c Command, base int, in reachSet) (reachSet, bool
 
 // conservativeHead reports whether command c requires conservative may-reach
 // modeling: its scripts run in this frame, and they are alternatives or may abort, so
-// precise exception modeling is deferred. `eval` counts only in its one-script form;
-// with more words it joins them into a script the analysis does not read
-// (multiWordEval).
+// precise exception modeling is deferred. `eval` counts only in its one-word braced
+// form, and `uplevel` only as `uplevel 0 {script}`; any other eval, or uplevel that
+// may run here, runs a script the analysis does not read (unreadEval).
 func conservativeHead(c Command) bool {
 	w := c.Words
 	if isCmd(w, "eval") {
-		return len(w) == 2
+		return len(w) == 2 && w[1].Kind == WordBraced
 	}
-	return isCmd(w, "catch") || isCmd(w, "try") || isSwitch(w) || isCmd(w, "time") || isCmd(w, "timerate")
+	return isCmd(w, "catch") || isCmd(w, "try") || isSwitch(w) || isCmd(w, "time") || isCmd(w, "timerate") ||
+		upLevelHere(c)
 }
 
-// multiWordEval reports whether c is an eval of more than one word. Tcl
-// concatenates its words as concat does and runs the result as a script in this
-// frame, after every word was substituted. The analysis does not read the joined
-// script, so it may bind any variable: see distrustEval.
-func multiWordEval(c Command) bool {
-	return isCmd(c.Words, "eval") && len(c.Words) > 2
+// unreadEval reports whether c runs a script in this frame (frame) that the
+// analysis does not read, so it may bind any variable: see distrustEval. An eval
+// of more than one word concatenates them as concat does and runs the result
+// (#132). A one-word eval runs its word's value, which only a braced word fixes in
+// the source (#139). uplevel runs its script here when its level may name this
+// frame (upLevelMayBeHere), and only upLevelHere's form is read. Every word is
+// substituted before the script runs.
+func unreadEval(c Command, frame FrameKind) bool {
+	w := c.Words
+	switch {
+	case isCmd(w, "eval"):
+		return len(w) > 2 || len(w) == 2 && w[1].Kind != WordBraced
+	case isCmd(w, "uplevel"):
+		return len(w) >= 3 && upLevelMayBeHere(w[1], frame) && !upLevelHere(c)
+	}
+	return false
 }
 
-// distrustEval distrusts the code after a multi-word eval, whose bindings are
-// unknown (#132). In a proc, a use in one of its braced words is part of the joined
-// script, so no analysis visits it and it stays silent too.
+// upLevelHere reports whether c is `uplevel 0 {script}`, which runs its one braced
+// script in this frame as `eval {script}` does. Tcl reads the level with
+// surrounding space, one sign and leading zeros (` 0`, `+0`, `00`; tclsh 8.6 and
+// 9.0).
+func upLevelHere(c Command) bool {
+	w := c.Words
+	if !isCmd(w, "uplevel") || len(w) != 3 || w[2].Kind != WordBraced {
+		return false
+	}
+	v, ok := literalValue(w[1])
+	if !ok {
+		return false
+	}
+	v = strings.TrimSpace(v)
+	if v != "" && (v[0] == '+' || v[0] == '-') {
+		v = v[1:]
+	}
+	return v != "" && strings.Trim(v, "0") == ""
+}
+
+// upLevelMayBeHere reports whether uplevel's first word, followed by a script, is a
+// literal level that may name this frame. Tcl also reads integer prefixes as
+// level 0 (`0x0`, `0o0`, and `0_0` in 9.0), so any value of zeros, signs and such
+// marks counts; one that is no integer makes uplevel fail, so counting it costs
+// nothing. An absolute level `#N` names this frame when the code runs at depth N,
+// except that a proc never runs at `#0`; Tcl reads it only with `#` first, so
+// ` #1` is a script. Any other literal is a script run in the
+// caller's frame, or a level that names another frame. A substituted level is out
+// of reach, as other dynamic call sites are.
+func upLevelMayBeHere(w Word, frame FrameKind) bool {
+	v, ok := literalValue(w)
+	if !ok {
+		return false
+	}
+	if abs, ok := strings.CutPrefix(v, "#"); ok {
+		return frame != FrameProc || strings.ContainsAny(abs, "123456789")
+	}
+	v = strings.TrimLeft(strings.TrimSpace(v), "+-")
+	return strings.HasPrefix(v, "0") && !strings.ContainsAny(v, "123456789")
+}
+
+// distrustEval distrusts the code after an eval the analysis does not read
+// (unreadEval), whose bindings are unknown (#132, #139). In a proc, a use in a
+// braced word of a multi-word eval is part of the joined script, so no analysis
+// visits it and it stays silent too.
 func (a *analyzer) distrustEval(c Command, base int) {
 	a.distrust(base+c.Words[len(c.Words)-1].End, flowDistrusted)
 }
 
 // bodiesRunHere reports whether the scripts of command c are known to run in this
 // frame. Any other command's braced word may be data or deferred code, and `uplevel`
-// runs its script in another frame. childBodies asks this too, so indexed definitions
+// with a level other than 0 runs its script in another frame, or in one unknown. childBodies asks this too, so indexed definitions
 // and reach sets agree on which bodies run here.
 func bodiesRunHere(c Command) bool {
 	return isCmd(c.Words, "if") || conservativeHead(c) || loopHead(c) || dictBodyHead(c.Words)
@@ -659,7 +714,7 @@ func (a *analyzer) analyzeConservative(c Command, base int, in reachSet) (reachS
 func (a *analyzer) collectBindings(cmds []Command, base int, into *reachSet, every bool) {
 	for _, c := range cmds {
 		a.collectSubstBindings(c, base, into, every)
-		if multiWordEval(c) {
+		if unreadEval(c, a.frame) {
 			a.distrustEval(c, base)
 			continue
 		}
@@ -764,7 +819,7 @@ func (a *analyzer) command(c Command, base int, in reachSet) (reachSet, bool) {
 		return in, false
 	}
 	switch {
-	case multiWordEval(c):
+	case unreadEval(c, a.frame):
 		a.distrustEval(c, base)
 		return in, true
 	case conservativeHead(c):

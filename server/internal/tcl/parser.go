@@ -95,14 +95,14 @@ func bareModeledHead(w []Word) (words []Word, src *Word) {
 	return append([]Word{head}, w[h+1:]...), &w[0]
 }
 
-// modeledHeads are the builtins whose scripts run in this frame, or whose exits end
-// a path, that the analysis recognizes by a bare head. expr is not here: exprHead
+// modeledHeads are the builtins whose scripts run (or, for uplevel, may run) in this
+// frame, or whose exits end a path, that the analysis recognizes by a bare head. expr is not here: exprHead
 // reads its head by value itself.
 var modeledHeads = map[string]bool{
 	"if": true, "while": true, "for": true,
 	"catch": true, "try": true, "switch": true, "eval": true, "time": true, "timerate": true,
 	"foreach": true, "lmap": true, "dict": true,
-	"return": true, "break": true, "continue": true,
+	"return": true, "break": true, "continue": true, "uplevel": true,
 }
 
 // isModeledHead reports whether bareModeledHead spells a head named name bare.

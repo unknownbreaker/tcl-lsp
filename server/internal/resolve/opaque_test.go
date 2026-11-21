@@ -137,6 +137,8 @@ func TestOpaqueFrameBareUseThroughNestedBodies(t *testing.T) {
 		{"eval with a command", "eval foo {", "}", nil},
 		{"uplevel", "uplevel {", "}", nil},
 		{"uplevel with a level", "uplevel 1 {", "}", nil},
+		{"uplevel 0", "uplevel 0 {", "}", []int{1}},
+		{"uplevel #0", "uplevel #0 {", "}", nil},
 	}
 	for _, c := range containers {
 		body := "    puts $x\n"
