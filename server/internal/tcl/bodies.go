@@ -234,15 +234,6 @@ func childBodies(c Command, base int, ns string, frame FrameKind, scope int, cla
 	}
 }
 
-// decoratedProcDef recognizes a proc definition created through a proc-defining
-// macro: `WRAPPER... proc NAME ARGS BODY ...`, where the command head is the macro
-// (e.g. CACHE_PROC) rather than `proc`. It matches the first `proc NAME ARGS BODY`
-// quadruple -- NAME a plain name, BODY braced -- that has at least one decorator
-// word before `proc`. Words *after* BODY (e.g. `-ttl 60`, `-log debug`) are macro
-// flags and are ignored, so the body need not be the command's last word. The
-// head must not be `proc` (handled directly by the proc cases) nor a list/data
-// builtin (so `lappend x proc foo {} {}` is not misread). This covers single,
-// argument-taking, and stacked decorators, a qualified NAME, and trailing flags.
 // unknownClassKey keys the members of a class whose namespace is not known (one a
 // wrapper defines in a method: Tcl creates it wherever the wrapper runs it). Every
 // FQ name starts with "::" and this key does not, so no command lookup or
@@ -328,8 +319,20 @@ func procBodyNS(name, ns string) string {
 	return "::" // `::name` -- defined directly in the global namespace
 }
 
+// decoratedProcDef recognizes a proc definition created through a proc-defining
+// macro: `WRAPPER... proc NAME ARGS BODY ...`, where the command head is the macro
+// (e.g. CACHE_PROC) rather than `proc`. It matches the first `proc NAME ARGS BODY`
+// quadruple -- NAME a plain name, BODY braced -- that has at least one decorator
+// word before `proc`. Words *after* BODY (e.g. `-ttl 60`, `-log debug`) are macro
+// flags and are ignored, so the body need not be the command's last word. The
+// head must not be `proc` (handled directly by the proc cases) nor a list/data
+// builtin (so `lappend x proc foo {} {}` is not misread), nor `eval`: a multi-word
+// eval joins its words into one script, so `eval DECO proc g {} {body}` runs
+// `DECO proc g {} <body's text>` and its braced word is never g's body (#140). This
+// covers single, argument-taking, and stacked decorators, a qualified NAME, and
+// trailing flags.
 func decoratedProcDef(w []Word) (name, args, body Word, ok bool) {
-	if len(w) < 5 || w[0].Kind != WordBare || listOrDataHeads[w[0].Text] {
+	if len(w) < 5 || w[0].Kind != WordBare || listOrDataHeads[w[0].Text] || isCmd(w, "eval") {
 		return // need at least DECORATOR proc NAME ARGS BODY, head a decorator word
 	}
 	// Scan for `proc NAME ARGS BODY` starting after the first (decorator) word.

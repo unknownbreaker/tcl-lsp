@@ -544,7 +544,6 @@ func TestObjMethodTypedAroundOpaqueBodies(t *testing.T) {
 		{"wrapper in a wrapper", "with {\n  with {\n    set o [::C #auto]\n    $o m\n  }\n}"},
 		{"TclOO method in a namespace", "namespace eval ::n {\n  oo::class create X {\n    method run {} {\n      set o [::C #auto]\n      $o m\n    }\n  }\n}"},
 		{"foreach in a TclOO method", "oo::class create X {\n  method run {} {\n    foreach i $l {\n      set o [::C #auto]\n      $o m\n    }\n  }\n}"},
-		{"eval with a command", "eval foo {\n  set o [::C #auto]\n  $o m\n}"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -557,6 +556,20 @@ func TestObjMethodTypedAroundOpaqueBodies(t *testing.T) {
 				t.Errorf("definition of $o m = %#v, want ::C's method m in %s\nsource:\n%s", locations, classFile, c.src)
 			}
 		})
+	}
+}
+
+// A multi-word eval's braced word is part of its joined script, not a body of its
+// own: `eval foo {set o [::C #auto]; $o m}` runs `foo set o [::C #auto]` and then
+// `$o m`, so o is never set there (tclsh 8.6 and 9.0: can't read "o"). The receiver
+// stays untyped (#140).
+func TestObjMethodUntypedInMultiWordEvalWord(t *testing.T) {
+	ix := index.New()
+	ix.IndexFile("c.tcl", "itcl::class ::C {\n  method m {} {}\n}")
+	src := "eval foo {\n  set o [::C #auto]\n  $o m\n}"
+	ix.IndexFile("use.tcl", src)
+	if locations := New(ix).Definition("use.tcl", src, strings.LastIndex(src, "$o m")+len("$o ")); len(locations) != 0 {
+		t.Errorf("definition of $o m = %#v, want none\nsource:\n%s", locations, src)
 	}
 }
 

@@ -53,3 +53,55 @@ func TestMultiWordEvalThroughResolver(t *testing.T) {
 		}
 	}
 }
+
+// The braced words of a multi-word eval are part of its joined script, never a
+// decorated proc's body or a scope of their own, so goto-definition on a use in one
+// stays silent, in a .tcl file and an .rvt page, inside a proc and at page level
+// (#140). tclsh 8.6 and 9.0: x is 0 at each puts, and no proc g exists.
+func TestMultiWordEvalBracedWordThroughResolver(t *testing.T) {
+	for _, c := range []struct{ name, code string }{
+		{"decorator in a proc", "proc f {} {\n  set x 0\n  eval DECO proc g {} {set x 1; puts $x}\n}\n"},
+		{"decorator at page level", "set x 0\neval DECO proc g {} {set x 1; puts $x}\n"},
+		{"list in a proc", "proc f {} {\n  set x 0\n  eval list {set x 1; puts $x}\n}\n"},
+		{"list at page level", "set x 0\neval list {set x 1; puts $x}\n"},
+		{"list in a namespace", "namespace eval ns {\n  set x 0\n  eval list {set x 1; puts $x}\n}\n"},
+	} {
+		for _, f := range []struct{ name, file, src string }{
+			{"tcl", "a.tcl", c.code},
+			{"rvt", "p.rvt", "<h1>x</h1>\n<?\n" + c.code + "?>\n"},
+		} {
+			t.Run(c.name+"/"+f.name, func(t *testing.T) {
+				ix := index.New()
+				ix.IndexFile(f.file, f.src)
+				use := strings.LastIndex(f.src, "$x}")
+				if use < 0 {
+					t.Fatalf("mark $x} not in source")
+				}
+				if locs := New(ix).Definition(f.file, f.src, use+1); len(locs) != 0 {
+					t.Errorf("Definition at $x = %v, want silent\nsource:\n%s", locs, f.src)
+				}
+			})
+		}
+	}
+}
+
+// `eval DECO proc g {} {...}` defines no proc g, so a call to g resolves to nothing
+// in either file kind (#140).
+func TestMultiWordEvalDecoratorDefinesNoProcThroughResolver(t *testing.T) {
+	for _, f := range []struct{ name, file, src string }{
+		{"tcl", "a.tcl", "eval DECO proc g {} {set x 1}\ng\n"},
+		{"rvt", "p.rvt", "<?\neval DECO proc g {} {set x 1}\n?>\n<? g ?>\n"},
+	} {
+		t.Run(f.name, func(t *testing.T) {
+			ix := index.New()
+			ix.IndexFile(f.file, f.src)
+			call := strings.LastIndex(f.src, "g\n")
+			if strings.HasSuffix(f.file, ".rvt") {
+				call = strings.LastIndex(f.src, " g ") + 1
+			}
+			if locs := New(ix).Definition(f.file, f.src, call); len(locs) != 0 {
+				t.Errorf("Definition at the call to g = %v, want none\nsource:\n%s", locs, f.src)
+			}
+		})
+	}
+}
