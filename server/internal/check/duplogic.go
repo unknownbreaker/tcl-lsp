@@ -37,24 +37,24 @@ func duplicateLogic(c tcl.Command, base int, out []Finding) []Finding {
 	// An if with an elseif compares its conditions by key (conditionKey); a
 	// condition left unread keeps the key "", as one that may differ between
 	// evaluations.
-	compare := head == "if" && len(conds) > 1
-	type parsed struct {
+	hasElseif := head == "if" && len(conds) > 1
+	type clause struct {
 		n    *expr.Node // nil when there is no chain to read
 		text string
 		off  int
 		key  string
 	}
-	var pbuf [4]parsed
-	ps := pbuf[:0]
+	var clauseBuf [4]clause
+	clauses := clauseBuf[:0]
 	for _, w := range conds {
-		ps = append(ps, parsed{})
-		p := &ps[len(ps)-1]
+		clauses = append(clauses, clause{})
+		p := &clauses[len(clauses)-1]
 		text, ok := exprText(w)
 		if !ok {
 			continue
 		}
 		chain := strings.Contains(text, "$") && (strings.Contains(text, "||") || strings.Contains(text, "&&"))
-		if !chain && !compare {
+		if !chain && !hasElseif {
 			continue // nothing to repeat, so skip the parse
 		}
 		off := exprOffset(w, base)
@@ -65,7 +65,7 @@ func duplicateLogic(c tcl.Command, base int, out []Finding) []Finding {
 		if chain {
 			p.n, p.text, p.off = n, text, off
 		}
-		if compare {
+		if hasElseif {
 			p.key = conditionKey(n, text, off)
 		}
 	}
@@ -74,9 +74,9 @@ func duplicateLogic(c tcl.Command, base int, out []Finding) []Finding {
 	// its last copy, and an impure condition cuts every earlier copy off.
 	var lastSeen map[string]int
 	lastImpure := -1
-	for j := range ps {
-		p := &ps[j]
-		if compare {
+	for j := range clauses {
+		p := &clauses[j]
+		if hasElseif {
 			switch k := p.key; {
 			case k == "":
 				lastImpure = j
@@ -122,9 +122,9 @@ func appendSameBodies(out []Finding, c tcl.Command, nconds int, base int) []Find
 			return out
 		}
 	}
-	msg := "the else body repeats the if body, so the condition changes nothing"
+	msg := "the else body repeats the if body, so which branch runs makes no difference"
 	if nconds > 1 {
-		msg = "every branch runs the same body, so the conditions change nothing"
+		msg = "every branch runs the same body, so which one runs makes no difference"
 	}
 	last := bodies[len(bodies)-1]
 	return append(out, Finding{
@@ -240,7 +240,7 @@ const maxKeyDepth = 1000
 // from the same variables. It is "" when n is not pure: it holds a [script], a
 // math function call or text the key cannot read for certain; and pureNoVar
 // when n is pure but reads no variable. Leaves are keyed by their text, length
-// first, so no two trees share a key.
+// first, so two trees share a key only when they are alike.
 func conditionKey(n *expr.Node, text string, off int) string {
 	var b strings.Builder
 	hasVar := false

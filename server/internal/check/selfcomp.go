@@ -41,29 +41,6 @@ func selfComparison(c tcl.Command, base int, out []Finding) []Finding {
 	return out
 }
 
-// appendExprWords appends to dst the words c hands to expr, with the name of
-// the command that evaluates them: every if and elseif condition, a while or
-// for test (tcl.AppendConditions), or the one braced argument of `expr {…}`.
-func appendExprWords(dst []tcl.Word, c tcl.Command) ([]tcl.Word, string) {
-	if conds := tcl.AppendConditions(dst, c.Words); len(conds) > len(dst) {
-		return conds, c.Words[0].Text
-	}
-	w := c.Words
-	if len(w) != 2 || builtinHead(c) != "expr" || w[1].Kind != tcl.WordBraced {
-		return dst, ""
-	}
-	return append(dst, w[1]), "expr"
-}
-
-// exprOffset is the absolute offset of the text exprText returns for w, a word
-// of a command whose offsets are relative to base.
-func exprOffset(w tcl.Word, base int) int {
-	if w.Kind != tcl.WordBare {
-		return base + w.Start + 1 // past the opening brace or quote
-	}
-	return base + w.Start
-}
-
 // selfResult is the fixed result of comparing a value with itself, by operator.
 // Operators left out may vary (selfComparison).
 var selfResult = map[string]string{"eq": "true", "ne": "false", "<": "false", ">": "false"}
