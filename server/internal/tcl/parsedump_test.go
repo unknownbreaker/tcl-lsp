@@ -40,11 +40,13 @@ func sourceCommands(src string) [][]tcl.Word {
 		switch tk.Kind {
 		case tcl.KindWord:
 			k := tcl.WordBare
-			switch tk.Text[0] {
-			case '{':
-				k = tcl.WordBraced
-			case '"':
-				k = tcl.WordQuoted
+			if tk.Text != "" {
+				switch tk.Text[0] {
+				case '{':
+					k = tcl.WordBraced
+				case '"':
+					k = tcl.WordQuoted
+				}
 			}
 			cur = append(cur, tcl.Word{Kind: k, Text: tk.Text, Start: tk.Start, End: tk.End})
 		case tcl.KindNewline, tcl.KindSemicolon, tcl.KindEOF:
@@ -127,15 +129,15 @@ type corpusFile struct{ rel, src string }
 // path relative to root. Symlinks inside root are not followed.
 func loadCorpus(tb testing.TB, root string) []corpusFile {
 	tb.Helper()
-	real, err := filepath.EvalSymlinks(root)
+	dir, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		tb.Skipf("no corpus at %s: %v", root, err)
 	}
-	if fi, err := os.Stat(real); err != nil || !fi.IsDir() {
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		tb.Fatalf("corpus %s is not a directory", root)
 	}
 	var files []corpusFile
-	err = filepath.WalkDir(real, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -146,7 +148,7 @@ func loadCorpus(tb testing.TB, root string) []corpusFile {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(real, p)
+		rel, _ := filepath.Rel(dir, p)
 		files = append(files, corpusFile{rel: filepath.ToSlash(rel), src: string(b)})
 		return nil
 	})
@@ -193,8 +195,8 @@ func TestParseDumpGolden(t *testing.T) {
 }
 
 // Parse differs from sourceCommands only in its head rewrite: the head may be
-// respelled bare, keeping its span, and a `{*}` before it dropped. Everything
-// else, and the commands themselves, must match.
+// respelled bare, keeping its span, and a `{*}` that expands it dropped.
+// Everything else, and the commands themselves, must match.
 func TestSourceCommandsMatchParse(t *testing.T) {
 	check := func(t *testing.T, files []corpusFile) {
 		for _, f := range files {
@@ -205,8 +207,11 @@ func TestSourceCommandsMatchParse(t *testing.T) {
 			for i := range src {
 				sw, pw := src[i], parsed[i].Words
 				d := len(sw) - len(pw)
-				if d < 0 || d > 1 || sw[d].Start != pw[0].Start || sw[d].End != pw[0].End ||
-					!slices.Equal(sw[d+1:], pw[1:]) {
+				dropOK := d == 0 || d == 1 && sw[0].Kind == tcl.WordBraced && sw[0].Text == "{*}" &&
+					len(sw) > 1 && sw[0].End == sw[1].Start
+				headOK := d >= 0 && d < len(sw) && sw[d].Start == pw[0].Start && sw[d].End == pw[0].End &&
+					(sw[d] == pw[0] || pw[0].Kind == tcl.WordBare)
+				if !dropOK || !headOK || !slices.Equal(sw[d+1:], pw[1:]) {
 					t.Fatalf("%s command %d: source words %+v, Parse words %+v", f.rel, i, sw, pw)
 				}
 			}
@@ -243,7 +248,10 @@ func TestParseDumpWrite(t *testing.T) {
 //	parse  tcl.Parse (words plus the head rewrite)
 //	index  source.IndexUnit, full per-file indexing
 //
-//	go test -C server -run '^$' -bench Corpus -count 10 ./internal/tcl
+// One pass per count, so the median of the counts is comparable with the Rust
+// port's median pass (research/09 "Method"):
+//
+//	go test -C server -run '^$' -bench Corpus -benchmem -benchtime 1x -count 20 ./internal/tcl
 func BenchmarkCorpus(b *testing.B) {
 	files := loadCorpus(b, corpusRoot())
 	largest := files[0]
