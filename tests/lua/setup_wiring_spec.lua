@@ -26,6 +26,17 @@ describe("tcl-lsp setup() wiring", function()
     assert.is_true(ok, tostring(err))
     assert.is_true(warned)
   end)
+
+  it("warns about checks written as a list of ids", function()
+    local warned
+    vim.notify = function(msg, level)
+      if level == vim.log.levels.WARN and msg:find("checks", 1, true) then
+        warned = true
+      end
+    end
+    tcl.setup({ cmd = { "true" }, checks = { "unreachable-code" } })
+    assert.is_true(warned)
+  end)
 end)
 
 describe("classic-Vim plugin wiring", function()

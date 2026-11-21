@@ -32,9 +32,10 @@ const usage = "usage: tcl-lsp check [--disable check-id[,check-id...]]... [--] <
 // has that one. Every file is indexed before any finding is reported, so a
 // builtin one file redefines silences the Checks that assume it in all of them.
 // Leading `--disable ids` or `--disable=ids` flags, each a comma-separated list
-// of Check ids (spaces around an id are dropped), turn those Checks off: their findings are neither printed nor
-// counted, and ids no Check has are ignored. `--` ends the flags, as does the
-// first other argument; every argument after them is a path.
+// of Check ids (spaces around an id are dropped), turn those Checks off: their
+// findings are neither printed nor counted, and ids no Check has are ignored.
+// `--` ends the flags, as does the first other argument; every argument after
+// them is a path.
 // It returns 1 if any warning was found, 2 for a usage error or a path that could
 // not be read, and 0 otherwise.
 func Run(args []string, stdout, stderr io.Writer) int {

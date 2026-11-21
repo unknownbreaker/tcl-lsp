@@ -146,3 +146,19 @@ func TestChecksOptionMalformedKeepsLaterOptions(t *testing.T) {
 		}
 	}
 }
+
+// Toggles apply to .rvt templates as to .tcl files.
+func TestDiagnosticsCheckOffInRvt(t *testing.T) {
+	var in bytes.Buffer
+	in.Write(frame(t, "initialize", 1, InitializeParams{InitializationOptions: InitializationOptions{
+		Checks: map[string]bool{"self-assignment": false}}}))
+	open(t, &in, "file:///page.rvt", "<? set x $x ?>\n<? if {$y eq $y} {} ?>\n")
+	in.Write(frame(t, "exit", nil, nil))
+	pubs := published(t, runServer(t, in.Bytes()))
+	if len(pubs) != 1 {
+		t.Fatalf("got %d publishes, want 1: %+v", len(pubs), pubs)
+	}
+	if got, want := codes(pubs[0]), []string{"self-comparison"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

@@ -67,6 +67,12 @@ local defaults = {
   checks = {},
 }
 
+-- off reports whether an option value turns its option off: false, or 0 as Vim
+-- users write it.
+local function off(v)
+  return v == false or v == 0
+end
+
 -- _init_options returns the initializationOptions for opts, or nil when every
 -- option is at the server's default. Only non-empty extraIndexPaths are sent: an
 -- empty Lua table JSON-encodes as an object ({}), which would not decode into
@@ -75,9 +81,6 @@ local defaults = {
 -- checks likewise sends only the Checks turned off, each as false; a checks
 -- that is not a table turns nothing off (setup warns about it).
 function M._init_options(opts)
-  local function off(v)
-    return v == false or v == 0
-  end
   local init = {}
   if #opts.extra_index_paths > 0 then
     init.extraIndexPaths = opts.extra_index_paths
@@ -224,7 +227,7 @@ function M.setup(opts)
       ["callHierarchy/outgoingCalls"] = outgoing_calls_handler,
     },
   }
-  if type(opts.checks) ~= "table" then
+  if type(opts.checks) ~= "table" or #opts.checks > 0 then
     vim.notify("tcl-lsp: checks must be a table of Check ids, e.g. { [\"unreachable-code\"] = false }", vim.log.levels.WARN)
   end
   config.init_options = M._init_options(opts)

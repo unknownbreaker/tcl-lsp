@@ -130,16 +130,16 @@ next:
 	return out
 }
 
-// Enabled returns the findings of the Checks that off does not turn off. off
-// maps a Check id to false to turn that Check off; any other entry, including an
-// id no Check has, changes nothing.
-func Enabled(fs []Finding, off map[string]bool) []Finding {
-	if len(off) == 0 {
+// Enabled returns the findings of the Checks that toggles leaves on. toggles
+// maps a Check id to whether that Check is on: false turns it off, and an id it
+// does not hold, or one no Check has, changes nothing.
+func Enabled(fs []Finding, toggles map[string]bool) []Finding {
+	if len(toggles) == 0 {
 		return fs
 	}
 	var out []Finding
 	for _, f := range fs {
-		if on, set := off[f.Check]; !set || on {
+		if on, set := toggles[f.Check]; !set || on {
 			out = append(out, f)
 		}
 	}
