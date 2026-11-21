@@ -6,7 +6,7 @@ package tcl
 // walks per file (and four per nested braced body). They all descend the *same*
 // bodies via childBodies (bodies.go) and differ only in what they collect per
 // command, so they are unified here: one parse, one walk, collectors toggled.
-// FileAll runs all four at once for the workspace index; the individual File*
+// FileAll runs them all at once for the workspace index; the individual File*
 // functions enable a single collector for request-time callers.
 
 // FileIndex bundles every per-file analysis the workspace index needs, produced
@@ -173,7 +173,7 @@ func dropLocals(defs []Definition, scope int) []Definition {
 	return kept
 }
 
-// FileAll parses src once and returns all four per-file analyses together. It is
+// FileAll parses src once and returns every per-file analysis together. It is
 // the workspace index's entry point (see index.IndexFile); request-time callers
 // that need only one analysis use the individual File* functions.
 func FileAll(src string) FileIndex {

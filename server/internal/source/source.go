@@ -64,21 +64,15 @@ func Defs(path, content string) []tcl.Definition {
 	return translateDefs(doc, tcl.FileDefs(doc.Script))
 }
 
-// IndexUnit returns all four per-file analyses (defs, refs, namespaces, classes)
-// for content in SOURCE coordinates, from a SINGLE parse -- and, for .rvt, a
-// single Extract. It is the workspace index's entry point (index.IndexFile);
-// callers that need only one analysis use Defs/Refs/Namespaces/Classes. The .rvt
-// branch translates def/ref offsets back to .rvt coordinates and drops
-// wrapper-synthetic entries (which map to -1), exactly as Defs/Refs do;
-// namespaces and classes carry names only, so they need no translation.
+// IndexUnit returns every per-file analysis the index needs (tcl.FileIndex) for
+// content in SOURCE coordinates, from a SINGLE parse -- and, for .rvt, a single
+// Extract. It is the workspace index's entry point (index.IndexFile); callers
+// that need only one analysis use Defs/Refs/Namespaces/Classes. The .rvt branch
+// translates def/ref offsets back to .rvt coordinates and drops wrapper-synthetic
+// entries (which map to -1), exactly as Defs/Refs do; the other analyses carry
+// names only, so they need no translation.
 func IndexUnit(path, content string) tcl.FileIndex {
-	if !IsRVT(path) {
-		return tcl.FileAll(content)
-	}
-	doc := rvt.Extract(content)
-	fi := tcl.FileAll(doc.Script)
-	fi.Defs = translateDefs(doc, fi.Defs)
-	fi.Refs = translateRefs(doc, fi.Refs)
+	fi, _ := indexUnit(path, content, nil)
 	return fi
 }
 
@@ -89,16 +83,32 @@ func IndexUnit(path, content string) tcl.FileIndex {
 // and a `<?= ?>` block's first command is not checked, since Rivet passes its
 // words to `puts -nonewline` (rvt.Document.EchoArgs).
 func IndexUnitChecked(path, content string) (tcl.FileIndex, []check.Finding) {
-	var col check.Collector
-	v := tcl.Visit{Command: col.Visit}
+	return indexUnit(path, content, &check.Collector{})
+}
+
+// indexUnit is IndexUnit, running the Checks into col when it is not nil.
+func indexUnit(path, content string, col *check.Collector) (tcl.FileIndex, []check.Finding) {
+	var v *tcl.Visit
+	if col != nil {
+		v = &tcl.Visit{Command: col.Visit}
+	}
 	if !IsRVT(path) {
-		return tcl.FileAllVisit(content, &v), col.Findings()
+		fi := tcl.FileAllVisit(content, v)
+		if col == nil {
+			return fi, nil
+		}
+		return fi, col.Findings()
 	}
 	doc := rvt.Extract(content)
-	v.Data = func(c tcl.Command, base int) bool { return doc.EchoArgs(base + c.Words[0].Start) }
-	fi := tcl.FileAllVisit(doc.Script, &v)
+	if v != nil {
+		v.Data = func(c tcl.Command, base int) bool { return doc.EchoArgs(base + c.Words[0].Start) }
+	}
+	fi := tcl.FileAllVisit(doc.Script, v)
 	fi.Defs = translateDefs(doc, fi.Defs)
 	fi.Refs = translateRefs(doc, fi.Refs)
+	if col == nil {
+		return fi, nil
+	}
 	return fi, translateFindings(doc, col.Findings())
 }
 

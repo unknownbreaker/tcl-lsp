@@ -42,8 +42,11 @@ One switch turns every Check off, leaving tcl-lsp navigation-only:
   wrapper, a TclOO definition) may be data or deferred code, so nothing inside
   it is checked. An Itcl class body's own lines declare members, so they are
   not checked either; the member bodies are.
-  Each of those must have exactly its words: `namespace eval ns a b` joins its
-  words into a script of its own, and `proc p a b {…}` is an error.
+  Each of those must have words Tcl accepts: `namespace eval ns a b` joins its
+  words into a script of its own, and `proc p a b {…}`, `if {$c} {…} else`,
+  `foreach v {…}` or `catch {…} r o x` is an error that runs nothing. A braced
+  condition (`if {[…]}`, `expr {[…]}`) is substituted by the command that
+  evaluates it, so its scripts count only when that command is well formed.
 - **`.rvt` templates:** the code in `<? ?>` and `<?= ?>` blocks, with positions
   in the template's own coordinates. Rivet runs `<?= x ?>` as
   `puts -nonewline x`, so the block's first command is `puts`'s arguments and

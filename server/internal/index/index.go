@@ -114,8 +114,8 @@ func isExtraIndexable(path string) bool {
 // table).
 func (ix *Index) IndexFile(path, content string) {
 	ix.RemoveFile(path)
-	// One parse produces all four analyses (defs, refs, namespaces, classes);
-	// see source.IndexUnit. Calling source.Defs/Refs/Namespaces/Classes
+	// One parse produces every analysis (defs, refs, namespaces, classes, created
+	// commands); see source.IndexUnit. Calling source.Defs/Refs/Namespaces/Classes
 	// separately would re-parse (and, for .rvt, re-Extract) the file four times.
 	ix.storeUnit(path, content, source.IndexUnit(path, content))
 }
@@ -146,9 +146,7 @@ func commandTails(unit tcl.FileIndex) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(name string) {
-		if i := strings.LastIndex(name, "::"); i >= 0 {
-			name = name[i+2:]
-		}
+		name = tcl.NameTail(name)
 		if !seen[name] {
 			seen[name] = true
 			out = append(out, name)

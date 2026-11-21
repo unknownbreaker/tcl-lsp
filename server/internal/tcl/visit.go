@@ -85,7 +85,7 @@ func visitCommand(cmd Command, base int, last bool, ns string, frame FrameKind, 
 // assume returns assumes plus the builtins cmd's head names: its last name
 // segment, and the member keyword after an Itcl access modifier.
 func assume(assumes []string, cmd Command) []string {
-	out := append(assumes[:len(assumes):len(assumes)], nameTail(cmd.Words[0].Text))
+	out := append(assumes[:len(assumes):len(assumes)], NameTail(cmd.Words[0].Text))
 	if m := memberWords(cmd.Words); len(m) < len(cmd.Words) {
 		out = append(out, m[0].Text)
 	}
@@ -119,25 +119,157 @@ func runsAsScript(cmd Command, frame FrameKind) bool {
 	case isItclClassCmd(w):
 		return len(w) == 3
 	}
-	return bodiesRunHere(cmd)
+	return bodiesRunHere(cmd) && controlArity(w)
+}
+
+// controlArity reports whether w, a builtin whose scripts run here
+// (bodiesRunHere), has words Tcl accepts. Tcl rejects any other shape with
+// "wrong # args" before a body runs (tclsh 8.6 and 9.0, testdata/tclsh/arity.tcl
+// in package checkcmd). An expanded word hides the count, so it fails. timerate's
+// options are not read, so it fails too.
+func controlArity(w []Word) bool {
+	if hasExpansion(w) {
+		return false
+	}
+	n := len(w)
+	switch w[0].Text {
+	case "if":
+		return ifArity(w)
+	case "while":
+		return n == 3
+	case "for":
+		return n == 5
+	case "foreach", "lmap":
+		return n >= 4 && n%2 == 0
+	case "catch":
+		return n >= 2 && n <= 4
+	case "try":
+		return tryArity(w)
+	case "switch":
+		return switchArity(w)
+	case "time":
+		return n == 2 || n == 3
+	case "dict":
+		switch keyword(w[1]) {
+		case "for", "map":
+			return n == 5
+		case "with":
+			return n >= 4
+		case "update":
+			return isDictUpdate(w)
+		}
+		return false
+	case "eval", "uplevel":
+		return true // conservativeHead and upLevelHere admit one exact shape each
+	}
+	return false
+}
+
+// keyword returns a word's literal value, or "" when it has none.
+func keyword(w Word) string {
+	v, _ := literalValue(w)
+	return v
+}
+
+// ifArity reports whether an if command's words are `if cond ?then? body
+// (elseif cond ?then? body)* ?else? ?body?`, with keywords read by value.
+func ifArity(w []Word) bool {
+	i := 1
+	for {
+		if i >= len(w) {
+			return false // no condition
+		}
+		i++
+		if i < len(w) && keyword(w[i]) == "then" {
+			i++
+		}
+		if i >= len(w) {
+			return false // no body
+		}
+		i++
+		if i == len(w) {
+			return true
+		}
+		switch keyword(w[i]) {
+		case "elseif":
+			i++
+			continue
+		case "else":
+			i++
+		}
+		return i == len(w)-1 // exactly one else body
+	}
+}
+
+// tryArity reports whether a try command's words are `try body (on|trap code
+// varList body)* ?finally body?`, with the last handler's body not `-`.
+func tryArity(w []Word) bool {
+	lastBody := -1
+	for i := 2; i < len(w); {
+		switch keyword(w[i]) {
+		case "on", "trap":
+			if i+3 >= len(w) {
+				return false
+			}
+			lastBody = i + 3
+			i += 4
+		case "finally":
+			return i+2 == len(w)
+		default:
+			return false
+		}
+	}
+	return lastBody < 0 || !isFallThrough(w[lastBody])
+}
+
+// switchArity reports whether a switch command's arms, inline or as one list,
+// pair every pattern with a body and end with a body other than `-`.
+func switchArity(w []Word) bool {
+	arms := switchArgs(w)
+	if len(arms) == 1 {
+		if arms[0].Kind != WordBraced {
+			return false
+		}
+		elems, ok := switchArmListElements(arms[0])
+		if !ok {
+			return false
+		}
+		arms = elems
+	}
+	return len(arms) >= 2 && len(arms)%2 == 0 && !isFallThrough(arms[len(arms)-1])
 }
 
 // visitSubst visits the commands of every [script] substituted into cmd's words,
 // and everything those commands run, with the visit collector alone: the other
-// collectors read substitutions themselves (commandRefs). Substitution happens
-// whatever cmd is, so the scripts assume only what cmd itself does.
+// collectors read substitutions themselves (commandRefs). A bare or quoted word
+// is substituted whatever cmd is, so its scripts assume only what cmd itself
+// does. A braced expression word is substituted by cmd when it evaluates it, so
+// its scripts also assume cmd's head, and an if, while or for that Tcl rejects
+// for its word count evaluates nothing.
 func visitSubst(cmd Command, base int, ns string, frame FrameKind, scope int, class string, wrapped, inClassNS bool, c collectors) {
 	if !anyBracket(cmd.Words) {
 		return // no word holds a [script]: the common case, kept free of allocation
 	}
 	v := *c.visit
 	v.Data = nil // a substituted script's commands all run
-	sub := collectors{visit: &v, assumes: c.assumes, ends: c.ends}
-	onScript := func(inner string, innerBase int, _ bool) {
-		walkAll(parseWith(inner, c.ends), innerBase, ns, frame, scope, class, wrapped, inClassNS, sub)
+	words := collectors{visit: &v, assumes: c.assumes, ends: c.ends}
+	exprs := collectors{visit: &v, assumes: assume(c.assumes, cmd), ends: c.ends}
+	walk := func(sub collectors) scriptFunc {
+		return func(inner string, innerBase int, _ bool) {
+			walkAll(parseWith(inner, c.ends), innerBase, ns, frame, scope, class, wrapped, inClassNS, sub)
+		}
 	}
+	onWord, onExpr := walk(words), walk(exprs)
+	evaluates := !isControlName(cmd.Words[0].Text) || controlArity(cmd.Words)
 	exprWords := exprWordStarts(cmd)
-	for idx := range cmd.Words {
+	for idx, w := range cmd.Words {
+		onScript := onWord
+		if w.Kind == WordBraced {
+			if !evaluates {
+				continue
+			}
+			onScript = onExpr
+		}
 		walkWordSubst(cmd, exprWords, idx, base, flowAlways, c.ends, func(VarRef) {}, onScript)
 	}
 }
@@ -203,8 +335,8 @@ func trailingBackslashes(s string) int {
 	return n
 }
 
-// nameTail returns a command name's last segment: `::a::b` and `a::b` give `b`.
-func nameTail(name string) string {
+// NameTail returns a command name's last segment: `::a::b` and `a::b` give `b`.
+func NameTail(name string) string {
 	if i := strings.LastIndex(name, "::"); i >= 0 {
 		return name[i+2:]
 	}
@@ -251,15 +383,15 @@ func createdNames(w []Word) []string {
 	}
 	add := func(name Word) {
 		if v := val(name); v != "" {
-			out = append(out, nameTail(v))
+			out = append(out, NameTail(v))
 		}
 	}
 	for k := 0; k+1 < len(w); k++ {
-		if nameTail(val(w[k])) == "proc" {
+		if NameTail(val(w[k])) == "proc" {
 			add(w[k+1])
 		}
 	}
-	switch head := nameTail(val(w[0])); {
+	switch head := NameTail(val(w[0])); {
 	case head == "rename" && len(w) == 3:
 		add(w[1])
 		add(w[2])

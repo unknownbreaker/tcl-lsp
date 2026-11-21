@@ -29,12 +29,9 @@ Shipped:
   way the server reaches outside the workspace, and adding another needs a written
   design first. Color and jumps mean "there is source": C builtins,
   runtime-generated procs and dynamic call sites (`$cmd`, `eval`) stay out of reach.
-- **Certain-only diagnostics:** built-in Checks (`server/internal/check`, design in
-  #93, user doc `docs/CHECKS.md`) flag code that is valid but cannot mean
-  anything sensible. A Check ships only if it can never fire on correct code, sees
-  only commands certain to run as Tcl (`tcl.CommandVisitor`), and stays silent
-  when a builtin it assumes is redefined in the workspace. The editor gets them as
-  publishDiagnostics; CI runs `tcl-lsp check <paths>`. No custom rules.
+- **Certain-only diagnostics:** built-in Checks (design #93, `docs/CHECKS.md`)
+  flag valid code that cannot mean anything sensible. A Check ships only if it
+  can never fire on correct code. No custom rules.
 
 The feature set is closed beyond the Checks #93 lists. Hover, completion,
 signature help, rename, formatting, code actions and inlay hints all need

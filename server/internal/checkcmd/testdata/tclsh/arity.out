@@ -1,0 +1,64 @@
+ran
+if 1 {puts ran}                                    ok
+ran
+if 1 then {puts ran}                               ok
+ran
+if 0 {} {puts ran}                                 ok
+ran
+if 0 {} else {puts ran}                            ok
+ran
+if 0 {} elseif 1 {puts ran}                        ok
+ran
+if 0 {} elseif 1 then {puts ran} else {}           ok
+if 1 {puts ran} else                               ERR: wrong # args: no script following "else" argument
+if 1 {puts ran} elseif                             ERR: wrong # args: no expression after "elseif" argument
+if 1 {puts ran} {} {}                              ERR: wrong # args: extra words after "else" clause in "i
+if 1 then                                          ERR: wrong # args: no script following "then" argument
+ran
+"if" 1 {puts ran} "else" {}                        ok
+ran
+if 1 {puts ran} {else} {}                          ok
+while {[set ::w 0]} {puts ran} x                   ERR: wrong # args: should be "while test command"
+ran
+for {set i 0} {$i<1} {incr i} {puts ran}           ok
+for {set i 0} {$i<1} {incr i}                      ERR: wrong # args: should be "for start test next comman
+ran
+foreach v {1} {puts ran}                           ok
+ran
+foreach v {1} w {2} {puts ran}                     ok
+foreach v {1} w {puts ran}                         ERR: wrong # args: should be "foreach varList list ?varL
+ran
+lmap v {1} {puts ran}                              ok
+ran
+dict for {k v} {a 1} {puts ran}                    ok
+dict for {k v} {a 1}                               ERR: wrong # args: should be "dict for {keyVarName value
+ran
+catch {puts ran}                                   ok
+ran
+catch {puts ran} m o                               ok
+catch {puts ran} m o x                             ERR: wrong # args: should be "catch script ?resultVarNam
+ran
+try {puts ran}                                     ok
+ran
+try {puts ran} on error {m} {}                     ok
+ran
+try {puts ran} on error {m} {} finally {}          ok
+try {puts ran} finally {} on error m {}            ERR: finally clause must be last
+try {puts ran} on error                            ERR: wrong # args to on clause: must be "... on code var
+try {puts ran} on error m -                        ERR: last non-finally clause must not have a body of "-"
+ran
+try {puts ran} on ok m - on error m {}             ok
+try {puts ran} finally                             ERR: wrong # args to finally clause: must be "... finall
+try {puts ran} finally {} {}                       ERR: finally clause must be last
+ran
+switch a a {puts ran}                              ok
+ran
+switch a {a {puts ran}}                            ok
+switch a a {puts ran} b                            ERR: extra switch pattern with no body
+switch a {a {puts ran} b}                          ERR: extra switch pattern with no body
+switch a a -                                       ERR: no body specified for pattern "a"
+ran
+switch a b - a {puts ran}                          ok
+ran
+time {puts ran} 1                                  ok
+time {puts ran} 1 2                                ERR: wrong # args: should be "time command ?count?"

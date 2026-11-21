@@ -2,7 +2,7 @@
 // but cannot mean anything sensible. A Check reports a finding only when the code
 // is certainly pointless whatever the program does, and is silent otherwise: a
 // missing finding is fine, a wrong one is a bug. Checks read the parse only; they
-// run on every command the tcl package's visitor reaches (tcl.CommandVisitor).
+// run on every command the tcl package's visitor reaches (tcl.Visit).
 package check
 
 import "github.com/unknownbreaker/tcl-lsp/internal/tcl"
@@ -75,10 +75,9 @@ func (col *Collector) Visit(c tcl.Command, base int, assumes []string) {
 func (col *Collector) Findings() []Finding { return col.findings }
 
 // Unshadowed returns the findings none of whose assumed builtins user code
-// redefines.
-// userCommand reports whether the workspace defines a command whose last name
-// segment is name, in any namespace or class: such a command may be the one a
-// call resolves to, so the finding is not certain.
+// redefines. userCommand reports whether the workspace defines a command whose
+// last name segment is name, in any namespace or class: such a command may be
+// the one a call resolves to, so the finding is not certain.
 func Unshadowed(fs []Finding, userCommand func(name string) bool) []Finding {
 	var out []Finding
 next:

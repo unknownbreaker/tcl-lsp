@@ -1,0 +1,11 @@
+testdata/fixtures/control_arity.tcl:2:12: warning self-assignment assigns y1 its own value
+testdata/fixtures/control_arity.tcl:3:10: warning self-assignment assigns y2 its own value
+testdata/fixtures/control_arity.tcl:4:24: warning self-assignment assigns y3 its own value
+testdata/fixtures/control_arity.tcl:5:9: warning self-assignment assigns y4 its own value
+testdata/fixtures/control_arity.tcl:6:22: warning self-assignment assigns y5 its own value
+testdata/fixtures/control_arity.tcl:7:8: warning self-assignment assigns y6 its own value
+testdata/fixtures/control_arity.tcl:8:6: warning self-assignment assigns y7 its own value
+testdata/fixtures/control_arity.tcl:9:17: warning self-assignment assigns y8 its own value
+testdata/fixtures/control_arity.tcl:10:14: warning self-assignment assigns y9 its own value
+testdata/fixtures/control_arity.tcl:13:9: warning self-assignment assigns z2 its own value
+exit 1

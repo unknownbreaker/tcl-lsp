@@ -63,3 +63,25 @@ func TestUnrelatedDefinitionsKeepFindings(t *testing.T) {
 		})
 	}
 }
+
+// A braced condition is substituted by the command that evaluates it, so a
+// redefined if or expr makes its [scripts] data too.
+func TestRedefinedEvaluatorSilencesItsExpression(t *testing.T) {
+	for name, tc := range map[string]struct{ use, other string }{
+		"if":    {"if {[set x $x]} {}\n", "proc if {args} {}\n"},
+		"while": {"while {[set x $x]} {}\n", "rename while _w\n"},
+		"expr":  {"expr {[set x $x]}\n", "proc expr {args} {}\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, _, code := attackRun(t, map[string]string{"a.tcl": tc.use, "z.tcl": tc.other})
+			if out != "" || code != exitClean {
+				t.Errorf("got exit %d, output:\n%s", code, out)
+			}
+		})
+	}
+	// An unbraced word is substituted before any command runs.
+	out, _, _ := attackRun(t, map[string]string{"a.tcl": "if [set x $x] {}\n", "z.tcl": "proc if {args} {}\n"})
+	if out == "" {
+		t.Error("an unbraced condition's script runs whatever if is; want its finding")
+	}
+}

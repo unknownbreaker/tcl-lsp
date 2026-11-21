@@ -7,7 +7,8 @@ paths:
 
 ## Concurrency invariants
 
-One parse per file feeds all four analyses. The initial index and the workspace
+One parse per file feeds every analysis, and for an open document the Checks too
+(`index.IndexFileChecked`). The initial index and the workspace
 read-scans (find-references, incoming calls, workspace symbols) fan out across
 GOMAXPROCS **while the single-goroutine dispatch loop is blocked on the request**,
 so the index takes no locks. Preserve that: anything new that reads the index in
