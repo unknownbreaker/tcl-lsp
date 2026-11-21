@@ -59,7 +59,8 @@ One switch turns every Check off, leaving tcl-lsp navigation-only:
   `rename myset set`, `rename set {}`, `interp alias {} set {} myset`,
   `oo::class create set`, an Itcl method `set`, an ensemble made or remapped
   with `namespace ensemble create -command set`, `namespace ensemble configure
-  set -map …`, or `namespace ensemble create` inside `namespace eval set`. A
+  set -map …`, or `namespace ensemble create` run in namespace `set` (by
+  `namespace eval set …` or `namespace inscope set …`). A
   redefinition typed in one open buffer updates the diagnostics of every other
   open buffer at once, as does one saved to disk. Names built at run time (`proc $name`) are not seen; see
   `docs/BACKLOG.md`.
@@ -204,8 +205,9 @@ backslash and closes every `(` it opens: Tcl reads an array index across
 spaces, newlines and `;` to its `)`, and a backslash-newline splits a word. A
 redefined `string`, `equal` or `compare` silences the command form (see
 Redefined builtins). The message names the operand when it is short and
-printable, and says "a value" otherwise. The evidence, each comparison evaluated with `$x` bound to
-NaN, Inf, empty, lists and other values on tclsh 8.6 and 9.0, is
+printable ASCII, and says "a value" otherwise. The evidence, each comparison
+evaluated with `$x` bound to NaN, Inf, empty, lists and other values on tclsh
+8.6 and 9.0, is
 `server/internal/checkcmd/testdata/tclsh/self_comparison.tcl`.
 
 More Checks are on the way; #93 lists them.

@@ -75,6 +75,8 @@ func TestSelfComparisonMessageNamesOnlyShortOperands(t *testing.T) {
 		"if {" + long + " eq " + long + "} {}\n":   "compares a value with itself, so it is always true",
 		"string equal " + long + " " + long + "\n": "compares a value with itself, so it always returns 1",
 		"if {$x eq $x} {}\n":                       "compares $x with itself, so it is always true",
+		"if {\"$x\u2028\" eq \"$x\u2028\"} {}\n":   "compares a value with itself, so it is always true",
+		"if {\"$x\u0085\" eq \"$x\u0085\"} {}\n":   "compares a value with itself, so it is always true",
 	} {
 		path := filepath.Join(dir, "m.tcl")
 		write(t, path, src)

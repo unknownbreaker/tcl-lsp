@@ -190,14 +190,14 @@ func wordAsTcl(text string) bool {
 const maxOperandName = 40
 
 // operandName is how a message names an operand: as written, when it is short
-// and has no control character, so the finding stays one short line; otherwise
-// "a value".
+// printable ASCII, so the finding stays one short line in any tool (some break
+// lines at U+0085 or U+2028); otherwise "a value".
 func operandName(text string) string {
 	if len(text) > maxOperandName {
 		return "a value"
 	}
 	for i := 0; i < len(text); i++ {
-		if text[i] < 0x20 || text[i] == 0x7f {
+		if text[i] < 0x20 || text[i] >= 0x7f {
 			return "a value"
 		}
 	}

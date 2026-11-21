@@ -376,7 +376,10 @@ func mayNameCreator(text string) bool {
 // PATH NAME ...`, the object of `CMD create NAME` (TclOO and Itcl), and the
 // ensemble of `namespace ensemble configure NAME ...` (its -map may send a
 // subcommand to user code) or `namespace ensemble create ?-command NAME?`, which
-// with no -command is named after ns, the namespace it runs in. A name braced,
+// with no -command is named after ns, the namespace it runs in. Since that
+// namespace may be reached by a script the walk does not enter, `namespace eval
+// NS …` and `namespace inscope NS …` with any later word naming an ensemble
+// count as creating NS too. A name braced,
 // quoted or bare counts; one with a substitution or a backslash is unknown and
 // gives nothing. Reading too many words only silences more.
 func createdNames(w []Word, ns string) []string {
@@ -401,6 +404,13 @@ func createdNames(w []Word, ns string) []string {
 		add(w[2])
 	case head == "interp" && len(w) >= 4 && val(w[1]) == "alias":
 		add(w[3])
+	case head == "namespace" && len(w) >= 4 && (val(w[1]) == "eval" || val(w[1]) == "inscope"):
+		for _, x := range w[3:] {
+			if strings.Contains(x.Text, "ensemble") {
+				add(w[2])
+				break
+			}
+		}
 	case head == "namespace" && len(w) >= 3 && val(w[1]) == "ensemble":
 		switch val(w[2]) {
 		case "configure":
